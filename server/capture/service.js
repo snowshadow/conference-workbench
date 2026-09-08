@@ -9,6 +9,7 @@ const loopback = host => ['127.0.0.1', 'localhost', '[::1]', '::1', '::ffff:127.
 const problem = message => Object.assign(new Error(message), { status: 409 });
 const importedMeeting = meeting => meeting.source === 'recording_import' || Boolean(meeting.importJobId);
 const inactiveCapture = () => ({ connected: false, state: 'idle', recordingId: null, asrState: 'stopped', error: null, asrError: null });
+const stoppedAsrState = capture => capture.asrError ? 'error' : capture.asrState === 'unconfigured' ? 'unconfigured' : 'stopped';
 
 export function createCaptureService({ server, store, onEnded = () => {}, asrFactory = createASRSession }) {
   const hosts = new Map();
@@ -175,7 +176,7 @@ export function createCaptureService({ server, store, onEnded = () => {}, asrFac
     if (host.fd === null) { host.busy = false; return; }
     fs.closeSync(host.fd); host.fd = null; host.asr = null;
     host.recording = store.updateRecording(host.recording.id, { state: action === 'pause' ? 'paused' : 'stopped', endedAt: new Date().toISOString() });
-    state(host, { state: action === 'pause' ? 'paused' : 'idle', asrState: host.state.asrState === 'unconfigured' ? 'unconfigured' : 'stopped' });
+    state(host, { state: action === 'pause' ? 'paused' : 'idle', asrState: stoppedAsrState(host.state) });
     send(host, { type: 'partial', text: '' });
     try { if (action === 'end') await onEnded(host.meetingId); settle(host, 'done'); }
     catch (error) { settle(host, 'error', error.message); }
@@ -191,7 +192,7 @@ export function createCaptureService({ server, store, onEnded = () => {}, asrFac
       fs.closeSync(host.fd); host.fd = null;
     }
     if (host.recording?.state === 'recording') host.recording = store.updateRecording(host.recording.id, { state: 'interrupted', endedAt: new Date().toISOString() });
-    state(host, { state: 'interrupted', error, asrState: host.state.asrState === 'unconfigured' ? 'unconfigured' : 'stopped' });
+    state(host, { state: 'interrupted', error, asrState: stoppedAsrState(host.state) });
     settle(host, 'error', error);
     send(host, { type: 'interrupted', message: error });
   }

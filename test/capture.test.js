@@ -9,6 +9,7 @@ import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { Store } from '../server/store.js';
 import { createCaptureService } from '../server/capture/service.js';
+import { normalizeAsrResult } from '../server/capture/protocol.js';
 import { PCMResampler } from '../src/lib/audio-pipeline.js';
 
 async function until(predicate) {
@@ -79,6 +80,57 @@ test('PCM persists before ASR, pause drains tail, resume has correct recording a
   assert.equal(lines.length, 2); assert.notEqual(lines[0].recordingId, lines[1].recordingId);
   assert.equal(lines[1].startSample, 0); assert.equal(lines[1].startMs, 1602 / 16);
   assert.equal(f.store.getMeeting(f.meeting.id).status, 'ended');
+});
+
+test('ASR authentication failure preserves PCM and its cause after pause, stop and disconnect', async t => {
+  const reason = '语音识别认证失败（HTTP 401），请在连接设置中更新 ASR 凭证';
+  const f = await fixture(t, options => {
+    options.onState({ asrState: 'error', asrError: reason });
+    return { push(buffer, startSample) { options.onGap({ startSample, endSample: startSample + buffer.length / 2, reason }); }, finish: async () => ({ drained: false }), close() {} };
+  });
+  const ws = await f.connect();
+  for (const action of ['pause', 'stop', 'disconnect']) {
+    const cmd = await begin(f, ws, action === 'pause' ? 'start' : 'resume');
+    const pcm = Buffer.alloc(3200, 7);
+    ws.send(pcm); await until(() => f.store.getCommand(cmd.id).status === 'done');
+    if (action === 'disconnect') { ws.close(); await once(ws, 'close'); await until(() => !f.capture.getState(f.meeting.id).connected); }
+    else await finish(f, ws, action);
+    const capture = f.capture.getState(f.meeting.id);
+    assert.equal(capture.asrState, 'error');
+    assert.equal(capture.asrError, reason);
+    const recording = f.store.getRecording(capture.recordingId);
+    assert.equal(recording.sampleCount, 1600);
+    assert.deepEqual(f.capture.readAudio(recording.id).subarray(44), pcm);
+    assert.deepEqual(recording.gaps, [{ startSample: 0, endSample: 1600, reason }]);
+  }
+});
+
+test('word-level ASR timestamps persist as transcript with playback and correct resume offsets', async t => {
+  const f = await fixture(t, options => ({
+    push() {},
+    async finish() {
+      // The live provider can omit the utterance start while returning word times.
+      options.onTranscript({ ...normalizeAsrResult({ result: { utterances: [{
+        text: '测试尾句', definite: true, end_time: 95, additions: { speaker_id: 0 },
+        words: [{ text: '测试', start_time: 40, end_time: 60 }, { text: '尾句', start_time: 60, end_time: 90 }],
+      }] } }), epochStartSample: 0 });
+    }, close() {},
+  }));
+  const ws = await f.connect();
+  for (const action of ['start', 'resume']) {
+    const cmd = await begin(f, ws, action);
+    ws.send(Buffer.alloc(3200, 9)); await until(() => f.store.getCommand(cmd.id).status === 'done');
+    await finish(f, ws);
+  }
+  const lines = f.store.allTranscript(f.meeting.id);
+  assert.equal(lines.length, 2);
+  assert.notEqual(lines[0].recordingId, lines[1].recordingId);
+  for (const [index, line] of lines.entries()) {
+    assert.equal(line.text, '测试尾句'); assert.equal(line.origin, 'asr'); assert.equal(line.speakerId, 'speaker-0');
+    assert.equal(line.startSample, 640); assert.equal(line.endSample, 1520);
+    assert.equal(line.startMs, index * 100 + 40); assert.equal(line.endMs, index * 100 + 95);
+    assert.deepEqual(f.capture.readAudio(line.recordingId, line).subarray(44), Buffer.alloc(1760, 9));
+  }
 });
 
 test('commands reflect absent browser, permission denial and browser disconnect', async t => {

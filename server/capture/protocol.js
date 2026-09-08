@@ -121,8 +121,8 @@ export function normalizeAsrResult(payload) {
   const utterances = Array.isArray(result?.utterances)
     ? result.utterances.map((item) => ({
         text: item.text || "",
-        startTime: item.start_time,
-        endTime: item.end_time,
+        startTime: utteranceTime(item, "start_time"),
+        endTime: utteranceTime(item, "end_time"),
         definite: Boolean(item.definite),
         speaker: getSpeakerId(item),
       }))
@@ -130,15 +130,21 @@ export function normalizeAsrResult(payload) {
   return { text: result?.text || "", utterances };
 }
 
+function utteranceTime(utterance, field) {
+  const valid = value => Number.isFinite(value) && value >= 0 ? value : undefined;
+  const explicit = valid(utterance[field]);
+  if (explicit !== undefined) return explicit;
+  const words = Array.isArray(utterance.words) ? utterance.words : [];
+  // Some ASR responses omit a sentence boundary while returning word timing.
+  // Only the actual first/last word can establish that boundary: an interior
+  // word or an assumed zero would point playback at the wrong part of speech.
+  const boundaryWord = field === "start_time" ? words[0] : words.at(-1);
+  return valid(boundaryWord?.[field]);
+}
+
 function getSpeakerId(utterance) {
   const additions = utterance?.additions || {};
-  return (
-    utterance?.speaker ||
-    utterance?.speaker_id ||
-    utterance?.speakerId ||
-    additions?.speaker ||
-    additions?.speaker_id ||
-    additions?.speakerId ||
-    ""
-  );
+  return [utterance?.speaker, utterance?.speaker_id, utterance?.speakerId,
+    additions?.speaker, additions?.speaker_id, additions?.speakerId]
+    .find(value => value === 0 || value) ?? "";
 }

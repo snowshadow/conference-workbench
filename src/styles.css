@@ -162,6 +162,8 @@ form > label { margin-bottom: 20px; }
 .command-progress { color: var(--warning); background: var(--warning-bg); }
 .capture-error, .connection-banner { color: var(--error); background: var(--error-bg); }
 .asr-error { color: var(--warning); background: var(--warning-bg); }
+.asr-error > svg, .asr-error > button { flex-shrink: 0; }
+.asr-error > button { margin-left: auto; text-decoration: underline; }
 .connection-banner button { margin-left: auto; text-decoration: underline; }
 
 /* 6. Resizable workspace and panels */

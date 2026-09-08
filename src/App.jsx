@@ -321,7 +321,7 @@ export default function App() {
       {activeCommand && <div className="command-progress"><LoaderCircle size={13} className="spin" />{['pause', 'stop', 'end'].includes(command.action) ? '正在保存尾段音频并等待最后一句转录…' : '正在等待实际音频采集…'}</div>}
       {connectionError && <div className="connection-banner" role="alert"><CircleAlert size={15} />数据连接中断：{connectionError}<button onClick={refresh}>重试</button></div>}
       {meeting.source !== 'recording_import' && capture.error && <div className="capture-error" role="alert"><CircleAlert size={14} />{capture.error}</div>}
-      {meeting.source !== 'recording_import' && capture.asrError && <div className="asr-error" role="status"><CircleAlert size={14} />转录：{capture.asrError}{capture.state === 'recording' && ' · 录音仍在保存'}</div>}
+      {meeting.source !== 'recording_import' && capture.asrError && <div className="asr-error" role="status"><CircleAlert size={14} /><span>转录：{capture.asrError}{capture.state === 'recording' && ' · 录音仍在保存'}</span><button onClick={() => setModal('settings')}>连接设置</button></div>}
       <section className="discussion-stage" aria-label="当前讨论">
         <div className="panel-body">
           <div className="discussion-toolbar"><div className="discussion-tabs" role="tablist" aria-label="讨论工作区">
