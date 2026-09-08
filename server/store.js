@@ -222,26 +222,38 @@ export class Store {
   listRecordings(meetingId) {return this.listRecords('recordings',meetingId);}
   getSettings() {
     const saved = JSON.parse(this.db.prepare('SELECT data FROM settings WHERE id=1').get()?.data || '{}');
+    // Keep an existing OpenAI-compatible file provider until it is explicitly
+    // switched. Fresh installations use the shared Volcengine credentials.
+    const fileProvider = process.env.FILE_ASR_PROVIDER || (saved.fileAsr?.baseUrl || process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL ? 'openai' : 'volcengine');
     return { llm: {baseUrl:process.env.LLM_BASE_URL || 'https://api.deepseek.com',model:process.env.LLM_MODEL || 'deepseek-chat',apiKey:process.env.LLM_API_KEY || '',...saved.llm},
       asr: {apiKey:process.env.VOLCENGINE_ASR_API_KEY || '',appKey:process.env.VOLCENGINE_ASR_APP_KEY || '',accessKey:process.env.VOLCENGINE_ASR_ACCESS_KEY || '',resourceId:process.env.VOLCENGINE_ASR_RESOURCE_ID || 'volc.bigasr.sauc.duration',...saved.asr},
-      fileAsr: {baseUrl:process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL || 'http://127.0.0.1:8000',model:process.env.FILE_ASR_MODEL || process.env.OMLX_ASR_MODEL || 'Qwen3-ASR-1.7B-8bit',apiKey:process.env.FILE_ASR_API_KEY ?? process.env.OMLX_API_KEY ?? '',language:process.env.FILE_ASR_LANGUAGE || 'zh',...saved.fileAsr} };
+      fileAsr: {provider:fileProvider,resourceId:process.env.FILE_ASR_RESOURCE_ID || 'volc.bigasr.auc_turbo',baseUrl:process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL || 'http://127.0.0.1:8000',model:process.env.FILE_ASR_MODEL || process.env.OMLX_ASR_MODEL || 'Qwen3-ASR-1.7B-8bit',apiKey:process.env.FILE_ASR_API_KEY ?? process.env.OMLX_API_KEY ?? '',language:process.env.FILE_ASR_LANGUAGE || 'zh',...saved.fileAsr} };
   }
   publicSettings() {
     const {llm,asr,fileAsr} = this.getSettings();
     let local=false;try{local=['127.0.0.1','localhost','[::1]'].includes(new URL(llm.baseUrl).hostname);}catch{}
     let fileLocal=false;try{fileLocal=['127.0.0.1','localhost','[::1]'].includes(new URL(fileAsr.baseUrl).hostname);}catch{}
-    return {llm:{baseUrl:llm.baseUrl,model:llm.model,reasoningEffort:llm.reasoningEffort || '',configured:Boolean(llm.baseUrl && llm.model && (llm.apiKey || local))},asr:{resourceId:asr.resourceId,configured:Boolean(asr.apiKey || (asr.appKey && asr.accessKey))},fileAsr:{baseUrl:fileAsr.baseUrl,model:fileAsr.model,language:fileAsr.language,configured:Boolean(fileAsr.baseUrl && fileAsr.model && (fileAsr.apiKey || fileLocal))}};
+    const asrConfigured = Boolean(asr.apiKey || (asr.appKey && asr.accessKey));
+    return {llm:{baseUrl:llm.baseUrl,model:llm.model,reasoningEffort:llm.reasoningEffort || '',configured:Boolean(llm.baseUrl && llm.model && (llm.apiKey || local))},asr:{resourceId:asr.resourceId,configured:asrConfigured},fileAsr:{provider:fileAsr.provider,resourceId:fileAsr.resourceId,baseUrl:fileAsr.baseUrl,model:fileAsr.model,language:fileAsr.language,configured:fileAsr.provider === 'volcengine' ? asrConfigured : Boolean(fileAsr.baseUrl && fileAsr.model && (fileAsr.apiKey || fileLocal))}};
   }
   saveSettings(input={}) {
     const settings = this.getSettings();
+    if (input.fileAsr && Object.hasOwn(input.fileAsr,'provider')) {
+      if (!['volcengine','openai'].includes(input.fileAsr.provider)) throw fail('请选择火山引擎或 OpenAI 兼容文件转录服务');
+      settings.fileAsr.provider = input.fileAsr.provider;
+    } else if (input.fileAsr?.baseUrl?.trim() || input.fileAsr?.model?.trim()) {
+      // Older API clients configure this provider by its URL/model alone.
+      settings.fileAsr.provider = 'openai';
+    }
     if (input.llm && Object.hasOwn(input.llm,'reasoningEffort')) {
       if (!['','low'].includes(input.llm.reasoningEffort)) throw fail('思考强度请选择模型默认或较低');
       settings.llm.reasoningEffort = input.llm.reasoningEffort;
     }
-    for (const [group,keys] of Object.entries({llm:['baseUrl','model','apiKey'],asr:['apiKey','appKey','accessKey','resourceId'],fileAsr:['baseUrl','model','apiKey','language']})) {
+    for (const [group,keys] of Object.entries({llm:['baseUrl','model','apiKey'],asr:['apiKey','appKey','accessKey','resourceId'],fileAsr:['baseUrl','model','apiKey','language','resourceId']})) {
       for (const key of keys) if (input[group]?.[key]?.trim()) settings[group][key] = bounded(input[group][key],4000);
     }
     for(const [group,label] of [['llm','大模型'],['fileAsr','录音转录']]) {
+      if (group === 'fileAsr' && settings.fileAsr.provider === 'volcengine') continue;
       let url; try {url=new URL(settings[group].baseUrl);} catch {throw fail(`${label} API 地址无效`);}
       if (!['http:','https:'].includes(url.protocol) || url.username || url.password) throw fail('API 地址只支持 HTTP(S)，且不能包含账号密码');
     }

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import Busboy from 'busboy';
 import { wav } from '../capture/service.js';
 import { assertOutboundUrl, loadOutboundPolicy } from '../capture/outbound-url.js';
+import { transcribeVolcAudio } from './volcengine.js';
 
 const RATE = 16000;
 const FORMATS = 'wav,mp3,mov,matroska,webm,flac,ogg,aac,aiff,au,amr';
@@ -142,7 +143,10 @@ export function createImportService({ store, ai, fetchImpl = globalThis.fetch, d
     store.updateRecording(recording.id, { gaps: retained });
   }
   async function transcribe(pcm, signal) {
-    const config = store.getSettings().fileAsr || {};
+    const settings = store.getSettings(), config = settings.fileAsr || {};
+    if (config.provider === 'volcengine') {
+      return transcribeVolcAudio({ audio: wav(pcm), config: { ...settings.asr, resourceId: config.resourceId }, signal, fetchImpl, requestTimeoutMs });
+    }
     if (!config.baseUrl || !config.model) throw problem('请先在连接设置中配置录音文件转录服务，再重试导入。');
     let base;
     try {

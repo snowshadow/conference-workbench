@@ -38,7 +38,7 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
     if(store.allTranscript(meetingId).length) ai.submit(meetingId,'minutes');
   }});
   const detail=meetingId=>({...store.getMeeting(meetingId),capture:capture.getState(meetingId),recordings:store.listRecordings(meetingId),jobs:store.listJobs(meetingId).slice(0,30),commands:store.listCommands(meetingId).slice(0,10)});
-  app.get('/api/health',(req,res)=>res.json({ok:true,name:'conference-workbench',version:'0.1.1'}));
+  app.get('/api/health',(req,res)=>res.json({ok:true,name:'conference-workbench',version:'0.1.2'}));
   app.get('/api/settings',(req,res)=>res.json(store.publicSettings()));
   app.put('/api/settings',(req,res)=>res.json(store.saveSettings(req.body)));
   app.get('/api/meetings',(req,res)=>res.json({meetings:store.listMeetings({archived:req.query.archived==='1'}).map(m=>({id:m.id,title:m.title,goal:m.goal,status:m.status,archived:m.archived,createdAt:m.createdAt,updatedAt:m.updatedAt,transcriptRevision:m.transcriptRevision,topicCount:m.topics.filter(t=>!t.mergedInto).length}))}));

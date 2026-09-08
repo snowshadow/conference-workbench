@@ -95,8 +95,9 @@ test('MCP streams a local recording into a separate import job and reads playabl
   let asrCalls=0;
   const {base,request,workbench}=await fixture(t,{importFactory:({store,ai})=>createImportService({store,ai,
     decode:async({outputPath})=>fs.writeFileSync(outputPath,Buffer.alloc(6400)),
-    fetchImpl:async()=>{asrCalls++;return Response.json({text:'先核对实时的含义，再决定连接方式。'});},
+    fetchImpl:async(url,options)=>{asrCalls++;assert.match(url,/auc\/bigmodel\/recognize\/flash$/);assert.equal(new Headers(options.headers).get('X-Api-Key'),'file-test-key');return Response.json({result:{text:'先核对实时的含义，再决定连接方式。'}},{headers:{'X-Api-Status-Code':'20000000'}});},
   })});
+  await request('/api/settings','PUT',{asr:{apiKey:'file-test-key'}});
   const filePath=path.join(workbench.store.dataDir,'local-fixture.wav');fs.writeFileSync(filePath,Buffer.from('fixture-file-decoded-by-test-seam'));
   const client=new Client({name:'import-test-agent',version:'1.0'});
   await client.connect(new StdioClientTransport({command:process.execPath,args:[path.resolve('mcp/server.mjs')],env:{...process.env,WORKBENCH_URL:base},stderr:'pipe'}));

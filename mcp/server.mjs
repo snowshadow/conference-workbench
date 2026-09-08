@@ -9,7 +9,7 @@ import { stat } from 'node:fs/promises';
 export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://127.0.0.1:8797'}={}) {
   const url=new URL(baseUrl);
   if(!['http:','https:'].includes(url.protocol) || !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) throw new Error('WORKBENCH_URL 必须指向本机会议工作台');
-  const server=new McpServer({name:'meeting-workbench',version:'0.1.1'});
+  const server=new McpServer({name:'meeting-workbench',version:'0.1.2'});
   const id=z.string().min(1).max(160),mid={meetingId:id};
   const enc=encodeURIComponent;
   async function request(resource,method='GET',body) {

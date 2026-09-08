@@ -76,6 +76,34 @@ test('real WAV decoding yields saved PCM, end-of-recording playback and timestam
   assert.ok(fs.existsSync(path.join(f.dir, 'imports', job.input.uploadId, job.input.storedFilename)));
 });
 
+test('Volcengine file ASR reuses speech credentials and preserves chunk timing, checkpoints and speaker boundaries', async t => {
+  let calls = 0;
+  const f = await fixture(t, { decode: fakeDecode(2.1), chunkSeconds: 1, fetchImpl: async (url, request) => {
+    calls++;
+    assert.equal(url, 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash');
+    const headers = new Headers(request.headers);
+    assert.equal(headers.get('X-Api-Key'), 'volc-test-only');
+    assert.equal(headers.get('X-Api-Resource-Id'), 'volc.bigasr.auc_turbo');
+    assert.equal(headers.get('Authorization'), null, 'the saved OpenAI key must not reach Volcengine');
+    const body = JSON.parse(request.body), audio = Buffer.from(body.audio.data, 'base64');
+    assert.equal(audio.subarray(0, 4).toString(), 'RIFF');
+    const duration = (audio.length - 44) / 32;
+    return new Response(JSON.stringify({ audio_info: { duration }, result: { text: `第${calls}段`, utterances: [{ text: `第${calls}段`, end_time: duration, additions: { speaker_id: 0 }, words: [{ text: `第${calls}段`, start_time: 0, end_time: duration }] }] } }), { headers: { 'X-Api-Status-Code': '20000000', 'Content-Type': 'application/json' } });
+  } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  const { meeting, job } = await f.upload();
+  const done = await f.finished(job.id); assert.equal(done.status, 'done', done.error);
+  assert.equal(calls, 3); assert.equal(done.result.durationMs, 2100);
+  const lines = f.store.allTranscript(meeting.id);
+  assert.equal(lines.length, 3); assert.equal(lines[0].startMs, 0);
+  assert.equal(lines[1].startMs, 1000); assert.equal(lines[2].endMs, 2100);
+  assert.equal(lines[2].endSample, 33600);
+  assert.equal(lines[0].speakerId, 'import-0-speaker-0');
+  assert.equal(lines[1].speakerId, 'import-1-speaker-0');
+  assert.deepEqual(f.store.getRecording(done.result.recordingId).gaps, []);
+  f.service.retry(meeting.id); assert.equal(calls, 3, 'a finished import is not transcribed again');
+});
+
 test('failed ASR retries only unfinished chunks and preserves host corrections with approximate timing', async t => {
   let calls = 0;
   const f = await fixture(t, { decode: fakeDecode(2.1), chunkSeconds: 1, fetchImpl: async () => {
