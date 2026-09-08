@@ -84,7 +84,7 @@ test('MCP performs create -> source read -> AI question -> artifact write and HT
   const minutesDone=await until(async()=>{const j=await call('get_ai_job',{jobId:minutesJob.id});return ['done','error'].includes(j.status)?j:false;});assert.equal(minutesDone.status,'done',minutesDone.error);
   const force=await call('organize_meeting',{meetingId:meeting.id,type:'organize',force:true});
   const forceDone=await until(async()=>{const j=await call('get_ai_job',{jobId:force.id});return ['done','error'].includes(j.status)?j:false;});
-  assert.equal(forceDone.status,'done',forceDone.error);assert.equal(forceDone.input.force,true);assert.match(forceDone.promptVersion,/^clarification-v3-/);assert.ok(forceDone.modelCalls.length>0);assert.equal(forceDone.sourceRevision,1);
+  assert.equal(forceDone.status,'done',forceDone.error);assert.equal(forceDone.input.force,true);assert.match(forceDone.promptVersion,/^clarification-v4-/);assert.ok(forceDone.modelCalls.length>0);assert.equal(forceDone.sourceRevision,1);
   const generated=await call('get_artifact',{meetingId:meeting.id,type:'minutes'});assert.match(generated.markdown,/待验证/);assert.match(generated.markdown,/测试环境/);assert.match(generated.markdown,/Agent/);
   await call('save_artifact',{meetingId:meeting.id,type:'minutes',title:'交付决定',markdown:'# 交付决定\n\n决定周五交付。',sourceRevision:1});
   const artifact=await call('get_artifact',{meetingId:meeting.id,type:'minutes'});assert.equal(artifact.author,'agent');
@@ -115,6 +115,42 @@ test('MCP streams a local recording into a separate import job and reads playabl
   assert.equal((await call('retry_recording_import',{meetingId:imported.meeting.id})).id,done.id);assert.equal(asrCalls,1);
   assert.equal((await request('/api/meetings')).data.meetings.length,1);
 });
+
+test('MCP context follows the same focus after a host ignores it, while explicit quiet stays quiet', async t => {
+  const { base, request, workbench } = await fixture(t);
+  const meeting = workbench.store.createMeeting({ title: '焦点接口一致性' });
+  workbench.store.mutateMeeting(meeting.id, draft => {
+    draft.focusFollowupId = 'current';
+    draft.followups = [
+      { id: 'current', topicId: 'delivery', question: '范围是否已确定？', status: 'active', author: 'ai' },
+      { id: 'stale', topicId: 'delivery', question: '此前的排期是否有效？', status: 'active', stale: true, author: 'ai' },
+      { id: 'unrelated', topicId: 'cost', question: '谁来核对成本？', status: 'active', author: 'ai' },
+      { id: 'next', topicId: 'delivery', question: '谁来确认交付条件？', status: 'active', author: 'ai' },
+    ];
+  });
+  const client = new Client({ name: 'focus-test-agent', version: '1.0' });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve('mcp/server.mjs')], env: { ...process.env, WORKBENCH_URL: base }, stderr: 'pipe' }));
+  t.after(() => client.close());
+  async function context() {
+    const result = await client.callTool({ name: 'get_meeting_context', arguments: { meetingId: meeting.id } });
+    assert.equal(result.isError, undefined, JSON.stringify(result));
+    return JSON.parse(result.content[0].text);
+  }
+  assert.equal((await context()).focusFollowupId, 'current');
+  const ignored = await request(`/api/meetings/${meeting.id}/followups/current`, 'PATCH', { status: 'ignored', author: 'host' });
+  assert.equal(ignored.status, 200);
+  assert.equal(ignored.data.focusFollowupId, 'current', 'host mutation does not require a model to rewrite its recommendation');
+  const next = await context();
+  assert.equal(next.focusFollowupId, 'next', 'MCP advances to the same valid related question as the page');
+  assert.equal(next.followups.some(item => item.id === 'current'), false);
+  assert.equal(workbench.store.getMeeting(meeting.id).focusFollowupId, 'current', 'context is a read-only projection');
+  assert.equal(workbench.store.listJobs(meeting.id).length, 0);
+  workbench.store.mutateMeeting(meeting.id, draft => { draft.focusFollowupId = null; });
+  const quiet = await context();
+  assert.equal(quiet.focusFollowupId, null);
+  assert.ok(quiet.followups.some(item => item.id === 'next' && item.status === 'active'), 'an explicit quiet recommendation does not consume or promote the queue');
+});
+
 test('export identifies historical minutes after transcript changes instead of declaring stale decisions current',async t=>{
   const {base,request}=await fixture(t),m=(await request('/api/meetings','POST',{title:'导出修正'})).data;
   const line=(await request(`/api/meetings/${m.id}/transcript`,'POST',{text:'我们决定 A'})).data;

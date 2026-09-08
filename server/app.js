@@ -79,11 +79,11 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
   app.get('/api/meetings/:id/export',(req,res)=>{
     const m=store.getMeeting(req.params.id),lines=store.allTranscript(m.id),minutes=m.artifacts.find(a=>a.type==='minutes');
     const resolutionLabels={recorded:'讨论记录',clarified:'工作口径',needs_verification:'待验证前提',difference_remains:'保留分歧'};
-    const clarifications=m.followups.filter(f=>f.status!=='ignored' && !f.stale && !f.resolution?.stale).map(f=>{
+    const clarifications=m.followups.filter(f=>f.status!=='ignored' && !f.mergedInto && !f.stale && !f.resolution?.stale).map(f=>{
       const r=f.resolution;
       const ids=r?.evidenceIds || f.evidenceIds || [];
       const references=ids.map(id=>`[原文](#transcript:${encodeURIComponent(id)})`).join(' ');
-      return r ? `- **${resolutionLabels[r.outcome] || '澄清记录'}**：${r.text}（${r.author==='ai'?'AI 整理':r.author==='agent'?'Agent 记录':'主持人记录'}；依据转录版本 ${r.sourceRevision}${ids.length?'':'；未关联原文'}） ${references}` : f.status==='active' ? `- **尚待澄清**：${f.question}${f.impact?`\n  可能影响：${f.impact}`:''} ${references}` : '';
+      return r ? `- **${r.complete===false?'已说清的部分':resolutionLabels[r.outcome] || '澄清记录'}**：${r.text}（${r.author==='ai'?'AI 整理':r.author==='agent'?'Agent 记录':'主持人记录'}；依据转录版本 ${r.sourceRevision}${ids.length?'':'；未关联原文'}） ${references}` : f.status==='active' ? `- **尚待澄清**：${f.question}${f.impact?`\n  可能影响：${f.impact}`:''} ${references}` : '';
     }).filter(Boolean);
     const content=minutesDocumentMarkdown(minutes) || `# ${m.title}\n\n${m.goal?`讨论目标（不作为会议事实）：${m.goal}\n\n`:''}${clarifications.length?`## 澄清进展\n\n${clarifications.join('\n\n')}\n\n`:''}${m.topics.filter(t=>!t.mergedInto).map(t=>`## ${t.title}\n\n${t.stale?'主题摘要等待重新整理。':t.summary || ''}\n\n${t.entries.filter(e=>e.status!=='superseded'&&!e.stale).map(e=>`- ${e.text}`).join('\n')}`).join('\n\n')}`;
     const revisionNote=minutes?.stale?`> 以下纪要基于转录版本 ${minutes.sourceRevision}，当前为版本 ${m.transcriptRevision}。原文或整理内容已经更新，以下内容属于历史草稿，等待重新整理或人工核对。\n\n`:'';

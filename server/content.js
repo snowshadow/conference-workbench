@@ -14,6 +14,7 @@ export function validateTree(topics) {
 export function editTopic(store,meetingId,topicId,patch) {
   return store.mutateMeeting(meetingId,m=>{
     const topic=findTopic(m,topicId), fields=new Set(topic.manualFields || []);
+    if(Object.hasOwn(patch,'summary') && topic.summary && string(patch.summary)!==topic.summary) topic.history=[...(topic.history || []),{summary:topic.summary,evidenceIds:[...(topic.summaryEvidenceIds || [])],sourceRevision:topic.sourceRevision,changedAt:new Date().toISOString()}];
     for(const key of ['title','summary','parentId']) if(Object.hasOwn(patch,key)) { topic[key]=key==='parentId' ? (patch[key] || null) : string(patch[key],key==='title'?300:12000); fields.add(key); }
     if(!topic.title) throw fail('主题名称不能为空');
     if(Object.hasOwn(patch,'summary')) {topic.stale=false;topic.sourceRevision=m.transcriptRevision;}
@@ -92,6 +93,7 @@ export function editFollowup(store,meetingId,followupId,input) {
   for(const key of presentationFields) if(typeof input[key]!=='string' || !input[key].trim() || input[key].length>(key==='shortQuestion'?200:800)) throw fail(key==='shortQuestion'?'简短问题须为 1–200 字':'讨论价值须为 1–800 字');
   return store.mutateMeeting(meetingId,m=>{
     const f=m.followups.find(f=>f.id===followupId);if(!f)throw fail('澄清问题不存在',404);
+    if(f.mergedInto) throw fail(`此问题已合并，请回读并修改保留的问题（${f.mergedInto}）。`,409);
     if(input.sourceRevision!==undefined) {
       if(!Number.isInteger(input.sourceRevision) || input.sourceRevision<0 || input.sourceRevision>m.transcriptRevision) throw fail('来源版本无效');
       if(input.sourceRevision<m.transcriptRevision && input.transcriptEditRevision===undefined) throw fail('原文已更新，请重新核对引用后保存。',409);

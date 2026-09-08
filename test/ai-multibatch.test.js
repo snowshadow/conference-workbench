@@ -95,6 +95,28 @@ test('the final meeting-wide review can remain silent without invalidating organ
   assert.equal(job.result.addedFollowups, 0);
 });
 
+for (const citation of ['valid', 'wrong-quote', 'other-meeting']) test(`summary validation uses the full meeting snapshot for omitted old citations: ${citation}`, async t => {
+  let early, foreign;
+  const { store, ai, calls } = fixture(t, data => {
+    if (data.mode !== 'organize') return empty();
+    if (data.batch.index === 1) return response({ topics: [{ id: 'new_t', title: '实时口径', summary: '“实时”有两种解释。', summaryEvidence: [{ id: early.id, quote: early.text }], entries: [{type: 'question', text: early.text, evidence: [{id: early.id, quote: early.text}]}] }], followups: [] });
+    assert.equal(data.sources.some(source => source.id === early.id), false, 'the old source must actually be outside this prompt window');
+    return response({ topics: [{ id: data.knownTopics[0].id, title: '实时口径', summary: '“实时”仍有两种解释；末段只确认设备收尾。', summaryEvidence: [
+      { id: citation === 'other-meeting' ? foreign.id : early.id, quote: citation === 'wrong-quote' ? '大家已统一为立即推送。' : early.text },
+      { id: data.sources.at(-1).id, quote: data.sources.at(-1).text },
+    ], entries: [] }], followups: [] });
+  });
+  const seeded = seedLongMeeting(store); early = seeded.early;
+  const other = store.createMeeting({ title: '另外一场会议' });
+  foreign = store.appendTranscript(other.id, { text: early.text });
+  const job = await finish(store, ai.submit(seeded.meeting.id, 'organize'));
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(calls.length, 3);
+  const topic = store.getMeeting(seeded.meeting.id).topics[0];
+  assert.equal(topic.summary, citation === 'valid' ? '“实时”仍有两种解释；末段只确认设备收尾。' : '“实时”有两种解释。');
+  if (citation === 'valid') assert.ok(topic.summaryEvidenceIds.includes(early.id));
+});
+
 test('failure during the final clarification does not publish a partial topic draft', async t => {
   const { store, ai } = fixture(t, data => data.mode === 'organize' ? response(topicResult(data)) : new Response('{}', { status: 403 }));
   const { meeting } = seedLongMeeting(store);

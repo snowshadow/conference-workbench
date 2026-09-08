@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { minutesDocumentMarkdown } from '../../shared/minutes-format.js';
 import { reduceOrganization } from './reducer.js';
+import { knownContext, supplementEvidence, reviewEvidence } from './context.js';
 import { evidenceFor, retrieve, sourceLines, sourceView } from './retrieval.js';
 import { SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, PROMPT_VERSION } from './prompts.js';
 
@@ -33,7 +34,9 @@ function validateResult(result, purpose) {
     valid = objects(result.topics) && objects(result.followups)
       && result.followups.every(item => ['shortQuestion','discussionValue'].every(key => item[key] === undefined || typeof item[key] === 'string'))
       && result.topics.every(topic => topic.entries === undefined || objects(topic.entries))
-      && ['merges', 'resolvedFollowups'].every(key => result[key] === undefined || objects(result[key]))
+      && ['merges', 'mergedFollowups', 'resolvedFollowups'].every(key => result[key] === undefined || objects(result[key]))
+      && (result.resolvedFollowups === undefined || result.resolvedFollowups.every(item => object(item.resolution) && typeof item.resolution.complete === 'boolean'))
+      && (result.focusFollowupId === undefined || result.focusFollowupId === null || typeof result.focusFollowupId === 'string')
       && (result.keepFollowupIds === undefined || Array.isArray(result.keepFollowupIds) && result.keepFollowupIds.every(id => typeof id === 'string'));
   }
   if (!valid) throw fail(`模型返回的${purpose === 'answer' ? '问答' : '会议整理'}结果格式无效，请重试。`, 502);
@@ -53,38 +56,6 @@ function packSources(lines, maxChars = 12000) {
   }
   if (chunk.length) chunks.push(chunk);
   return chunks;
-}
-
-function knownContext(meeting, sources) {
-  const sourceIds = new Set(sources.map(line => line.id));
-  const topics = (meeting.topics || []).filter(topic => !topic.mergedInto);
-  const knownTopics = topics.map(({ id, parentId, title, manualFields, stale }) => ({ id, parentId, title, manualFields, stale }));
-  const entries = topics.flatMap(topic => (topic.entries || []).map(entry => ({ ...entry, topicId: topic.id })))
-    .sort((a, b) => Number(b.evidenceIds?.some(id => sourceIds.has(id))) - Number(a.evidenceIds?.some(id => sourceIds.has(id))) || Number(b.type === 'decision') - Number(a.type === 'decision'));
-  const knownEntries = [];
-  let size = 0;
-  for (const entry of entries) {
-    const item = { id: entry.id, topicId: entry.topicId, type: entry.type, text: entry.text, status: entry.status, evidenceIds: entry.evidenceIds, manualFields: entry.manualFields };
-    const cost = JSON.stringify(item).length;
-    if (size + cost > 18000) continue;
-    knownEntries.push(item); size += cost;
-  }
-  const existingFollowups = (meeting.followups || []).slice(-80).map(({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, status, evidenceIds, resolution, stale, pendingReview, manualFields }) => ({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, status, evidenceIds, resolution, stale, pendingReview, manualFields }));
-  return { knownTopics, knownEntries, existingFollowups };
-}
-
-function supplementEvidence(meeting, chunk, allLines, maxChars = 7000) {
-  const ids = new Set(chunk.map(line => line.id));
-  const desired = new Set((meeting.followups || []).filter(f => f.status !== 'ignored').slice(-80).flatMap(f => [...(f.evidenceIds || []), ...(f.resolution?.evidenceIds || [])]));
-  // Existing current decisions need their source available when the discussion revises a choice.
-  for (const topic of meeting.topics || []) for (const entry of topic.entries || []) if (entry.type === 'decision' && entry.status !== 'superseded') for (const id of entry.evidenceIds || []) desired.add(id);
-  const result = [...chunk];
-  let size = 0;
-  for (const line of allLines) {
-    if (!desired.has(line.id) || ids.has(line.id) || size + line.text.length > maxChars) continue;
-    result.push(line); ids.add(line.id); size += line.text.length;
-  }
-  return result;
 }
 
 function snapshotMatches(store, snapshot, lines) {
@@ -110,7 +81,7 @@ function minutesMarkdown(meeting, lines) {
   if (meeting.processedRevision < meeting.transcriptRevision) content.push('仍有新增转录待整理，本文是当前已整理部分的纪要。', '');
   if (meeting.goal) content.push(`会议目标（不作为会议事实）：${meeting.goal}`, '');
   const entries = (meeting.topics || []).filter(t => !t.mergedInto).flatMap(topic => (topic.entries || []).map(entry => ({ ...entry, topicTitle: topic.title }))).filter(entry => !entry.stale && entry.status !== 'superseded');
-  const clarifications = (meeting.followups || []).filter(item => item.status !== 'ignored' && !item.stale && !item.resolution?.stale);
+  const clarifications = (meeting.followups || []).filter(item => item.status !== 'ignored' && !item.mergedInto && !item.stale && !item.resolution?.stale);
   const authorLabel = author => author === 'host' ? '主持人记录' : author === 'agent' ? 'Agent 记录' : 'AI 按原文整理';
   const sections = [
     ['决定', entry => entry.type === 'decision' && entry.status === 'active'],
@@ -148,8 +119,8 @@ function minutesMarkdown(meeting, lines) {
     const selected = clarifications.filter(matches);
     if (!selected.length) { content.push('暂无记录。', ''); continue; }
     for (const item of selected) {
-      const resolution = title !== '尚待澄清' && ['recorded','resolved'].includes(item.status) ? item.resolution : null;
-      const label = resolution ? `${authorLabel(resolution.author)}${resolution.outcome === 'recorded' ? '；未标记为已解决' : ''}` : `${item.author === 'ai' ? 'AI 待核对解释' : authorLabel(item.author)}${item.status === 'recorded' ? '；已有讨论记录，问题仍待澄清' : ''}`;
+      const resolution = item.resolution && (title !== '尚待澄清' || item.resolution.complete === false) ? item.resolution : null;
+      const label = resolution ? `${authorLabel(resolution.author)}${resolution.complete === false ? '；已有部分进展，问题尚未解决' : ''}${resolution.outcome === 'recorded' ? '；未标记为已解决' : ''}` : `${item.author === 'ai' ? 'AI 待核对解释' : authorLabel(item.author)}${item.status === 'recorded' ? '；已有讨论记录，问题仍待澄清' : ''}`;
       const evidenceIds = resolution?.evidenceIds || item.evidenceIds || [];
       content.push(`- **${item.question}**（${label}${resolution ? `；依据版本 ${resolution.sourceRevision}${evidenceIds.length?'':'；未关联原文'}` : ''}）`, `  ${resolution?.text || item.rationale || ''}${item.impact && resolution?.outcome !== 'recorded' ? ` 可能影响：${item.impact}` : ''} ${evidenceIds.map(evidenceLink).filter(Boolean).join(' ')}`);
     }
@@ -227,7 +198,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         const response = await fetchImpl(url, {
           method: 'POST', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', ...(llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {}) },
-          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}` }, { role: 'user', content: JSON.stringify(data) }] }),
+          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
         });
         if (!response.ok) {
           const kind = await providerErrorKind(response);
@@ -235,8 +206,20 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
           else if (!kind && [408, 429, 500, 502, 503, 504].includes(response.status) && attempt < 2) retry = true;
           else throw fail(`${providerErrorMessages[kind] || '大模型请求失败，请检查模型配置后重试。'}（HTTP ${response.status}）`, 502);
         } else {
-          const payload = await response.json();
-          return validateResult(parseJSON(payload.choices?.[0]?.message?.content), purpose);
+          try {
+            const payload = await response.json();
+            return validateResult(parseJSON(payload?.choices?.[0]?.message?.content), purpose);
+          } catch (error) {
+            // A successful HTTP response can still contain broken JSON or an
+            // incomplete contract. Retry that batch once, within the same total
+            // request budget, without feeding the provider response back in.
+            if (!(error instanceof SyntaxError) && error.status !== 502) throw error;
+            if (!call.formatRetries && attempt < 2) {
+              call.formatRetries = 1;
+              store.updateJob(execution.jobId, { modelCalls: execution.modelCalls });
+              retry = true;
+            } else throw error.status ? error : fail('大模型响应不是有效 JSON，请重试。', 502);
+          }
         }
       } catch (error) {
         if (!started) throw Object.assign(new Error('AI 服务已停止。'), { name: 'AbortError' });
@@ -267,11 +250,13 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}${followupOnly ? `\n${FOLLOWUP}` : ''}`, {
         meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
         ...knownContext(draft, sources), sources: sourceView(sources, snapshot.speakerLabels), followupLimit: limit,
-        mode: followupOnly ? 'followup' : 'organize', reanalysis: force, batch: { index: index + 1, total: batches.length },
+        mode: followupOnly ? 'followup' : 'organize', meetingStatus: snapshot.status, reanalysis: force, batch: { index: index + 1, total: batches.length },
       }, execution, followupOnly ? 'followup' : 'organize');
       if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
       const before = draft.followups.length;
-      draft = reduceOrganization(draft, payload, sources, { sourceRevision: snapshot.transcriptRevision, followupLimit: limit, fresh: true, allowStructure: !followupOnly });
+      // Prior summaries may cite real lines omitted from this bounded prompt.
+      // Validate against this meeting's immutable snapshot, not the prompt window.
+      draft = reduceOrganization(draft, payload, allLines, { sourceRevision: snapshot.transcriptRevision, followupLimit: limit, fresh: true, allowStructure: !followupOnly });
       additionsRemaining -= draft.followups.length - before;
       store.updateJob(execution.jobId, { progress: { phase: 'organize', completedBatches: index + 1, totalBatches: batches.length } });
     }
@@ -282,18 +267,21 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}`, {
         meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
         ...knownContext(draft, sources), sources: sourceView(sources, snapshot.speakerLabels), followupLimit: limit,
-        mode: 'followup', reanalysis: force, batch: { index: 1, total: 1 },
+        mode: 'followup', meetingStatus: snapshot.status, reanalysis: force, batch: { index: 1, total: 1 },
       }, execution, 'followup');
       if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
       const before = draft.followups.length;
-      draft = reduceOrganization(draft, payload, sources, { sourceRevision: snapshot.transcriptRevision, followupLimit: limit, fresh: true, allowStructure: false });
+      draft = reduceOrganization(draft, payload, allLines, { sourceRevision: snapshot.transcriptRevision, followupLimit: limit, fresh: true, allowStructure: false });
       additionsRemaining -= draft.followups.length - before;
     }
     if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
     const current = store.getMeeting(meetingId);
     const fresh = current.transcriptRevision === snapshot.transcriptRevision;
     store.mutateMeeting(meetingId, meeting => {
+      const changed = JSON.stringify(meeting.topics) !== JSON.stringify(draft.topics) || JSON.stringify(meeting.followups) !== JSON.stringify(draft.followups);
+      if (changed) for (const artifact of meeting.artifacts || []) { artifact.stale = true; artifact.staleReason = 'content_changed'; }
       meeting.topics = draft.topics;
+      if (Object.hasOwn(draft, 'focusFollowupId')) { meeting.focusFollowupId = draft.focusFollowupId; meeting.focusSourceRevision = draft.focusSourceRevision; }
       meeting.followups = draft.followups.map(item => !fresh && (item.status === 'active' || item.resolution?.author === 'ai' && item.resolution.sourceRevision === snapshot.transcriptRevision) ? { ...item, pendingReview: true, ...(item.resolution?.author === 'ai' ? { resolution: { ...item.resolution, pendingReview: true } } : {}) } : item);
       if (!followupOnly) {
         meeting.processedRevision = snapshot.transcriptRevision;
@@ -322,8 +310,36 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     return item;
   }
 
+  async function reviewOpenQuestions(meetingId, execution) {
+    const snapshot = store.getMeeting(meetingId);
+    const pending = (snapshot.followups || []).filter(item => !item.mergedInto && (item.status === 'active' || item.stale || item.pendingReview) && item.status !== 'ignored' && item.status !== 'recorded' && (!item.resolution || item.resolution.author === 'ai') && !(item.manualFields || []).some(field => ['resolution', 'status'].includes(field)));
+    if (!pending.length) return;
+    const allLines = sourceLines(meetingId, store.allTranscript(meetingId));
+    let draft = structuredClone(snapshot);
+    for (let offset = 0; offset < pending.length; offset += 6) {
+      const group = pending.slice(offset, offset + 6);
+      const sources = reviewEvidence(draft, allLines, group);
+      store.updateJob(execution.jobId, { progress: { phase: 'clarify', completedBatches: offset / 6, totalBatches: Math.ceil(pending.length / 6) } });
+      const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}\n本次核对 reviewFollowupIds 中的问题是否已被后续发言回答、已有部分进展，或实际上属于同一个问题。sources 含按问题检索的上下文；没有找到答案不等于会上没有答案。未充分核对的问题保持待核对。此轮不新增问题。`, {
+        meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
+        ...knownContext(draft, sources), sources: sourceView(sources, snapshot.speakerLabels),
+        mode: 'review', meetingStatus: snapshot.status, reviewFollowupIds: group.map(item => item.id), followupLimit: 0,
+      }, execution, 'followup');
+      if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
+      draft = reduceOrganization(draft, payload, allLines, { sourceRevision: snapshot.transcriptRevision, followupLimit: 0, allowStructure: false });
+    }
+    if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
+    const fresh = store.getMeeting(meetingId).transcriptRevision === snapshot.transcriptRevision;
+    store.mutateMeeting(meetingId, meeting => {
+      if (JSON.stringify(meeting.followups) !== JSON.stringify(draft.followups)) for (const artifact of meeting.artifacts || []) { artifact.stale = true; artifact.staleReason = 'content_changed'; }
+      meeting.followups = draft.followups.map(item => !fresh && (item.status === 'active' || item.resolution?.author === 'ai' && item.resolution.sourceRevision === snapshot.transcriptRevision) ? { ...item, pendingReview: true, ...(item.resolution?.author === 'ai' ? { resolution: { ...item.resolution, pendingReview: true } } : {}) } : item);
+      if (Object.hasOwn(draft, 'focusFollowupId')) { meeting.focusFollowupId = draft.focusFollowupId; meeting.focusSourceRevision = draft.focusSourceRevision; }
+    });
+  }
+
   async function minutes(meetingId, execution) {
     await organize(meetingId, { execution });
+    await reviewOpenQuestions(meetingId, execution);
     store.updateJob(execution.jobId, { progress: { ...store.getJob(execution.jobId).progress, phase: 'minutes' } });
     const snapshot = store.getMeeting(meetingId);
     const lines = sourceLines(meetingId, store.allTranscript(meetingId));
@@ -350,7 +366,10 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         try {
           if (job.type === 'answer') result = await answer(job.meetingId, job.input, execution);
           else if (job.type === 'minutes') result = await minutes(job.meetingId, execution);
-          else result = await organize(job.meetingId, { followupOnly: job.type === 'followup', manual: job.type === 'followup', force: job.input?.force === true, execution });
+          else {
+            result = await organize(job.meetingId, { followupOnly: job.type === 'followup', manual: job.type === 'followup', force: job.input?.force === true, execution });
+            if (job.type === 'organize' && job.input?.force) await reviewOpenQuestions(job.meetingId, execution);
+          }
           break;
         } catch (error) { if (error.code !== 'STALE_RESULT' || attempt === 2) throw error; }
       }

@@ -100,7 +100,7 @@ test('late AI organization retries from the manual note and cannot overwrite its
     if (f.calls.length === 1) record(f);
     const source = data.sources[0], item = data.existingFollowups[0];
     return { topics: [], followups: [{ id: item.id, shortQuestion: '已确认时延达标？', evidence: [{ id: source.id, quote: source.text }] }],
-      resolvedFollowups: [{ id: item.id, resolution: { outcome: 'clarified', text: '时延已确认达标。' }, evidence: [{ id: source.id, quote: source.text }] }] };
+      resolvedFollowups: [{ id: item.id, resolution: { outcome: 'clarified', complete: true, text: '时延已确认达标。' }, evidence: [{ id: source.id, quote: source.text }] }] };
   });
   const result = await finish(f.store, f.ai.submit(f.meeting.id, 'organize'));
   assert.equal(result.status, 'done', result.error);
@@ -189,4 +189,33 @@ test('MCP defaults to a neutral record and exposes presentation, provenance and 
   assert.equal(context.followups[0].resolution.text, '先记下告警场景。');
   assert.equal(context.followups[0].history, undefined);
   assert.equal((await call('get_transcript_chunk', { meetingId: meeting.id })).total, 1);
+});
+
+
+test('writes to a merged clarification reject the old ID and identify the surviving question', t => {
+  const f = fixture(t), targetId = 'surviving-question';
+  f.store.mutateMeeting(f.meeting.id, current => {
+    current.followups.push({ ...structuredClone(current.followups[0]), id: targetId, question: '试验的响应时延上限怎么定？' });
+    current.followups = reduceOrganization(current, { mergedFollowups: [{ sourceId: f.followup.id, targetId }] }, [f.line]).followups;
+  });
+  const before = f.store.getMeeting(f.meeting.id);
+  assert.equal(before.followups[0].mergedInto, targetId);
+  for (const patch of [
+    { status: 'recorded', resolution: { outcome: 'recorded', text: '这是旧页面提交的讨论记录。', evidenceIds: [f.line.id] } },
+    { status: 'resolved' },
+    { status: 'ignored' },
+    { shortQuestion: '旧问题的新简写？' },
+  ]) {
+    assert.throws(() => editFollowup(f.store, f.meeting.id, f.followup.id, { ...patch, author: 'agent' }), error => {
+      assert.equal(error.status, 409);
+      assert.match(error.message, /已合并/);
+      assert.ok(error.message.includes(targetId), 'the caller can re-read the surviving question before retrying');
+      return true;
+    });
+    assert.deepEqual(f.store.getMeeting(f.meeting.id), before, 'neither the hidden source nor the surviving question is silently edited');
+  }
+  editFollowup(f.store, f.meeting.id, targetId, { status: 'recorded', author: 'agent', resolution: { outcome: 'recorded', text: '回读保留问题后补充的记录。', evidenceIds: [f.line.id] } });
+  const visible = f.store.getMeeting(f.meeting.id).followups.filter(item => !item.mergedInto);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].resolution.text, '回读保留问题后补充的记录。');
 });

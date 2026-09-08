@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { openAsBlob } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { recommendedFocusId } from '../shared/discussion-view.js';
 
 export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://127.0.0.1:8797'}={}) {
   const url=new URL(baseUrl);
@@ -40,9 +41,9 @@ export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://12
   tool('update_meeting','修改会议名称、目标、自动整理或归档状态。结束会议请用 control_recording 的 end。',{...mid,title:z.string().min(1).max(200).optional(),goal:z.string().max(6000).optional(),archived:z.boolean().optional(),autoOrganize:z.boolean().optional(),speakerLabels:z.record(z.string(),z.string()).optional()},({meetingId,...input})=>request(`/api/meetings/${enc(meetingId)}`,'PATCH',input));
   tool('get_meeting_context','读取主题、讨论条目、活跃澄清及已记录的澄清进展、录音真实状态和产物索引。检查 stale 与 author；澄清记录不等于参会者共识。原始转录须分页读取，产物全文用 get_artifact。',mid,async({meetingId})=>{
     const m=await request(`/api/meetings/${enc(meetingId)}`);
-    return {id:m.id,title:m.title,goal:m.goal,status:m.status,source:m.source,importJobId:m.importJobId,archived:m.archived,transcriptRevision:m.transcriptRevision,transcriptEditRevision:m.transcriptEditRevision,processedRevision:m.processedRevision,processedThroughMs:m.processedThroughMs,capture:m.capture,speakerLabels:m.speakerLabels,
+    return {id:m.id,title:m.title,goal:m.goal,status:m.status,source:m.source,importJobId:m.importJobId,archived:m.archived,transcriptRevision:m.transcriptRevision,transcriptEditRevision:m.transcriptEditRevision,processedRevision:m.processedRevision,processedThroughMs:m.processedThroughMs,capture:m.capture,speakerLabels:m.speakerLabels,focusFollowupId:recommendedFocusId(m),
       topics:m.topics.filter(t=>!t.mergedInto).map(({history,entries,...topic})=>({...topic,entries:entries.map(({history,...entry})=>entry)})),
-      followups:m.followups.filter(f=>f.status==='active'||f.resolution).map(({history,resolution,...followup})=>{
+      followups:m.followups.filter(f=>!f.mergedInto && (f.status==='active'||f.resolution)).map(({history,resolution,...followup})=>{
         if(!resolution)return followup;
         const {history:resolutionHistory,...currentResolution}=resolution;
         return {...followup,resolution:currentResolution};

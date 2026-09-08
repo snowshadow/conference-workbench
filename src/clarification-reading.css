@@ -1,6 +1,6 @@
 /* The reading surface stays opaque; only navigation and controls float above it. */
 .clarification-content.reading-focus { min-width: 0; }
-.reading-focus .clarification-scroll { padding: clamp(30px, 6vh, 76px) clamp(24px, 5vw, 84px) 40px; scrollbar-gutter: stable; }
+.reading-focus .clarification-scroll { position: relative; padding: clamp(30px, 6vh, 76px) clamp(24px, 5vw, 84px) 40px; scrollbar-gutter: stable; }
 .reading-focus .clarification-scroll > :not(.empty-state) { width: min(100%, 1040px); margin-left: auto; margin-right: auto; }
 .reading-focus .focus-question, .reading-focus .focus-saved { padding: 0; background: none; border: 0; box-shadow: none; }
 .reading-focus .focus-origin { display: flex; align-items: baseline; flex-wrap: wrap; gap: 14px; margin: 0 0 22px; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }
@@ -29,6 +29,11 @@
 .reading-focus .focus-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 28px; }
 .reading-focus .focus-actions > .button { min-height: 44px; padding: 10px 21px; border-radius: 25px; font-size: 14px; }
 .reading-focus .focus-actions > .text-button { color: var(--ink-muted); padding-left: 10px; padding-right: 10px; }
+.reading-focus .focus-return { position: absolute; top: 8px; right: 20px; width: auto; margin: 0; z-index: 1; }
+.reading-focus .focus-return > .button { min-height: 36px; color: var(--link); font-size: 13px; }
+.reading-focus .focus-partial { max-width: 48em; margin-top: 22px; padding: 18px 22px; border-radius: 18px; background: var(--surface-muted); }
+.reading-focus .focus-partial .resolution-summary > p { font-size: 15px; line-height: 1.85; }
+.quiet-resolution .resolution-partial-label { color: var(--ink-secondary); font-size: 12px; font-weight: 500; }
 .reading-focus .focus-queue { margin-top: 48px; }
 .reading-focus .focus-queue > summary { color: var(--ink-muted); font-size: 13px; }
 .reading-focus .focus-queue > div { padding-top: 8px; }
@@ -80,6 +85,19 @@
 .quiet-resolution .resolution-source { margin-top: 8px; }
 .presentation-mode .reading-focus .focus-question > h3, .presentation-mode .reading-focus .focus-saved > h3 { font-size: clamp(32px, 2.65vw, 46px); }
 .presentation-mode .reading-focus .focus-value { font-size: 20px; }
+.presentation-mode .reading-focus .focus-partial .resolution-summary > p { font-size: 18px; }
+
+.topic-summary-sources, .topic-more, .topic-process { color: var(--ink-muted); font-size: 12px; }
+.topic-summary-sources { margin-top: 6px; }
+.topic-more, .topic-process { margin-top: 22px; }
+.topic-summary-sources > summary, .topic-more > summary, .topic-process > summary { width: fit-content; min-height: 36px; padding: 8px 0; cursor: pointer; }
+.topic-summary-sources > .evidence { margin: 6px 0; }
+.topic-more > .entry-group:first-of-type { margin-top: 14px; }
+.topic-process > .discussion-entry, .topic-summary-version { margin-top: 16px; }
+.topic-summary-version { padding: 16px 20px; border-radius: 16px; background: var(--surface-muted); }
+.topic-summary-version > p { color: var(--ink-secondary); font-size: 14px; line-height: 1.85; white-space: pre-wrap; }
+.topic-summary-version > .topic-version-caption { color: var(--ink-muted); font-size: 12px; margin-bottom: 8px; }
+.topic-summary-version > .evidence { margin-top: 10px; }
 
 @media (max-height: 800px) and (min-width: 801px) {
   .reading-focus .clarification-scroll { padding-top: 28px; padding-bottom: 28px; }

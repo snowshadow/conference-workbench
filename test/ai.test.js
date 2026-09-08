@@ -15,7 +15,10 @@ function meeting(overrides = {}) { return { id: 'meeting1', transcriptRevision: 
 function grounded(text, evidence, extra = {}) { return { text, type: 'viewpoint', evidence: [{ id: evidence.id, quote: evidence.text }], ...extra }; }
 function clarification(source, extra = {}) { return { kind: 'assumption', question: '延迟是否经过真实用户验证？', rationale: '发言尚未提供测量结果', impact: '影响当前是否采用同步方案', affectsDecision: true, evidence: [{ id: source.id, quote: source.text }], ...extra }; }
 function modelResult(sources, extra = {}) { return { topics: [{ id: 'new_a', title: '方案选择', parentId: null, entries: [grounded('采用方案 A', sources[0])], ...extra }], followups: [] }; }
-function response(content, status = 200) { return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status, headers: { 'Content-Type': 'application/json' } }); }
+function response(content, status = 200) {
+  // Legacy fixture shorthand uses a complete result unless a partial one is explicit.
+  if (Array.isArray(content.resolvedFollowups)) content = { ...content, resolvedFollowups: content.resolvedFollowups.map(item => item.resolution && typeof item.resolution === 'object' ? { ...item, resolution: { complete: true, ...item.resolution } } : item) };
+  return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status, headers: { 'Content-Type': 'application/json' } }); }
 
 function fixture(t, responder, options = {}) {
   const store = new Store(mkdtempSync(join(tmpdir(), 'meeting-ai-test-')));
@@ -319,10 +322,10 @@ test('clarification prompting distinguishes material concepts, assumptions and c
   store.mutateMeeting(current.id, meeting => { meeting.followups = [{ id: 'f1', question: '实时是否立即', status: 'resolved', kind: 'concept', evidenceIds: [source.id], resolution: { outcome: 'clarified', text: '人工记录的全员共识', author: 'host', evidenceIds: [source.id] } }]; });
   await finish(store, ai.submit(current.id, 'followup'));
   const prompt = calls[0].body.messages[0].content;
-  assert.match(prompt, /当前选择、范围或下一步行动/);
+  assert.match(prompt, /具体选择、范围、协作或行动/);
   for (const kind of ['concept', 'assumption', 'criteria', 'other']) assert.ok(prompt.includes(kind));
-  assert.match(prompt, /有人回答不等于大家达成共识/);
-  assert.match(prompt, /保留说话人的范围/);
+  assert.match(prompt, /不把单方表达扩大为全体共识/);
+  assert.match(prompt, /说明是谁的观点，并保留适用范围/);
   await finish(store, ai.submit(current.id, 'answer', { question: '大家对实时是否已经达成共识？' }));
   assert.equal(calls[1].data.existingFollowups[0].resolution.author, 'host');
   assert.equal(calls[1].data.sources[0].text, '我理解的实时是下次刷新。');
@@ -728,6 +731,37 @@ test('malformed organization objects fail without advancing the watermark; expli
   assert.equal(quiet.status, 'done');
   assert.equal(store.getMeeting(current.id).processedRevision, 1);
   assert.deepEqual(store.getMeeting(current.id).followups, []);
+});
+
+test('provider responses must explicitly distinguish partial progress from a complete resolution', async t => {
+  let completion;
+  const { store, ai } = fixture(t, data => {
+    const result = { topics: [], followups: [], resolvedFollowups: [{
+      id: data.existingFollowups[0].id,
+      resolution: { outcome: 'clarified', text: '目前只说明了试验范围，时延还需要测量。', ...(completion === undefined ? {} : { complete: completion }) },
+      evidence: [{ id: data.sources[0].id, quote: data.sources[0].text }],
+    }] };
+    // Deliberately bypass response(): it supplies a legacy complete=true default.
+    return Response.json({ choices: [{ message: { content: JSON.stringify(result) } }] });
+  });
+  const current = store.createMeeting({ title: '部分进展契约' });
+  const source = store.appendTranscript(current.id, { text: '目前只说明了试验范围，时延还需要测量。' });
+  store.mutateMeeting(current.id, item => { item.followups = reduceOrganization(item, { followups: [clarification(source)] }, [source]).followups; });
+  const before = store.getMeeting(current.id).followups;
+  for (const type of ['organize', 'followup']) for (const invalid of [undefined, null, 'false', 0]) {
+    completion = invalid;
+    const job = await finish(store, ai.submit(current.id, type));
+    assert.equal(job.status, 'error', `${type}: ${String(invalid)}`);
+    assert.match(job.error, /结果格式无效/);
+    assert.equal(store.getMeeting(current.id).processedRevision, 0);
+    assert.deepEqual(store.getMeeting(current.id).followups, before, 'an invalid completion flag cannot silently close or rewrite a question');
+  }
+  completion = false;
+  const accepted = await finish(store, ai.submit(current.id, 'organize'));
+  assert.equal(accepted.status, 'done');
+  const saved = store.getMeeting(current.id).followups[0];
+  assert.equal(saved.status, 'active');
+  assert.equal(saved.resolution.complete, false);
 });
 
 test('malformed answer structures fail visibly instead of creating a successful insufficient-evidence answer', async t => {

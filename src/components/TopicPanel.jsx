@@ -3,6 +3,8 @@ import { ReactFlow, Background, Controls, Handle, Position, MarkerType } from '@
 import dagre from '@dagrejs/dagre';
 import { ArrowDownRight, ChevronDown, ChevronRight, CircleHelp, GitBranch, ListTree, Map, Merge, Pencil, Plus, Quote, Scissors, Sparkles, Target, CheckCheck, UserRound, CalendarDays } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
+import { isCurrentEntry, topicReadingEntries } from '../../shared/discussion-view.js';
+import { formatDate } from '../lib/api.js';
 import '@xyflow/react/dist/style.css';
 
 const kinds = { viewpoint: { label: '观点与依据', icon: Quote }, question: { label: '待澄清问题', icon: CircleHelp }, decision: { label: '决定', icon: CheckCheck }, action: { label: '行动项', icon: Target } };
@@ -79,7 +81,7 @@ function TopicMap({ topics, selected, setSelected, folded, toggleFold, viewport 
     const edges = visible.filter(topic => topic.parentId && visibleIds.has(topic.parentId)).map(topic => ({ id: `${topic.parentId}-${topic.id}`, source: topic.parentId, target: topic.id, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 }, style: { stroke: 'var(--map-edge)', strokeWidth: 1.5 } }));
     for (const edge of edges) dag.setEdge(edge.source, edge.target);
     dagre.layout(dag);
-    return { nodes: visible.map(topic => ({ id: topic.id, type: 'topic', width: 205, height: 88, measured: { width: 205, height: 88 }, selected: topic.id === selected, position: { x: dag.node(topic.id).x - 102.5, y: dag.node(topic.id).y - 44 }, data: { title: topic.title, entryCount: topic.entries?.filter(entry => entry.status !== 'superseded').length || 0, childCount: topics.filter(item => item.parentId === topic.id).length, folded: folded.has(topic.id), onFold: toggleFold, id: topic.id } })), edges };
+    return { nodes: visible.map(topic => ({ id: topic.id, type: 'topic', width: 205, height: 88, measured: { width: 205, height: 88 }, selected: topic.id === selected, position: { x: dag.node(topic.id).x - 102.5, y: dag.node(topic.id).y - 44 }, data: { title: topic.title, entryCount: topic.entries?.filter(isCurrentEntry).length || 0, childCount: topics.filter(item => item.parentId === topic.id).length, folded: folded.has(topic.id), onFold: toggleFold, id: topic.id } })), edges };
   }, [topics, selected, folded, toggleFold]);
   return <div className="mindmap"><ReactFlow nodes={graph.nodes} edges={graph.edges} nodeTypes={nodeTypes} onNodeClick={(_, node) => setSelected(node.id)} onMoveEnd={(_, position) => { viewport.current = position; }} onInit={instance => { if (viewport.current) instance.setViewport(viewport.current); else requestAnimationFrame(() => instance.fitView({ padding: 0.25, maxZoom: 1 })); }} nodesDraggable={false} nodesConnectable={false} minZoom={0.25} maxZoom={1.8} proOptions={{ hideAttribution: true }} ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': '放大导图', 'controls.zoomOut.ariaLabel': '缩小导图', 'controls.fitView.ariaLabel': '显示全部主题' }}><Background color="var(--map-grid)" gap={20} size={1} /><Controls showInteractive={false} /></ReactFlow><span className="map-caption">滚轮缩放 · 拖动平移 · 点击主题查看详情</span></div>;
 }
@@ -95,7 +97,7 @@ function Outline({ topics, selected, setSelected, folded, toggleFold }) {
     return <div key={topic.id}>
       <div className={`outline-item ${selected === topic.id ? 'selected' : ''}`} style={{ paddingLeft: 7 + depth * 15 }}>
         {children.length ? <IconButton title={folded.has(topic.id) ? '展开下级主题' : '折叠下级主题'} onClick={() => toggleFold(topic.id)}>{folded.has(topic.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</IconButton> : <span className="outline-leaf">{depth ? <ArrowDownRight size={12} /> : <span />}</span>}
-        <button className="outline-select" onClick={() => setSelected(topic.id)}><span>{topic.title}</span><small>{topic.entries?.filter(entry => entry.status !== 'superseded').length || 0}</small></button>
+        <button className="outline-select" onClick={() => setSelected(topic.id)}><span>{topic.title}</span><small>{topic.entries?.filter(isCurrentEntry).length || 0}</small></button>
       </div>{!folded.has(topic.id) && children.map(child => render(child, depth + 1))}
     </div>;
   }
@@ -111,6 +113,14 @@ function DiscussionEntry({ entry, onEdit, onEvidence }) {
   </article>;
 }
 
+function EntryGroups({ entries, onEdit, onEvidence }) {
+  return ['decision', 'action', 'question', 'viewpoint'].map(key => {
+    const group = entries.filter(entry => entry.type === key);
+    const { label } = kinds[key];
+    return group.length ? <section className={`entry-group ${key}`} key={key}><h4>{label}</h4>{group.map(entry => <DiscussionEntry key={entry.id} entry={entry} onEdit={onEdit} onEvidence={onEvidence} />)}</section> : null;
+  });
+}
+
 function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskTopic }) {
   const [view, setView] = useState('outline');
   const [folded, setFolded] = useState(new Set());
@@ -122,6 +132,9 @@ function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskT
   useEffect(() => { if (!selected && topics.length) setSelected(topics[0].id); else if (selected && !topics.some(item => item.id === selected)) { const merged = meeting.topics.find(item => item.id === selected); setSelected(merged?.mergedInto || topics[0]?.id || null); } }, [topics, selected, setSelected, meeting.topics]);
   const toggleFold = useCallback(id => setFolded(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; }), []);
   const entries = topic?.entries || [];
+  const readingEntries = topicReadingEntries(entries);
+  const summaryHistory = (topic?.history || []).filter(version => typeof version.summary === 'string' && version.summary.trim());
+  const editEntry = entry => setModal({ mode: 'entry', entry });
   return <div className="topic-panel-content">
     <div className="topic-toolbar"><div className="segmented" aria-label="主题视图"><button className={view === 'outline' ? 'active' : ''} onClick={() => setView('outline')} aria-pressed={view === 'outline'}><ListTree size={14} />大纲</button><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')} aria-pressed={view === 'map'}><Map size={14} />导图</button></div><span className="subtle-count">{topics.length} 个主题</span><Button className="text-button small" onClick={() => setModal({ mode: 'add' })}><Plus size={14} />新建主题</Button></div>
     {!topics.length ? <EmptyState icon={GitBranch} title="沿着原话找到相关讨论" action={<div className="empty-flow"><span>记录发言</span><ChevronRight size={13} /><span>连接主题</span><ChevronRight size={13} /><span>形成决定</span></div>}>开始录音或补充会议原文后，AI 会连接相关主题，帮助定位概念、前提和决定的原话。</EmptyState> : <div className={`topic-layout view-${view}`}>
@@ -129,12 +142,18 @@ function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskT
       {topic && <div className="topic-detail" key={topic.id}>
         <div className="topic-detail-heading"><span className="eyebrow">当前主题</span><div className="topic-detail-actions"><IconButton title="修正主题" onClick={() => setModal({ mode: 'edit', topic })}><Pencil size={14} /></IconButton><IconButton title="拆分主题" onClick={() => setModal({ mode: 'split', topic })} disabled={!entries.length}><Scissors size={14} /></IconButton><IconButton title="合并主题" onClick={() => setModal({ mode: 'merge', topic })} disabled={topics.length < 2}><Merge size={14} /></IconButton></div></div>
         <h3>{topic.title}</h3>{topic.summary && <p className="topic-summary">{topic.summary}</p>}{topic.stale && <span className="stale-tag">摘要原文已更新，待复核</span>}{topic.manualFields?.length > 0 && <span className="manual-badge">主持人已修订</span>}
-        {Object.entries(kinds).map(([key, { label, icon: Icon }]) => {
-          const group = entries.filter(entry => entry.type === key && entry.status !== 'superseded');
-          return group.length ? <section className={`entry-group ${key}`} key={key}><h4><Icon size={14} />{label}<span>{group.length}</span></h4>{group.map(entry => <DiscussionEntry key={entry.id} entry={entry} onEdit={entry => setModal({ mode: 'entry', entry })} onEvidence={onEvidence} />)}</section> : null;
-        })}
+        {topic.summaryEvidenceIds?.length > 0 && <details className="topic-summary-sources"><summary>查看概述依据</summary><Evidence ids={topic.summaryEvidenceIds} onSelect={onEvidence} /></details>}
+        <EntryGroups entries={readingEntries.visible} onEdit={editEntry} onEvidence={onEvidence} />
+        {readingEntries.more.length > 0 && <details className="topic-more"><summary>展开其余 {readingEntries.more.length} 条</summary><EntryGroups entries={readingEntries.more} onEdit={editEntry} onEvidence={onEvidence} /></details>}
         {!entries.length && <p className="topic-no-entries">主题已建立。相关发言定稿后，整理结果会出现在这里。</p>}
-        {entries.some(entry => entry.status === 'superseded') && <details className="superseded-list"><summary>查看已替代的条目（{entries.filter(entry => entry.status === 'superseded').length}）</summary>{entries.filter(entry => entry.status === 'superseded').map(entry => <DiscussionEntry key={entry.id} entry={entry} onEdit={entry => setModal({ mode: 'entry', entry })} onEvidence={onEvidence} />)}</details>}
+        {(readingEntries.history.length > 0 || summaryHistory.length > 0) && <details className="topic-process"><summary>讨论过程</summary>
+          {[...summaryHistory].reverse().map((version, index) => {
+            const changedAt = version.changedAt || version.updatedAt;
+            const evidenceIds = version.evidenceIds || version.summaryEvidenceIds || [];
+            return <article className="topic-summary-version" key={`${changedAt || version.sourceRevision || 'summary'}:${index}`}><p className="topic-version-caption">此前概述{changedAt ? ` · ${formatDate(changedAt)}` : ''}{version.sourceRevision != null ? ` · 转录版本 ${version.sourceRevision}` : ''}</p><p>{version.summary}</p><Evidence ids={evidenceIds} onSelect={onEvidence} /></article>;
+          })}
+          {readingEntries.history.map(entry => <DiscussionEntry key={entry.id} entry={entry} onEdit={editEntry} onEvidence={onEvidence} />)}
+        </details>}
         <Button className="topic-ask text-button small" onClick={() => onAskTopic(topic.id)}><Sparkles size={14} />围绕这个主题提问</Button>
       </div>}
     </div>}

@@ -4,11 +4,11 @@ All data is scoped to a meeting. Server uses camelCase JSON. Credentials are sto
 
 ## Data
 
-Meeting: id,title,goal,status(planned|active|ended),source(recording_import optional),importJobId(optional),archived,createdAt,updatedAt,transcriptRevision,transcriptEditRevision,contentRevision,processedRevision,processedThroughMs,autoOrganize,topics,followups,questions,artifacts,speakerLabels.
-Topic: id,parentId(null for root),title,summary,entries[],manualFields[],mergedInto(optional).
+Meeting: id,title,goal,status(planned|active|ended),source(recording_import optional),importJobId(optional),archived,createdAt,updatedAt,transcriptRevision,transcriptEditRevision,contentRevision,processedRevision,processedThroughMs,autoOrganize,focusFollowupId(optional ID|null),focusSourceRevision(optional),topics,followups,questions,artifacts,speakerLabels.
+Topic: id,parentId(null for root),title,summary,summaryEvidenceIds[],sourceRevision,entries[],manualFields[],mergedInto(optional),history[]. Summary history stores {summary,evidenceIds[],sourceRevision,changedAt}. Omitting summary preserves the current version; accepted changes retain its previous text and sources.
 Entry: id,type(viewpoint|question|decision|action),text,speakerId(optional),evidenceIds[],status(active|open|resolved|superseded),owner(optional),due(optional),author(ai|host|agent),manualFields[],history[].
-Followup (clarification focus): id,topicId,kind(concept|assumption|criteria|other),question,shortQuestion(optional),discussionValue(optional),rationale,impact,evidenceIds[],status(active|ignored|recorded|resolved),sourceRevision,presentationSourceRevision(optional),stale,author,manualFields[],history[]. Legacy followups may omit kind/impact. Optional presentation fields do not replace the full question or its evidence.
-Resolution: followup.resolution = {outcome(recorded|clarified|needs_verification|difference_remains),text,evidenceIds[],evidence[],author(ai|host|agent),sourceRevision,updatedAt,stale}. The default recorded outcome preserves a note and leaves the question unresolved; it does not establish a decision or agreement. Classified resolved outcomes are also not necessarily agreement or verified assumptions. Legacy state-only resolved items have no inferred resolution.
+Followup (clarification focus): id,topicId,kind(concept|assumption|criteria|other),question,shortQuestion(optional),discussionValue(optional),rationale,impact,evidenceIds[],status(active|ignored|recorded|resolved|merged),mergedInto(optional),mergedFrom(optional array of IDs),sourceRevision,presentationSourceRevision(optional),stale,pendingReview,author,manualFields[],history[]. Existing AI questions can evolve under the same ID. Merging preserves the source item and its history; merged items do not remain independent active questions. Legacy followups may omit kind/impact. Optional presentation fields do not replace the full question or its evidence.
+Resolution: followup.resolution = {outcome(recorded|clarified|needs_verification|difference_remains),text,complete(optional boolean for legacy/host records),evidenceIds[],evidence[],author(ai|host|agent),sourceRevision,updatedAt,stale,pendingReview}. New AI resolutions require complete: false keeps the question active with partial progress; true marks it resolved because the core question no longer needs current discussion. Outcome describes the nature of the progress, not completion or consensus. The default host recorded outcome preserves a note and leaves the question unresolved. Legacy state-only resolved items have no inferred resolution.
 QuestionAnswer: id,question,answer,inference,evidenceIds[],topicId(optional),sourceRevision,stale.
 Artifact: id,type,title,markdown,sourceRevision,author,updatedAt,stale.
 Transcript: id,meetingId,recordingId(optional),text,speakerId,startSample,endSample,startMs,endMs,revision,origin(asr|host|agent),timing(chunk optional),createdAt. startMs/endMs are meeting timeline coordinates; sample coordinates locate one recording. timing=chunk means approximate file-ASR chunk alignment, not sentence timing.
@@ -20,7 +20,7 @@ Command: id,meetingId,action(start|pause|resume|stop|end),status(pending|needs_u
 ## HTTP API (JSON)
 
 GET /api/health
-GET /api/settings -> {llm:{baseUrl,model,configured},asr:{configured,resourceId},fileAsr:{baseUrl,model,language,configured}}. PUT same shape accepts apiKey,appKey,accessKey,baseUrl,model,resourceId,language; blank secret preserves prior value. File ASR is independent from live ASR, default local oMLX on port 8000.
+GET /api/settings -> {llm:{baseUrl,model,reasoningEffort,configured},asr:{configured,resourceId},fileAsr:{provider,resourceId,baseUrl,model,language,configured}}. PUT accepts the corresponding provider settings and credentials; blank secrets preserve prior values. Fresh installations default file ASR to Volcengine, sharing live-ASR credentials with a separate file resource ID; the OpenAI-compatible alternative retains its own settings.
 GET /api/meetings?archived=1 -> {meetings:[]}; POST {title,goal} -> Meeting
 POST /api/meetings/import (multipart file,title?,goal?) -> 202 {meeting,job}; creates an ended meeting only after full local upload, then decodes and transcribes asynchronously.
 POST /api/meetings/:id/import/retry -> Job; resumes failed import checkpoints, returns the existing job for running/done tasks.
@@ -34,13 +34,17 @@ POST /api/meetings/:id/topics {title,parentId?,entryIds?} -> Meeting (new/split 
 POST /api/meetings/:id/topics/:topicId/merge {targetId} -> Meeting
 PATCH /api/meetings/:id/entries/:entryId {text,type,status,owner,due} -> Meeting
 PATCH /api/meetings/:id/followups/:followupId {status?:ignored|recorded|resolved,shortQuestion?,discussionValue?,author?,sourceRevision?,transcriptEditRevision?,resolution?:{outcome:recorded|clarified|needs_verification|difference_remains,text,evidenceIds?}} -> Meeting. Use the sourceRevision and transcriptEditRevision read before editing: appends permit saving with the original sourceRevision; a changed edit revision returns 409. An older sourceRevision without an edit revision also requires re-reading. Evidence is checked against the meeting. Human/Agent notes without evidence are allowed with explicit provenance; never appended to transcript. Presentation-only updates preserve existing artifact validity.
-POST /api/meetings/:id/jobs {type,question?,topicId?,force?} -> Job; GET /api/jobs/:id -> Job. organize + force=true rereads all finalized transcript, preserving stable IDs, human changes and clarification outcomes. Ordinary organize remains incremental.
+POST /api/meetings/:id/jobs {type,question?,topicId?,force?} -> Job; GET /api/jobs/:id -> Job. organize + force=true rereads all finalized transcript, preserving stable IDs, human changes and clarification history, then reviews remaining open/pending AI questions. Ordinary organize remains incremental.
 POST /api/meetings/:id/commands {action} -> Command; GET /api/commands/:id -> Command
 PUT /api/meetings/:id/artifacts/:type {title,markdown,author?,sourceRevision?} -> Artifact
 GET /api/meetings/:id/export -> Markdown download
 GET /api/recordings/:id/audio?startSample=0&endSample=... -> WAV
 
 Frontend polls selected meeting and transcript every 2 seconds; organized auto jobs are scheduled server-side while capture is recording. No frontend auto-job scheduler.
+
+The focus view follows focusFollowupId by default. Explicit null means quiet; only legacy meetings without this field fall back to the first active item. If a non-null recommendation still points to a resolved/ignored item after a host action, the client continues to another valid active item, preferring the same topic and then subsequent queue order. Stale/missing recommendations do not trigger this fallback. Choosing another question or opening evidence holds the reading position until “回到当前”. Inline editing and the progress editor temporarily pause following and restore the prior mode on close. Merged IDs resolve to their target.
+
+Topic details show up to five current entries by default, except all current decisions/actions remain visible even above that limit. Other current entries expand on demand. Answered questions, superseded/stale entries and previous summaries are available in discussion history with their source links.
 
 ## Store interface (synchronous)
 
@@ -57,6 +61,10 @@ saveArtifact(meetingId,type,input),close(). All get methods throw status=404 whe
 export createAIService({store}) from server/ai/service.js -> {submit(meetingId,type,input={}): Job, start(), stop()}. Uses store interface above; jobs serial per meeting; persists/restores queue; server-side timer schedules organize only for recording meetings with autoOrganize true and changed finalized transcript. Root sets meeting.capture state during capture updates. LLM via fetch OpenAI-compatible chat/completions with store.getSettings().llm. AI owns reducer, prompting, retrieval and focused tests.
 
 Model JSON must match the operation's basic structure before applying results: organization has topics/followups arrays; answers have answer text and evidence array. Invalid objects (including echoed input) fail the job without advancing the source watermark. Empty arrays are valid. Citation and ownership validation remain separate from this structural check.
+
+Organization uses stable entry IDs to update an ongoing issue; supersedes can consolidate ordinary entries as well as replace explicit decisions, with source/history retention and manual-field protection. Summary updates use summaryEvidence for the whole current summary. Incremental source assembly adds existing conclusion evidence, issue-specific retrieval and nearby replies instead of repeating only the original question citations.
+
+Before producing minutes, and after forced reanalysis, the service reviews eligible active or pending AI questions in bounded groups. Review can record partial/full answers, evolve or merge questions and update the recommendation; followupLimit=0 prevents new questions. Host/Agent records and ignored items are protected. Retrieval is bounded, so missing evidence is not proof that no answer exists; these mechanics do not establish real-meeting quality without evaluation.
 
 ## Capture modules
 
