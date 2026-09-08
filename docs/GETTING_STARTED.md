@@ -1,0 +1,204 @@
+# 上手指南
+
+先让本机界面运行起来，再按需要连接转录和大模型服务。项目不包含模型服务、账户密钥或真实会议数据。
+
+## 1. 准备环境
+
+- **Node.js 22.13 或更新版本及 npm**：运行服务、安装依赖和构建界面。
+- **浏览器**：查看工作台；实时录音需要允许麦克风访问。
+- **ffmpeg**：仅导入录音时需要，实时麦克风录音不依赖它。
+
+在终端检查：
+
+```sh
+node --version
+npm --version
+```
+
+macOS 使用「终端」，Windows 使用 PowerShell。下面的 npm 命令在两者中相同。项目已有 macOS 使用记录；Windows 的完整录音、导入及系统声音采集流程尚未实机验收。
+
+### 安装 ffmpeg
+
+macOS 已安装 Homebrew 时，可执行：
+
+```sh
+brew install ffmpeg
+```
+
+Windows 安装 ffmpeg 后，将包含 `ffmpeg.exe` 的目录加入 `PATH`，重新打开 PowerShell。也可在后文的 `.env` 中设置完整路径，例如 `FFMPEG_PATH=C:/tools/ffmpeg/bin/ffmpeg.exe`。
+
+验证命令：
+
+```sh
+ffmpeg -version
+```
+
+能输出版本信息后，再尝试导入文件。工作台不会自动下载 ffmpeg 或 ASR 模型。
+
+## 2. 启动工作台
+
+解压项目，在包含 `package.json` 的目录打开终端，依次执行：
+
+```sh
+npm ci
+npm run build
+npm start
+```
+
+终端显示 `会议工作台 http://127.0.0.1:8797` 后，在同一台电脑的浏览器打开这个地址。保持终端运行；下次使用直接执行 `npm start`。代码更新后先执行 `npm ci` 和 `npm run build`，再启动服务。
+
+首次启动会在项目内创建 `data/`。没有填写任何密钥时，仍可打开界面、创建会议和保存人工记录。默认文件转录地址只是预填设置，不代表本机已有识别服务。
+
+停止服务前先结束录音，等待尾段保存；如正在导入或分析，等任务完成后再退出。在终端按 `Ctrl+C` 停止服务。刷新或关闭正在采集的页面会中断录音，重新开始需要再次授权。
+
+服务仅允许本机访问，不支持把这个地址发给另一台电脑共同编辑。会中观看使用投屏或会议软件共享窗口；同事可在自己的电脑上运行独立工作台。
+
+## 3. 按用途配置服务
+
+点击侧栏「连接设置」，或会议右上角「会议操作 → 连接设置」。三项设置相互独立：
+
+| 用途 | 需要配置 | 接口与填写内容 |
+| --- | --- | --- |
+| 现场录音实时转文字 | 实时语音识别 | 火山引擎流式 ASR：API Key、Resource ID；也支持 App Key + Access Key |
+| 导入已有录音并转文字 | 录音文件转录 | 兼容 `/v1/audio/transcriptions` 的服务：地址、模型名称、API Key、语言 |
+| 澄清、主题、问答、纪要 | AI 模型 | 兼容 OpenAI Chat Completions 的服务：地址、模型名称、API Key |
+
+例如，测试已有录音只需配置「录音文件转录」和「AI 模型」，无须配置实时 ASR。只配置 ASR 会产生转录文字，主题和澄清需要另外连接 AI 模型。
+
+文件转录默认地址是 `http://127.0.0.1:8000`，默认模型是 `Qwen3-ASR-1.7B-8bit`，用于已有的本机 oMLX 服务。如果未运行该服务，应填写实际可用的转录服务地址和模型，而不是直接保留默认值。本机服务不要求密钥时可以不填；服务要求认证时填写对应密钥。语言默认 `zh`。
+
+AI 模型默认预填 DeepSeek 地址和模型名，须按实际账户填写。思考强度可选「模型默认」或「较低（优先响应速度）」；只有服务支持 `reasoning_effort: low` 时才选择较低强度。切换后可以用同一份转录比较分析效果。
+
+「已配置」只表示配置项已经保存，不是连接测试结果。先用一段短录音检查转录，再手动分析，分别确认两个服务可用。密钥保存在本机服务端，不返回网页或会议导出；保存时将密钥留空会保留已有值。
+
+### 使用 `.env` 配置
+
+也可以复制项目根目录的 `.env.example` 为 `.env`，填写自己的设置。已有 `.env` 时直接编辑，不要执行下面的复制命令覆盖它。
+
+macOS：
+
+```sh
+cp .env.example .env
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+环境变量提供默认配置；在界面保存过的模型与 ASR 设置优先于这些默认值。修改 `.env` 后重启服务。
+
+| 变量 | 用途或默认值 |
+| --- | --- |
+| `HOST` / `PORT` | `127.0.0.1` / `8797`；`HOST` 仅允许本机地址 |
+| `WORKBENCH_DATA_DIR` | 数据目录，默认项目内的 `data/` |
+| `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | 大模型地址、模型和凭据 |
+| `VOLCENGINE_ASR_API_KEY` | 实时 ASR 的 API Key |
+| `VOLCENGINE_ASR_APP_KEY` / `VOLCENGINE_ASR_ACCESS_KEY` | 实时 ASR 的另一种凭据组合 |
+| `VOLCENGINE_ASR_RESOURCE_ID` | 实时 ASR 资源，默认 `volc.bigasr.sauc.duration` |
+| `FILE_ASR_BASE_URL` / `FILE_ASR_MODEL` | 文件转录地址与模型 |
+| `FILE_ASR_API_KEY` / `FILE_ASR_LANGUAGE` | 文件转录凭据与语言；语言默认 `zh` |
+| `FFMPEG_PATH` | ffmpeg 可执行文件路径；未设置时从 `PATH` 查找 |
+
+日常使用保留默认端口即可。如果开发时修改 `PORT`，还需同步修改 `vite.config.js` 中指向 `8797` 的 API 和 WebSocket 代理；`npm start` 不使用这层开发代理。
+
+## 4. 完成一场会议
+
+### 导入已有录音
+
+1. 点击侧栏「导入录音」，选择文件，填写会议名称和讨论目标。
+2. 等待解码和分段转录。支持 WAV、MP3、M4A、MP4、FLAC、OGG、WebM 等格式，单文件不超过 512 MiB。
+3. 转录完成后，已配置的大模型会接着整理主题、澄清和纪要。转录完成与 AI 分析完成是两个状态，长会议需要分批处理。
+4. 在「录音与原文」中核对关键数字、人名、否定词和说话人。点击引用可以定位原文并回听。
+5. 在「澄清焦点」中讨论当前问题，在「讨论脉络」中查看主题及讨论条目。
+
+文件识别按最多 60 秒分段。服务没有返回有效句级时间时，界面标记「按录音段定位」；跨段说话人身份需要人工核对。解码后的音频上限为 2 GiB，更长录音需要先拆分。
+
+导入失败会保留原始文件、已解码音频和完成的转录。检查错误、修正配置后点击「重试导入」，继续未完成的分段。AI 分析失败时，从「会议操作」查看「处理记录」并重试分析，无须重新上传录音。
+
+### 现场录音
+
+1. 点击「新建会议」，填写名称与目标。
+2. 选择麦克风，或麦克风加会议声音，开始录音并完成浏览器授权。
+3. 检查界面的录音与转录状态。保存音频、识别语音和 AI 分析分别显示，某一项成功不代表其他项也成功。
+4. 会中按需暂停、继续；结束时点击「结束会议」，等待最后一段音频与转录保存。
+
+共享会议声音取决于浏览器、操作系统和共享对象是否提供音频轨；只共享画面不代表已采集声音。未取得音频时，页面会提示。屏幕画面不会被工作台保存或发送给 ASR / LLM。
+
+ASR 中断时仍继续保存音频，并标记转录缺口；当前版本通过回听核对缺口。浏览器到本机服务的保存连接中断时，需按页面提示恢复，不能仅凭转录状态判断录音完整。
+
+### 讨论记录与纪要
+
+主画面中的简短问题用于引导讨论；解释和引用在「查看依据」中展开。「记下讨论结果」默认保存一条中性的讨论记录，不代表达成共识。已有明确结果时，可进一步记录工作口径、待验证前提或保留分歧。
+
+右上角「会议操作 → 会议纪要」用于查看、更新和编辑纪要。人工编辑过的纪要会保留，后续 AI 更新另存为草稿。问答和 AI 建议不作为参会者已经表达的意见；重要结论应回到转录核对。
+
+导图当前只画主题的父子关系。所有主题并列时，会出现多个独立节点，这是当前实现范围；观点和决定需点击主题后在详情中阅读。
+
+## Agent 接入
+
+先保持工作台运行，再在支持 stdio MCP 的本地 Agent 中添加 `meeting-workbench` 服务。以下是服务连接参数，不是所有 Agent 共用的完整配置文件：
+
+```json
+{
+  "command": "node",
+  "args": ["/path/to/conference_workbench/mcp/server.mjs"],
+  "env": { "WORKBENCH_URL": "http://127.0.0.1:8797" }
+}
+```
+
+将 `args` 中的路径替换为实际项目位置。Windows 可以使用 `C:/projects/conference_workbench/mcp/server.mjs` 这种写法。Agent 找不到 `node` 时，把 `command` 改为 Node 可执行文件的完整路径。若修改了工作台端口，同时修改 `WORKBENCH_URL`。
+
+安装项目 Skill：
+
+```sh
+npm run skills:install
+```
+
+安装器复制 `skills/meeting-workbench/` 到 `$CODEX_HOME/skills/meeting-workbench`；没有设置 `CODEX_HOME` 时使用用户主目录下的 `.codex/skills/meeting-workbench`。原有同名 Skill 会先移入项目的 `data/skill-backups/` 保留。指定其他 Agent 的 Skill 目录时执行：
+
+```sh
+node scripts/install-skills.mjs "/path/to/agent/skills"
+```
+
+让 Agent 重新加载 MCP 和 Skill 后，可先要求「列出会议」，确认 `list_meetings` 能返回本机列表，再执行创建或写入操作。例如：「创建一场方案讨论」「哪些隐含前提会影响当前方案」「记下这条讨论结果」「整理纪要并保存回会议」。
+
+| 工具 | 用法 |
+| --- | --- |
+| `get_meeting_context` / `get_transcript_chunk` | 读取概况，分页读取或搜索原文 |
+| `control_recording` / `get_recording_command` | 请求并回读录音控制；`needs_user_action` 需要浏览器授权，`done` 才表示执行完成 |
+| `import_recording` / `retry_recording_import` | 按本机绝对路径导入录音，或重试未完成的导入 |
+| `organize_meeting` / `ask_meeting` / `get_ai_job` | 提交分析或问答任务，并查询实际结果 |
+| `record_clarification` | 默认 `outcome=recorded`，只记录进展；明确分类后可使用其他结果类型 |
+| `save_artifact` / `get_artifact` | 保存并回读纪要等产物 |
+
+Agent 写入后应回读确认。原文或说话人已修正时，需要重新核对来源，不能仅把旧结果的版本号改新后重试。完整工作流见 [meeting-workbench Skill](../skills/meeting-workbench/SKILL.md)。
+
+## 数据与备份
+
+| 路径 | 内容 |
+| --- | --- |
+| `data/workbench.sqlite` | 会议、转录、AI 结果、设置和密钥 |
+| `data/audio/` | 用于回听的 PCM 音频 |
+| `data/imports/` | 导入的原始录音 |
+| `.env` | 本机启动与服务配置 |
+
+自定义 `WORKBENCH_DATA_DIR` 后，数据会存入该目录。录音采用 16 kHz、16-bit、单声道 PCM，每小时约占 115 MB。归档只收起会议，可以恢复，默认不会删除音频。
+
+备份时先停止服务，再复制整个数据目录；恢复时同样先停止服务，保留原目录副本后再替换。数据目录包含密钥和录音，只用于自己的备份或明确授权的数据迁移，不要混入给同事的程序包。各自运行工作台时，各自配置账户。
+
+## 常见问题
+
+| 现象 | 检查与处理 |
+| --- | --- |
+| `node:sqlite` 不可用 | 执行 `node --version`，确认当前终端实际使用 Node.js 22.13 或更新版本 |
+| PowerShell 拒绝运行 `npm.ps1` | 改用 `npm.cmd ci`、`npm.cmd run build`、`npm.cmd start`，无须为此修改系统执行策略 |
+| 浏览器打不开工作台 | 确认终端仍运行且已执行构建；使用终端输出的地址。出现 `EADDRINUSE` 时先确认是否已有工作台在运行 |
+| 找不到 ffmpeg | 检查 `ffmpeg -version`；修正 `PATH` 或 `FFMPEG_PATH` 后重启工作台，再重试导入 |
+| 只有转录，没有澄清或主题 | 检查 AI 模型配置与「处理记录」。文件 ASR 成功不代表大模型已配置或分析已完成 |
+| AI 分析等待较久 | 长会议分批处理，单批请求最多等待 5 分钟。先查看任务进度；服务支持时可降低思考强度 |
+| 修改 `.env` 后配置没变 | 界面保存过的配置优先；在「连接设置」中修改实际使用的地址、模型或密钥 |
+| Agent 发出录音命令但没有开始 | 用 `get_recording_command` 读取状态，在已打开的会议页面完成授权，并检查实际采集状态 |
+
+需要排查问题时，记录所用系统、Node 版本、操作步骤和界面错误；分享日志或截图前去掉密钥与会议中的私人内容。
