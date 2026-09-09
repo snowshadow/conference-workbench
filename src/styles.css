@@ -238,22 +238,27 @@ form > label { margin-bottom: 20px; }
 .discussion-tabs small { font-size: 12px; background: var(--brand-selected); color: var(--brand-deep); border-radius: 5px; padding: 1px 6px; }
 .discussion-view { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .discussion-view[hidden] { display: none; }
-.discussion-job-status { display: flex; align-items: flex-start; flex-shrink: 0; gap: 9px; max-height: 175px; overflow: auto; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-hover); color: var(--ink-secondary); }
-.discussion-job-status > svg { flex-shrink: 0; margin-top: 2px; }
-.discussion-job-copy { flex: 1; min-width: 0; font-size: 12px; line-height: 1.6; }
-.discussion-job-copy > strong { color: var(--ink-secondary); font-size: 13px; font-weight: 600; }
-.discussion-job-copy p { margin-top: 3px; overflow-wrap: anywhere; }
-.discussion-job-status.is-pending { background: var(--warning-bg); color: var(--warning); }
-.discussion-job-status.has-error { background: var(--error-bg); border-color: var(--error-border); color: var(--error); }
-.discussion-job-status.has-error strong { color: var(--error); }
-.discussion-job-status.is-cancelled { background: var(--warning-bg); color: var(--warning); }
-.discussion-job-status.is-done { padding-top: 8px; padding-bottom: 8px; }
-.discussion-job-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 170px; }
-.discussion-job-actions > .button { padding: 5px 7px; min-height: 28px; }
-.discussion-job-copy progress { display: block; width: 100%; max-width: 320px; height: 4px; margin-top: 7px; border: 0; border-radius: 4px; overflow: hidden; accent-color: var(--progress); background: var(--progress-track); }
-.discussion-job-copy progress::-webkit-progress-bar { background: var(--progress-track); }
-.discussion-job-copy progress::-webkit-progress-value { background: var(--progress); }
-@media (max-width: 1100px) { .discussion-job-status { flex-wrap: wrap; }.discussion-job-copy { flex-basis: calc(100% - 25px); }.discussion-job-actions { margin-left: auto; max-width: none; } }
+.discussion-status-slot { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; }
+.discussion-status-slot > .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.discussion-status-button { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; max-width: 100%; min-height: 40px; padding: 0 8px; border-radius: 18px; color: var(--ink-muted); font-size: 12px; white-space: nowrap; }
+.discussion-status-button:hover { color: var(--ink); background: var(--navigation-surface); }
+.discussion-status-label { overflow: hidden; text-overflow: ellipsis; }
+.discussion-status-count { display: inline-flex; gap: 7px; font-variant-numeric: tabular-nums; }
+.discussion-status-count::before { content: '·'; }
+.discussion-status-button.has-error { color: var(--error); }
+.discussion-status-button.is-cancelled { color: var(--warning); }
+.discussion-status-button.is-done { animation: discussion-status-fade 1800ms ease-out both; }
+.discussion-status-button.is-done:focus-visible { animation: none; }
+@keyframes discussion-status-fade { 0%, 78% { opacity: 1; } 100% { opacity: 0; } }
+.discussion-status-details { padding: 22px 26px 26px; font-size: 14px; line-height: 1.7; color: var(--ink-secondary); }
+.discussion-status-details > strong { color: var(--ink); font-weight: 550; }
+.discussion-status-details > p { margin-top: 12px; }
+.discussion-status-details .discussion-status-error { color: var(--error); }
+.discussion-status-details progress { display: block; width: 100%; height: 4px; margin-top: 14px; border: 0; border-radius: 4px; overflow: hidden; accent-color: var(--progress); background: var(--progress-track); }
+.discussion-status-details progress::-webkit-progress-bar { background: var(--progress-track); }
+.discussion-status-details progress::-webkit-progress-value { background: var(--progress); }
+.discussion-status-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+@media (prefers-reduced-motion: reduce) { .discussion-status-button.is-done { animation: none; } }
 .clarification-trigger { color: var(--brand-deep); }
 .clarification-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .clarification-principle { display: flex; align-items: center; flex-shrink: 0; gap: 7px; padding: 12px 18px 8px; color: var(--ink-muted); font-size: 12px; line-height: 1.6; }

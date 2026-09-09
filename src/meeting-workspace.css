@@ -41,8 +41,8 @@
 .header-capture-state.recording, .header-capture-state.interrupted { color: var(--error); }
 .discussion-stage { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .discussion-stage > .panel-body { overflow: hidden; }
-.focused-workbench .discussion-toolbar { min-height: 52px; padding: 2px 0 8px; border: 0; }
-.focused-workbench .discussion-tabs { display: inline-flex; align-self: center; gap: 3px; padding: 4px; border-radius: 28px; background: var(--navigation-surface); }
+.focused-workbench .discussion-toolbar { height: 56px; min-height: 56px; max-height: 56px; flex-wrap: nowrap; padding: 2px 0 8px; border: 0; container: discussion-toolbar / inline-size; }
+.focused-workbench .discussion-tabs { display: inline-flex; flex-shrink: 0; align-self: center; gap: 3px; padding: 4px; border-radius: 28px; background: var(--navigation-surface); }
 .focused-workbench .discussion-tabs > button { min-height: 37px; padding: 0 21px; border-radius: 23px; color: var(--ink-muted); transition: color 180ms, background 180ms, box-shadow 180ms; }
 .focused-workbench .discussion-tabs > button[aria-selected=true] { color: var(--ink); background: var(--surface); box-shadow: var(--shadow-control); font-weight: 550; }
 .focused-workbench .discussion-tabs > button[aria-selected=true]::after { display: none; }
@@ -56,9 +56,6 @@
 .meeting-menu-group > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-muted); }
 .meeting-menu-status, .meeting-menu-goal { padding: 12px 13px 5px; font-size: 11px; color: var(--ink-muted); line-height: 1.75; }
 .meeting-menu-goal { padding-top: 5px; overflow-wrap: anywhere; }
-.focused-workbench .discussion-job-status { margin: 9px 0; border: 0; border-radius: 15px; }
-.focused-workbench .discussion-job-status.is-pending { background: var(--transparent); padding-left: 12px; }
-.focused-workbench .discussion-job-status.is-pending .discussion-job-copy > strong { font-size: 12px; font-weight: 500; }
 .focused-workbench .topic-toolbar { border: 0; padding: 12px 4px; }
 .focused-workbench .topic-layout { gap: 22px; }
 .focused-workbench .outline-tree { background: var(--transparent); border: 0; }
@@ -123,6 +120,15 @@
   .focused-workbench .topic-layout { gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .meeting-tool-launcher, .discussion-options > summary, .focused-workbench .discussion-tabs > button { transition: none; } .discussion-options-menu { animation: none; } }
+@container discussion-toolbar (max-width: 380px) {
+  .discussion-status-count { display: none; }
+  .focused-workbench .discussion-tabs > button { padding-inline: 10px; }
+  .discussion-status-button { padding-inline: 4px; gap: 5px; }
+}
+@container discussion-toolbar (max-width: 280px) {
+  .focused-workbench .discussion-tabs > button { padding-inline: 6px; font-size: 12px; }
+  .discussion-status-button { font-size: 11px; padding-inline: 2px; gap: 4px; }
+}
 @media (max-width: 480px) {
   .meeting-tool-launcher { padding-left: 9px; padding-right: 9px; min-height: 44px; }
   .meeting-tool-launcher > small { display: none; }
