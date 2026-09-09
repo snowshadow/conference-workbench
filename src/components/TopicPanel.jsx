@@ -3,7 +3,6 @@ import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react
 import { ChevronDown, ChevronRight, CircleHelp, GitBranch, ListTree, Map, Merge, Pencil, Plus, Quote, Scissors, Sparkles, Target, CheckCheck, UserRound, CalendarDays } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { isCurrentEntry, topicReadingEntries } from '../../shared/discussion-view.js';
-import { formatDate } from '../lib/api.js';
 import { buildTopicMap } from '../lib/topic-map.js';
 import '@xyflow/react/dist/style.css';
 import './TopicNavigation.css';
@@ -95,11 +94,12 @@ function Outline({ topics, selected, setSelected, folded, toggleFold }) {
 }
 
 function DiscussionEntry({ entry, onEdit, onEvidence }) {
-  return <article className={`discussion-entry ${entry.status === 'superseded' ? 'superseded' : ''}`}>
+  const author = entry.manualFields?.length || entry.author === 'host' ? '主持人修订' : entry.author === 'agent' ? 'Agent 写入' : null;
+  const note = [author, entry.status === 'resolved' ? statusNames.resolved : null].filter(Boolean).join(' · ');
+  return <article className="discussion-entry">
     <div className="entry-copy"><p>{entry.text}</p><IconButton title="修正条目" className="entry-edit" onClick={() => onEdit(entry)}><Pencil size={13} /></IconButton></div>
     {(entry.owner || entry.due) && <div className="entry-assignee">{entry.owner && <span><UserRound size={12} />{entry.owner}</span>}{entry.due && <span><CalendarDays size={12} />{entry.due}</span>}</div>}
-    <div className="entry-footer"><Evidence ids={entry.evidenceIds} onSelect={onEvidence} /><span className="entry-origin">{entry.manualFields?.length || entry.author === 'host' ? '主持人修订' : entry.author === 'agent' ? 'Agent 写入' : 'AI 整理'}{['resolved', 'superseded'].includes(entry.status) && ` · ${statusNames[entry.status]}`}</span>{entry.stale && <span className="stale-tag">原文已更新，待复核</span>}</div>
-    {entry.history?.length > 0 && <details className="entry-history"><summary>{entry.history.length} 次修订记录</summary>{entry.history.map((history, index) => <p key={index}>{history.text || history.previous?.text || history.before?.text || '记录已修订'}{history.status ? `（${statusNames[history.status] || history.status}）` : ''}<Evidence ids={history.evidenceIds || history.previous?.evidenceIds || []} onSelect={onEvidence} compact /></p>)}</details>}
+    {(entry.evidenceIds?.length > 0 || note) && <div className="entry-footer"><Evidence ids={entry.evidenceIds} onSelect={onEvidence} />{note && <span className="entry-origin">{note}</span>}</div>}
   </article>;
 }
 
@@ -123,7 +123,7 @@ function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskT
   const toggleFold = useCallback(id => setFolded(previous => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; }), []);
   const entries = topic?.entries || [];
   const readingEntries = topicReadingEntries(entries);
-  const summaryHistory = (topic?.history || []).filter(version => typeof version.summary === 'string' && version.summary.trim());
+  const needsReview = topic?.stale || entries.some(entry => entry.stale && entry.status !== 'superseded' && !(entry.type === 'question' && entry.status === 'resolved'));
   const editEntry = entry => setModal({ mode: 'entry', entry });
   return <div className="topic-panel-content">
     <div className="topic-toolbar"><div className="segmented" aria-label="主题视图"><button className={view === 'outline' ? 'active' : ''} onClick={() => setView('outline')} aria-pressed={view === 'outline'}><ListTree size={14} />大纲</button><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')} aria-pressed={view === 'map'}><Map size={14} />导图</button></div><span className="subtle-count">{topics.length} 个主题</span><Button className="text-button small" onClick={() => setModal({ mode: 'add' })}><Plus size={14} />新建主题</Button></div>
@@ -131,19 +131,11 @@ function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskT
       {view === 'outline' ? <Outline topics={topics} selected={selected} setSelected={setSelected} folded={folded} toggleFold={toggleFold} /> : <TopicMap topics={topics} meetingTitle={meeting.title} selected={selected} setSelected={setSelected} folded={folded} toggleFold={toggleFold} viewport={viewport} />}
       {topic && <div className="topic-detail" key={topic.id}>
         <div className="topic-detail-heading"><span className="eyebrow">当前主题</span><div className="topic-detail-actions"><IconButton title="修正主题" onClick={() => setModal({ mode: 'edit', topic })}><Pencil size={14} /></IconButton><IconButton title="拆分主题" onClick={() => setModal({ mode: 'split', topic })} disabled={!entries.length}><Scissors size={14} /></IconButton><IconButton title="合并主题" onClick={() => setModal({ mode: 'merge', topic })} disabled={topics.length < 2}><Merge size={14} /></IconButton></div></div>
-        <h3>{topic.title}</h3>{topic.summary && <p className="topic-summary">{topic.summary}</p>}{topic.stale && <span className="stale-tag">摘要原文已更新，待复核</span>}{topic.manualFields?.length > 0 && <span className="manual-badge">主持人已修订</span>}
+        <h3>{topic.title}</h3>{topic.summary && <p className="topic-summary">{topic.summary}</p>}{needsReview && <span className="stale-tag">原文有修改，相关内容待重新核对</span>}{topic.manualFields?.length > 0 && <span className="manual-badge">主持人已修订</span>}
         {topic.summaryEvidenceIds?.length > 0 && <details className="topic-summary-sources"><summary>查看概述依据</summary><Evidence ids={topic.summaryEvidenceIds} onSelect={onEvidence} /></details>}
         <EntryGroups entries={readingEntries.visible} onEdit={editEntry} onEvidence={onEvidence} />
         {readingEntries.more.length > 0 && <details className="topic-more"><summary>展开其余 {readingEntries.more.length} 条</summary><EntryGroups entries={readingEntries.more} onEdit={editEntry} onEvidence={onEvidence} /></details>}
         {!entries.length && <p className="topic-no-entries">主题已建立。相关发言定稿后，整理结果会出现在这里。</p>}
-        {(readingEntries.history.length > 0 || summaryHistory.length > 0) && <details className="topic-process"><summary>讨论过程</summary>
-          {[...summaryHistory].reverse().map((version, index) => {
-            const changedAt = version.changedAt || version.updatedAt;
-            const evidenceIds = version.evidenceIds || version.summaryEvidenceIds || [];
-            return <article className="topic-summary-version" key={`${changedAt || version.sourceRevision || 'summary'}:${index}`}><p className="topic-version-caption">此前概述{changedAt ? ` · ${formatDate(changedAt)}` : ''}{version.sourceRevision != null ? ` · 转录版本 ${version.sourceRevision}` : ''}</p><p>{version.summary}</p><Evidence ids={evidenceIds} onSelect={onEvidence} /></article>;
-          })}
-          {readingEntries.history.map(entry => <DiscussionEntry key={entry.id} entry={entry} onEdit={editEntry} onEvidence={onEvidence} />)}
-        </details>}
         <Button className="topic-ask text-button small" onClick={() => onAskTopic(topic.id)}><Sparkles size={14} />围绕这个主题提问</Button>
       </div>}
     </div>}

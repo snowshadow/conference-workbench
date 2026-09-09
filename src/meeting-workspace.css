@@ -82,7 +82,6 @@
 .dock-configure { color: var(--brand-deep); }
 .transcript-service-status { display: flex; align-items: center; gap: 12px; flex-shrink: 0; padding: 5px 20px 10px; font-size: 11px; color: var(--ink-muted); }
 .transcript-service-status button { color: var(--brand-deep); font-size: inherit; }
-.focused-workbench .meeting-tool-window .progress-scroll { padding-top: 8px; }
 .meeting-tool-window .transcript-line { grid-template-columns: 76px minmax(0, 1fr) 26px; gap: 5px 10px; padding: 13px 7px; }
 .meeting-tool-window .line-time { grid-column: 1; grid-row: 1; }
 .meeting-tool-window .line-speaker { grid-column: 2; grid-row: 1; justify-self: start; max-width: 100%; }

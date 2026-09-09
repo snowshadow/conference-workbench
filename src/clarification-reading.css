@@ -78,6 +78,7 @@
 .quiet-resolution .resolution-provenance > summary { min-height: 30px; display: flex; align-items: center; width: fit-content; cursor: pointer; list-style: none; }
 .quiet-resolution .resolution-provenance > summary::-webkit-details-marker { display: none; }
 .quiet-resolution .record-review-state, .reading-focus .focus-saved .record-review-state { font-size: 12px; line-height: 1.7; margin-top: 9px; color: var(--warning); }
+.quiet-resolution .record-review-state.newer_speech { color: var(--ink-muted); }
 .quiet-resolution .outcome-badge { background: transparent; padding-left: 0; }
 .quiet-resolution .outcome-badge.recorded { color: var(--ink-muted); }
 .quiet-resolution .resolution-source { margin-top: 8px; }

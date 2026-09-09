@@ -1,0 +1,51 @@
+/* Meeting controls share a quiet surface in every palette. Status keeps its own semantics. */
+.focused-workbench .meeting-header-actions .meeting-action,
+.focused-workbench .meeting-header-actions .meeting-options > summary {
+  min-height: 42px;
+  height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--floating-edge);
+  border-radius: 24px;
+  color: var(--ink-secondary);
+  background: var(--control-material);
+  box-shadow: var(--shadow-control);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.focused-workbench .meeting-header-actions .meeting-action.icon-button,
+.focused-workbench .meeting-header-actions .meeting-options > summary {
+  width: 42px;
+  padding: 0;
+}
+
+.focused-workbench .meeting-header-actions .meeting-action:hover:not(:disabled),
+.focused-workbench .meeting-header-actions .meeting-options > summary:hover,
+.focused-workbench .meeting-header-actions .meeting-options[open] > summary {
+  color: var(--ink);
+  background: var(--surface-hover);
+  border-color: var(--floating-edge);
+  box-shadow: var(--shadow-control);
+}
+
+@media (max-width: 800px) {
+  .focused-workbench .meeting-header-actions .meeting-action,
+  .focused-workbench .meeting-header-actions .meeting-options > summary {
+    min-height: 38px;
+    height: 38px;
+    padding: 0 10px;
+  }
+
+  .focused-workbench .meeting-header-actions .meeting-action.icon-button,
+  .focused-workbench .meeting-header-actions .meeting-options > summary {
+    width: 38px;
+    padding: 0;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .focused-workbench .meeting-header-actions .meeting-action,
+  .focused-workbench .meeting-header-actions .meeting-options > summary {
+    background: var(--surface);
+  }
+}

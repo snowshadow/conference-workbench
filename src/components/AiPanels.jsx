@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ArrowUp, CornerDownRight, LoaderCircle, MessageCircle, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowUp, ChevronDown, LoaderCircle, MessageCircle, RefreshCw } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError } from './ui.jsx';
 import { formatTime } from '../lib/api.js';
 import { questionFeedback, questionProgressLabel, questionRequestKey } from '../../shared/question-feedback.js';
@@ -56,9 +56,27 @@ function QuestionPanel({ meeting, onEvidence, askScope, setAskScope, inputRef, s
   }
   return <div className="question-content">
     <div className="question-scroll" ref={scroll} onScroll={trackReading}>
-      {!questions.length && !feedback.length ? <EmptyState compact icon={MessageCircle} title="向这场会议提问">回顾讨论依据、比较不同说法，或找出还没有验证的前提。回答只依据本次会议。</EmptyState> : questions.map(item => <article className="qa-card" key={item.id}><div className="qa-question"><span><CornerDownRight size={13} /></span><p>{item.question}</p></div>{item.topicId && <div className="qa-scope">关于：{meeting.topics?.find(topic => topic.id === item.topicId)?.title || '指定主题'}</div>}<div className="qa-answer"><div className="answer-heading"><Sparkles size={13} />会议中的信息{item.stale && <span className="stale-tag">原文已更新</span>}</div><MeetingMarkdown onEvidence={onEvidence}>{item.answer}</MeetingMarkdown>{item.inference && <div className="ai-inference"><span>AI 推断</span><MeetingMarkdown onEvidence={onEvidence}>{item.inference}</MeetingMarkdown></div>}<Evidence ids={item.evidenceIds} onSelect={onEvidence} /><div className="qa-scope">依据转录版本 {item.sourceRevision ?? '未知'}{Number.isFinite(item.sourceThroughMs) ? ` · 截至 ${formatTime(item.sourceThroughMs)}` : ''}</div>{(item.stale || item.sourceRevision < meeting.transcriptRevision) && <div className="stale-notice">{item.stale ? '原文已修正，请重新核对这份回答。' : '此后有新发言，这份回答反映提问时的讨论。'}<button onClick={() => prepareRetry(item)}>重新提问 <RefreshCw size={10} /></button></div>}</div></article>)}
+      {!questions.length && !feedback.length ? <EmptyState compact icon={MessageCircle} title="向这场会议提问">回顾讨论依据、比较不同说法，或找出还没有验证的前提。回答只依据本次会议。</EmptyState> : questions.map(item => <article className="qa-card" key={item.id}>
+        <h3 className="qa-question">{item.question}</h3>
+        {item.topicId && <p className="qa-scope">关于：{meeting.topics?.find(topic => topic.id === item.topicId)?.title || '指定主题'}</p>}
+        <div className="qa-answer"><MeetingMarkdown onEvidence={onEvidence}>{item.answer}</MeetingMarkdown>
+          {item.inference && <div className="ai-inference"><span>AI 推断</span><MeetingMarkdown onEvidence={onEvidence}>{item.inference}</MeetingMarkdown></div>}
+        </div>
+        <div className="qa-source-row">
+          <details className="qa-provenance">
+            <summary>{item.evidenceIds?.length ? `查看依据 · ${item.evidenceIds.length} 处` : '回答信息'}<ChevronDown size={12} aria-hidden="true" /></summary>
+            <Evidence ids={item.evidenceIds} onSelect={onEvidence} />
+            <dl className="reading-metadata"><div><dt>原文版本</dt><dd>{item.sourceRevision ?? '未知'}</dd></div></dl>
+          </details>
+          {Number.isFinite(item.sourceThroughMs) && <span className="qa-cutoff">回答截至 {formatTime(item.sourceThroughMs)}</span>}
+        </div>
+        {(item.stale || item.sourceRevision < meeting.transcriptRevision) && <div className={`qa-freshness${item.stale ? ' source-changed' : ''}`}>
+          <span>{item.stale ? '引用的原文已修改，请重新核对回答。' : '回答后有新发言'}</span>
+          <button onClick={() => prepareRetry(item)}>重新提问 <RefreshCw size={11} aria-hidden="true" /></button>
+        </div>}
+      </article>)}
       {feedback.map(item => <article className="qa-card qa-job" key={item.id}>
-        <div className="qa-question"><span><CornerDownRight size={13} /></span><p>{item.input?.question || '会议提问'}</p></div>
+        <h3 className="qa-question">{item.input?.question || '会议提问'}</h3>
         {item.input?.topicId && <div className="qa-scope">关于：{topics.find(topic => topic.id === item.input.topicId)?.title || '指定主题'}</div>}
         {['queued', 'running'].includes(item.status)
           ? <div className="qa-pending" role="status"><LoaderCircle size={13} className="spin" /><span>{questionProgressLabel(item)}</span></div>

@@ -5,6 +5,7 @@ import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormActi
 import { api, formatTime, meetingPath } from '../lib/api.js';
 import { isActiveFocus, readingFocusId, recommendedFocusId, returnFocusId } from '../../shared/discussion-view.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
+import { clarificationRecordReview } from '../../shared/clarification-record-state.js';
 
 export const clarificationKinds = {
   concept: { label: '概念澄清', icon: Quote },
@@ -22,11 +23,16 @@ export function ResolutionSummary({ item, onEvidence, onEdit, onRead, compact = 
   const origin = resolution.author === 'ai' ? 'AI 依据原文整理' : resolution.author === 'agent' ? 'Agent 记录' : '主持人记录';
   const neutral = resolution.outcome === 'recorded';
   const partial = item.status === 'active' || resolution.complete === false;
+  const review = clarificationRecordReview(item);
   return <div className={`resolution-summary quiet-resolution ${compact ? 'compact' : ''} outcome-${resolution.outcome}`}>
-    <div className="resolution-heading">{partial ? <span className="resolution-partial-label">已说清的部分</span> : !neutral && <span className={`outcome-badge ${resolution.outcome}`}>{outcome?.label || '讨论记录'}</span>}<span className="resolution-origin">{origin}</span>{onEdit && <IconButton title="编辑讨论记录" onClick={() => onEdit(item.id)}><Pencil size={13} /></IconButton>}</div>
-    <p>{resolution.text}</p>
-    {(resolution.stale || item.stale || resolution.pendingReview || item.pendingReview) && <p className="record-review-state" role="status">{resolution.stale || item.stale ? '原文已修正，记录待复核' : '有新发言，记录待复核'}</p>}
-    <details className="resolution-provenance" onToggle={event => { if (event.currentTarget.open) onRead?.(); }}><summary>{resolution.evidenceIds?.length ? `查看来源 · ${resolution.evidenceIds.length} 处` : '记录详情'}</summary><div className="resolution-evidence"><Evidence ids={resolution.evidenceIds} onSelect={onEvidence} /></div><p className="resolution-source">{origin} · 转录版本 {resolution.sourceRevision ?? item.sourceRevision ?? '未知'}{!resolution.evidenceIds?.length && ' · 未关联原文'}{neutral && ' · 尚未确认是否解决'}</p></details>
+    <p className="resolution-text">{resolution.text}</p>
+    {review && <p className={`record-review-state ${review}`} role="status">{review === 'source_changed' ? '引用的原文已修改，请核对这条记录。' : 'AI 尚未核对后续发言。'}</p>}
+    <div className="resolution-heading"><span className="resolution-origin">{origin}</span>{partial ? <span className="resolution-partial-label">已说清的部分</span> : !neutral && <span className={`outcome-badge ${resolution.outcome}`}>{outcome?.label || '讨论记录'}</span>}{onEdit && <IconButton title="编辑讨论记录" onClick={() => onEdit(item.id)}><Pencil size={13} /></IconButton>}</div>
+    <details className="resolution-provenance" onToggle={event => { if (event.currentTarget.open) onRead?.(); }}>
+      <summary>{resolution.evidenceIds?.length ? `查看来源 · ${resolution.evidenceIds.length} 处` : '记录信息'}<ChevronDown size={12} aria-hidden="true" /></summary>
+      <div className="resolution-evidence"><Evidence ids={resolution.evidenceIds} onSelect={onEvidence} /></div>
+      <dl className="reading-metadata"><div><dt>原文版本</dt><dd>{resolution.sourceRevision ?? item.sourceRevision ?? '未知'}</dd></div>{!resolution.evidenceIds?.length && <div><dt>原文引用</dt><dd>未关联</dd></div>}{neutral && <div><dt>问题状态</dt><dd>已记下结果，尚未标记已解决</dd></div>}</dl>
+    </details>
   </div>;
 }
 
@@ -159,7 +165,7 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
     } catch (failure) { setError(failure.message); } finally { setUpdating(''); }
   }
   const selectedResult = ['resolved', 'recorded'].includes(selectedItem?.status) && selectedItem.resolution;
-  const staleResult = selectedResult && (selectedItem.stale || selectedItem.resolution.stale);
+  const staleResult = selectedResult && clarificationRecordReview(selectedItem) === 'source_changed';
   const importing = meeting.jobs?.some(item => item.type === 'import' && ['queued', 'running'].includes(item.status));
   const analyzing = ['submitting', 'queued', 'running'].includes(analysisStatus?.status) || job || meeting.jobs?.some(item => ['organize', 'followup', 'minutes'].includes(item.type) && ['queued', 'running'].includes(item.status));
   const emptyState = importing || !meeting.transcriptRevision ? {
@@ -205,7 +211,7 @@ function ProgressPanel({ meeting, onEvidence, onResolve }) {
   const ignored = (meeting.followups || []).filter(item => !item.mergedInto && item.status === 'ignored');
   const merged = (meeting.followups || []).filter(item => item.mergedInto);
   return <div className="progress-content"><div className="progress-scroll">
-    {!records.length ? <EmptyState compact title="还没有讨论记录">在问题下方记下讨论结果，会保存在这里。</EmptyState> : records.map(item => <article className="progress-card" key={item.id}><div className="progress-question">{questionFor(item)}</div><ResolutionSummary item={item} compact onEvidence={onEvidence} onEdit={onResolve} /></article>)}
+    {!records.length ? <EmptyState compact title="还没有讨论记录">在问题下方记下讨论结果，会保存在这里。</EmptyState> : records.map(item => <article className="progress-card" key={item.id}><h3 className="progress-question">{questionFor(item)}</h3><ResolutionSummary item={item} compact onEvidence={onEvidence} onEdit={onResolve} /></article>)}
     {(unrecorded.length > 0 || ignored.length > 0 || merged.length > 0) && <details className="processed-clarifications"><summary>其他已处理问题 · {unrecorded.length + ignored.length + merged.length}</summary>{unrecorded.map(item => <div key={item.id}><span>已处理，未记录结果</span><p>{item.question}</p><Button className="text-button small" onClick={() => onResolve(item.id)}><Pencil size={11} />补记结果</Button></div>)}{ignored.map(item => <div key={item.id}><span>已先放下</span><p>{item.question}</p></div>)}{merged.map(item => <div key={item.id}><span>已并入其他问题</span><p>{item.question}</p>{item.resolution && <ResolutionSummary item={item} compact onEvidence={onEvidence} />}</div>)}</details>}
   </div></div>;
 }

@@ -13,6 +13,7 @@ import ThemeDialog from './components/ThemeDialog.jsx';
 import { Button, EmptyState, IconButton, PanelErrorBoundary, ResizeHandle } from './components/ui.jsx';
 import { resolutionOutcomes } from '../shared/resolution-copy.js';
 import { latestDiscussionJob, needsManualAnalysis } from '../shared/discussion-status.js';
+import './components/MeetingActions.css';
 
 const TopicPanel = lazy(() => import('./components/TopicPanel.jsx'));
 
@@ -291,11 +292,11 @@ export default function App() {
         </div>
         <div className="meeting-header-actions">
           {meeting.status !== 'ended' && <>
-            {['recording', 'paused', 'interrupted'].includes(capture.state) && <span className={`header-capture-state ${capture.state}`} role="status"><span className={capture.state === 'recording' ? 'live-dot' : 'status-dot'} />{captureLabels[capture.state]}</span>}
-            {capture.state === 'recording' ? <Button className="recording-pause small" onClick={() => requestCommand('pause')} busy={commandBusy} disabled={activeCommand}><Pause size={14} />暂停</Button> : <Button className="primary small" onClick={() => requestCommand(capture.state === 'paused' ? 'resume' : 'start')} busy={commandBusy} disabled={activeCommand || Boolean(pendingAuthorization) || !capture.connected}>{capture.state === 'paused' ? <Play size={14} /> : <Mic size={14} />}{capture.state === 'paused' ? '继续录音' : capture.state === 'interrupted' ? '重新录音' : '开始录音'}</Button>}
-            <Button className="end-meeting text-button small" disabled={commandBusy || activeCommand || Boolean(pendingAuthorization)} onClick={() => requestCommand('end')}>结束会议</Button>
+            {['paused', 'interrupted'].includes(capture.state) && <span className={`header-capture-state ${capture.state}`} role="status"><span className="status-dot" />{captureLabels[capture.state]}</span>}
+            {capture.state === 'recording' ? <Button className="meeting-action small" onClick={() => requestCommand('pause')} busy={commandBusy} disabled={activeCommand}><Pause size={14} />暂停</Button> : <Button className="meeting-action small" onClick={() => requestCommand(capture.state === 'paused' ? 'resume' : 'start')} busy={commandBusy} disabled={activeCommand || Boolean(pendingAuthorization) || !capture.connected}>{capture.state === 'paused' ? <Play size={14} /> : <Mic size={14} />}{capture.state === 'paused' ? '继续录音' : capture.state === 'interrupted' ? '重新录音' : '开始录音'}</Button>}
+            <Button className="meeting-action end-meeting small" disabled={commandBusy || activeCommand || Boolean(pendingAuthorization)} onClick={() => requestCommand('end')}>结束会议</Button>
           </>}
-          {presentation && <IconButton title="退出展示模式" onClick={() => setPresentation(false)}><Minimize2 size={17} /></IconButton>}
+          {presentation && <IconButton className="meeting-action" title="退出展示模式" onClick={() => setPresentation(false)}><Minimize2 size={17} /></IconButton>}
           <details className="discussion-options meeting-options">
             <summary aria-label="会议操作" title="会议操作"><MoreHorizontal size={20} /></summary>
             <div className="discussion-options-menu" onClick={closeDiscussionMenu}>
