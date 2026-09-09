@@ -6,6 +6,7 @@ import './theme.css';
 import './styles.css';
 import './meeting-workspace.css';
 import './clarification-reading.css';
+import './dialogs.css';
 
 initializeTheme();
 

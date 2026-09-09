@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ReactFlow, Background, Controls, Handle, Position, MarkerType } from '@xyflow/react';
-import dagre from '@dagrejs/dagre';
-import { ArrowDownRight, ChevronDown, ChevronRight, CircleHelp, GitBranch, ListTree, Map, Merge, Pencil, Plus, Quote, Scissors, Sparkles, Target, CheckCheck, UserRound, CalendarDays } from 'lucide-react';
+import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
+import { ChevronDown, ChevronRight, CircleHelp, GitBranch, ListTree, Map, Merge, Pencil, Plus, Quote, Scissors, Sparkles, Target, CheckCheck, UserRound, CalendarDays } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { isCurrentEntry, topicReadingEntries } from '../../shared/discussion-view.js';
 import { formatDate } from '../lib/api.js';
+import { buildTopicMap } from '../lib/topic-map.js';
 import '@xyflow/react/dist/style.css';
+import './TopicNavigation.css';
 
 const kinds = { viewpoint: { label: '观点与依据', icon: Quote }, question: { label: '待澄清问题', icon: CircleHelp }, decision: { label: '决定', icon: CheckCheck }, action: { label: '行动项', icon: Target } };
 const statusNames = { active: '当前有效', open: '待处理', resolved: '已解决', superseded: '已替代' };
@@ -55,35 +56,22 @@ function EntryForm({ entry, onClose, mutate }) {
 const TopicNode = memo(function TopicNode({ data, selected }) {
   return <div className={`topic-node ${selected ? 'selected' : ''}`}>
     <Handle type="target" position={Position.Left} />
-    <div className="topic-node-heading"><span className="node-dot" /><span>{data.title}</span></div>
-    <div className="topic-node-meta"><span>{data.entryCount} 条讨论</span>{data.childCount > 0 && <button className="nodrag nopan" title={data.folded ? '展开下级主题' : '折叠下级主题'} onClick={event => { event.stopPropagation(); data.onFold(data.id); }}>{data.folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}{data.childCount}</button>}</div>
+    <div className="topic-node-heading" title={data.title}><span className="node-dot" /><span>{data.title}</span></div>
+    <div className="topic-node-meta"><span>{data.entryCount} 条讨论</span>{data.childCount > 0 && <button type="button" className="nodrag nopan" title={data.folded ? '展开下级主题' : '折叠下级主题'} aria-label={`${data.folded ? '展开' : '折叠'} ${data.title} 的下级主题`} aria-expanded={!data.folded} onClick={event => { event.stopPropagation(); data.onFold(data.id); }}>{data.folded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}{data.childCount}</button>}</div>
     <Handle type="source" position={Position.Right} />
   </div>;
 });
-const nodeTypes = { topic: TopicNode };
+const MeetingNode = memo(function MeetingNode({ data }) {
+  return <div className="topic-node meeting-map-root" title={data.title}>
+    <span className="meeting-map-label">会议</span><strong className="meeting-map-title">{data.title}</strong>
+    <Handle type="source" position={Position.Right} />
+  </div>;
+});
+const nodeTypes = { topic: TopicNode, meeting: MeetingNode };
 
-function TopicMap({ topics, selected, setSelected, folded, toggleFold, viewport }) {
-  const graph = useMemo(() => {
-    const ids = new Set(topics.map(topic => topic.id));
-    const visible = topics.filter(topic => {
-      let cursor = topic; const visited = new Set();
-      while (cursor?.parentId && ids.has(cursor.parentId) && !visited.has(cursor.id)) {
-        visited.add(cursor.id);
-        if (folded.has(cursor.parentId)) return false;
-        cursor = topics.find(item => item.id === cursor.parentId);
-      }
-      return true;
-    });
-    const dag = new dagre.graphlib.Graph();
-    dag.setGraph({ rankdir: 'LR', ranksep: 50, nodesep: 26, marginx: 20, marginy: 20 }); dag.setDefaultEdgeLabel(() => ({}));
-    for (const topic of visible) dag.setNode(topic.id, { width: 205, height: 88 });
-    const visibleIds = new Set(visible.map(topic => topic.id));
-    const edges = visible.filter(topic => topic.parentId && visibleIds.has(topic.parentId)).map(topic => ({ id: `${topic.parentId}-${topic.id}`, source: topic.parentId, target: topic.id, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 }, style: { stroke: 'var(--map-edge)', strokeWidth: 1.5 } }));
-    for (const edge of edges) dag.setEdge(edge.source, edge.target);
-    dagre.layout(dag);
-    return { nodes: visible.map(topic => ({ id: topic.id, type: 'topic', width: 205, height: 88, measured: { width: 205, height: 88 }, selected: topic.id === selected, position: { x: dag.node(topic.id).x - 102.5, y: dag.node(topic.id).y - 44 }, data: { title: topic.title, entryCount: topic.entries?.filter(isCurrentEntry).length || 0, childCount: topics.filter(item => item.parentId === topic.id).length, folded: folded.has(topic.id), onFold: toggleFold, id: topic.id } })), edges };
-  }, [topics, selected, folded, toggleFold]);
-  return <div className="mindmap"><ReactFlow nodes={graph.nodes} edges={graph.edges} nodeTypes={nodeTypes} onNodeClick={(_, node) => setSelected(node.id)} onMoveEnd={(_, position) => { viewport.current = position; }} onInit={instance => { if (viewport.current) instance.setViewport(viewport.current); else requestAnimationFrame(() => instance.fitView({ padding: 0.25, maxZoom: 1 })); }} nodesDraggable={false} nodesConnectable={false} minZoom={0.25} maxZoom={1.8} proOptions={{ hideAttribution: true }} ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': '放大导图', 'controls.zoomOut.ariaLabel': '缩小导图', 'controls.fitView.ariaLabel': '显示全部主题' }}><Background color="var(--map-grid)" gap={20} size={1} /><Controls showInteractive={false} /></ReactFlow><span className="map-caption">滚轮缩放 · 拖动平移 · 点击主题查看详情</span></div>;
+function TopicMap({ topics, meetingTitle, selected, setSelected, folded, toggleFold, viewport }) {
+  const graph = useMemo(() => buildTopicMap({ topics, meetingTitle, selected, folded, onFold: toggleFold }), [topics, meetingTitle, selected, folded, toggleFold]);
+  return <div className="mindmap"><ReactFlow nodes={graph.nodes} edges={graph.edges} nodeTypes={nodeTypes} onNodeClick={(_, node) => { if (node.type === 'topic') setSelected(node.id); }} onMoveEnd={(_, position) => { viewport.current = position; }} onInit={instance => { if (viewport.current) instance.setViewport(viewport.current); else requestAnimationFrame(() => instance.fitView({ padding: 0.25, maxZoom: 1 })); }} nodesDraggable={false} nodesConnectable={false} minZoom={0.25} maxZoom={1.8} proOptions={{ hideAttribution: true }} ariaLabelConfig={{ 'controls.zoomIn.ariaLabel': '放大导图', 'controls.zoomOut.ariaLabel': '缩小导图', 'controls.fitView.ariaLabel': '显示全部主题' }}><Background color="var(--map-grid)" gap={20} size={1} /><Controls showInteractive={false} /></ReactFlow><span className="map-caption">滚轮缩放 · 拖动平移 · 点击主题查看详情</span></div>;
 }
 
 function Outline({ topics, selected, setSelected, folded, toggleFold }) {
@@ -94,11 +82,13 @@ function Outline({ topics, selected, setSelected, folded, toggleFold }) {
     if (visited.has(topic.id)) return null;
     visited.add(topic.id);
     const children = topics.filter(item => item.parentId === topic.id);
+    const isFolded = folded.has(topic.id);
+    const groupId = `outline-children-${topic.id}`;
     return <div key={topic.id}>
       <div className={`outline-item ${selected === topic.id ? 'selected' : ''}`} style={{ paddingLeft: 7 + depth * 15 }}>
-        {children.length ? <IconButton title={folded.has(topic.id) ? '展开下级主题' : '折叠下级主题'} onClick={() => toggleFold(topic.id)}>{folded.has(topic.id) ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</IconButton> : <span className="outline-leaf">{depth ? <ArrowDownRight size={12} /> : <span />}</span>}
-        <button className="outline-select" onClick={() => setSelected(topic.id)}><span>{topic.title}</span><small>{topic.entries?.filter(isCurrentEntry).length || 0}</small></button>
-      </div>{!folded.has(topic.id) && children.map(child => render(child, depth + 1))}
+        <button type="button" className="outline-select" title={topic.title} aria-pressed={selected === topic.id} onClick={() => setSelected(topic.id)}><span className="outline-marker" aria-hidden="true" /><span className="outline-title">{topic.title}</span><small>{topic.entries?.filter(isCurrentEntry).length || 0}</small></button>
+        {children.length ? <IconButton className="outline-fold" title={isFolded ? '展开下级主题' : '折叠下级主题'} aria-label={`${isFolded ? '展开' : '折叠'} ${topic.title} 的下级主题`} aria-expanded={!isFolded} aria-controls={groupId} onClick={() => toggleFold(topic.id)}>{isFolded ? <ChevronRight size={13} /> : <ChevronDown size={13} />}</IconButton> : <span className="outline-fold-placeholder" aria-hidden="true" />}
+      </div>{children.length > 0 && <div id={groupId} role="group" aria-label={`${topic.title} 的下级主题`} hidden={isFolded}>{children.map(child => render(child, depth + 1))}</div>}
     </div>;
   }
   return <nav className="outline-tree" aria-label="会议主题">{roots.map(topic => render(topic))}</nav>;
@@ -138,7 +128,7 @@ function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskT
   return <div className="topic-panel-content">
     <div className="topic-toolbar"><div className="segmented" aria-label="主题视图"><button className={view === 'outline' ? 'active' : ''} onClick={() => setView('outline')} aria-pressed={view === 'outline'}><ListTree size={14} />大纲</button><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')} aria-pressed={view === 'map'}><Map size={14} />导图</button></div><span className="subtle-count">{topics.length} 个主题</span><Button className="text-button small" onClick={() => setModal({ mode: 'add' })}><Plus size={14} />新建主题</Button></div>
     {!topics.length ? <EmptyState icon={GitBranch} title="沿着原话找到相关讨论" action={<div className="empty-flow"><span>记录发言</span><ChevronRight size={13} /><span>连接主题</span><ChevronRight size={13} /><span>形成决定</span></div>}>开始录音或补充会议原文后，AI 会连接相关主题，帮助定位概念、前提和决定的原话。</EmptyState> : <div className={`topic-layout view-${view}`}>
-      {view === 'outline' ? <Outline topics={topics} selected={selected} setSelected={setSelected} folded={folded} toggleFold={toggleFold} /> : <TopicMap topics={topics} selected={selected} setSelected={setSelected} folded={folded} toggleFold={toggleFold} viewport={viewport} />}
+      {view === 'outline' ? <Outline topics={topics} selected={selected} setSelected={setSelected} folded={folded} toggleFold={toggleFold} /> : <TopicMap topics={topics} meetingTitle={meeting.title} selected={selected} setSelected={setSelected} folded={folded} toggleFold={toggleFold} viewport={viewport} />}
       {topic && <div className="topic-detail" key={topic.id}>
         <div className="topic-detail-heading"><span className="eyebrow">当前主题</span><div className="topic-detail-actions"><IconButton title="修正主题" onClick={() => setModal({ mode: 'edit', topic })}><Pencil size={14} /></IconButton><IconButton title="拆分主题" onClick={() => setModal({ mode: 'split', topic })} disabled={!entries.length}><Scissors size={14} /></IconButton><IconButton title="合并主题" onClick={() => setModal({ mode: 'merge', topic })} disabled={topics.length < 2}><Merge size={14} /></IconButton></div></div>
         <h3>{topic.title}</h3>{topic.summary && <p className="topic-summary">{topic.summary}</p>}{topic.stale && <span className="stale-tag">摘要原文已更新，待复核</span>}{topic.manualFields?.length > 0 && <span className="manual-badge">主持人已修订</span>}

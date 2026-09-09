@@ -67,7 +67,7 @@ export function Modal({ title, subtitle, onClose, children, wide = false, closeD
     onPointerCancel={() => { backdropPress.current = false; }}
     onClick={event => { const dismiss = backdropPress.current && outside(event); backdropPress.current = false; if (dismiss) requestClose(); }}>
     <div className="modal-header"><div><h2 id={titleId}>{title}</h2>{subtitle && <p id={subtitleId}>{subtitle}</p>}</div><IconButton title="关闭" onClick={requestClose} disabled={closeDisabled}><X size={19} aria-hidden="true" /></IconButton></div>
-    {children}
+    <div className="modal-body">{children}</div>
   </dialog>;
 }
 

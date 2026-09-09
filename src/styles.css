@@ -490,16 +490,6 @@ form > label { margin-bottom: 20px; }
 .transcript-content > .form-error { margin: 5px 12px; }
 
 /* 13. Dialogs, forms, settings */
-.modal { padding: 0; width: min(580px, calc(100vw - 40px)); max-height: calc(100dvh - 60px); margin: auto; overflow: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-modal); }
-.modal::backdrop { background: var(--backdrop); backdrop-filter: blur(4px); }
-.modal.wide { width: min(860px, calc(100vw - 40px)); }
-.modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 25px 26px 22px; border-bottom: 1px solid var(--border); background: var(--surface-hover); }
-.modal-header h2 { font-size: 21px; font-weight: 650; letter-spacing: -.4px; line-height: 1.45; }
-.modal-header p { margin-top: 9px; max-width: 650px; color: var(--ink-muted); font-size: 13px; line-height: 1.7; }
-.modal-header > .icon-button { margin-top: -2px; }
-.modal > form { padding: 24px 26px 0; }
-.modal-footer { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 18px 26px; margin-top: 22px; border-top: 1px solid var(--border); background: var(--surface-hover); }
-.modal > form > .modal-footer { margin-left: -26px; margin-right: -26px; }
 .form-row { display: flex; gap: 14px; margin-bottom: 20px; }
 .form-row > label { flex: 1; min-width: 0; }
 .form-info { display: flex; align-items: flex-start; gap: 9px; padding: 12px 14px; border: 1px solid var(--info-border); border-radius: 8px; background: var(--info-bg); color: var(--ink-secondary); font-size: 12px; line-height: 1.75; }
@@ -861,14 +851,6 @@ form > label { margin-bottom: 20px; }
   .preview-footer { gap: 11px 15px; padding: 14px 17px; }
   .welcome-footer { flex-direction: column; align-items: flex-start; gap: 9px; }
   .welcome-footer > span { display: none; }
-  .modal, .modal.wide { width: calc(100vw - 24px); max-height: calc(100dvh - 28px); border-radius: 13px; }
-  .modal-header { padding: 21px 20px 19px; }
-  .modal-header h2 { font-size: 20px; }
-  .modal-header > .icon-button { width: 36px; height: 36px; }
-  .modal > form { padding: 20px 20px 0; }
-  .modal-footer { padding: 16px 20px; gap: 8px; }
-  .modal-footer .button { min-height: 42px; }
-  .modal > form > .modal-footer { margin-left: -20px; margin-right: -20px; }
   .form-row { flex-direction: column; gap: 18px; }
   input, textarea, select { font-size: 16px; }
   .minutes-toolbar, .minutes-versions { padding: 14px 20px; }

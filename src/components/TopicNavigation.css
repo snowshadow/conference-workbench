@@ -1,0 +1,91 @@
+.topic-panel-content .outline-item {
+  height: 60px;
+  min-height: 60px;
+  padding-right: 4px;
+}
+
+.topic-panel-content .outline-select {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) 20px;
+  align-items: center;
+  align-self: stretch;
+  gap: 5px;
+  padding: 7px 3px;
+  line-height: 1.5;
+}
+
+.topic-panel-content .outline-select > .outline-marker {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.topic-panel-content .outline-item.selected .outline-marker {
+  background: var(--brand);
+}
+
+.topic-panel-content .outline-select > .outline-title {
+  display: -webkit-box;
+  max-height: 3em;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.topic-panel-content .outline-select small {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.topic-panel-content .outline-item > .outline-fold,
+.topic-panel-content .outline-fold-placeholder {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 28px;
+  padding: 4px;
+}
+
+.topic-panel-content .outline-fold:focus-visible,
+.topic-panel-content .outline-select:focus-visible {
+  outline-offset: -2px;
+}
+
+.topic-panel-content .mindmap .topic-node {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+
+.topic-panel-content .topic-node-heading {
+  height: 39px;
+}
+
+.topic-panel-content .meeting-map-root {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  border-color: var(--brand);
+  border-radius: 18px;
+  background: var(--brand-tint);
+  color: var(--ink);
+}
+
+.meeting-map-label {
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.meeting-map-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}

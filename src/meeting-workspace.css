@@ -80,9 +80,6 @@
 .meeting-tool-window .line-edit { grid-column: 3; grid-row: 1; }
 .meeting-tool-window .line-text { grid-column: 1 / -1; grid-row: 2; }
 .focused-workbench .meeting-tool-window .transcript-toolbar, .focused-workbench .meeting-tool-window .qa-form, .focused-workbench .meeting-tool-window .speaker-toolbar { border-color: var(--soft-divider); }
-.focused-workbench .modal { border-color: var(--floating-edge); border-radius: 25px; }
-.focused-workbench .modal-header { border: 0; background: var(--surface); padding-bottom: 16px; }
-.focused-workbench .modal-footer { border: 0; background: var(--surface); }
 @supports (backdrop-filter: blur(18px)) {
   .discussion-options > summary, .meeting-tool-launcher { background: var(--control-material); backdrop-filter: blur(18px) saturate(1.15); }
 }

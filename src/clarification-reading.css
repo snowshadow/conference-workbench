@@ -65,8 +65,8 @@
 .resolution-editor .resolution-sources .checkbox-label { margin-top: 12px; }
 .resolution-editor .resolution-extra .form-hint { font-size: 12px; }
 .resolution-editor .resolution-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
-.resolution-editor .resolution-editor-actions > .button { min-height: 42px; padding: 9px 20px; border-radius: 24px; }
-.resolution-editor .resolution-editor-actions > .text-button { color: var(--ink-muted); }
+.resolution-editor.is-inline .resolution-editor-actions > .button { min-height: 42px; padding: 9px 20px; border-radius: 24px; }
+.resolution-editor.is-inline .resolution-editor-actions > .text-button { color: var(--ink-muted); }
 .resolution-editor .form-error { margin-top: 12px; }
 .resolution-editor .resolution-review { margin-top: 16px; }
 .resolution-editor .resolution-review > .text-button { padding-left: 0; font-size: 13px; }

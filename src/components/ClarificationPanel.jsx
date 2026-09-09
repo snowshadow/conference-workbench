@@ -93,6 +93,7 @@ function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline =
     await mutate(`/followups/${item.id}`, 'PATCH', { status: outcome === 'recorded' ? 'recorded' : 'resolved', author: 'host', sourceRevision, transcriptEditRevision, resolution: { outcome, text: text.trim(), evidenceIds } });
     onClose();
   });
+  const cancelAction = <Button className={inline ? 'text-button' : ''} type="button" onClick={onClose} disabled={busy || reviewBusy}>取消</Button>;
   const form = <form className={`resolution-editor ${inline ? 'is-inline' : ''}`} onSubmit={submit}>
     {!inline && <p className="resolution-context">{questionFor(item)}</p>}
     <label htmlFor={noteId}>这次说清了什么，还有什么没定？</label>
@@ -103,7 +104,7 @@ function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline =
       <p className="resolution-source">保存为主持人记录 · 转录版本 {sourceRevision}{!evidenceIds.length && ' · 未关联原文'}</p>
     </details>
     {outdated && <section className="resolution-review"><p className="form-error" role="alert">原文已修正，输入已保留。核对后可继续保存。</p><Button className="text-button" busy={reviewBusy} onClick={reviewSources}>核对最新原文</Button>{review && <><div className="resolution-review-lines">{review.lines.length ? review.lines.map(line => <blockquote key={line.id}><time>{formatTime(line.startMs)}</time><p>{line.text}</p></blockquote>) : <p>当前没有关联原文，也没有找到需核对的修正发言。请确认这份记录仍适用于当前讨论。</p>}</div>{reviewOutdated && <p className="form-error">原文又有修正，请重新核对。</p>}<Button onClick={acceptReview} disabled={reviewOutdated} busy={reviewBusy}>已核对，继续编辑</Button></>}<FormError error={reviewError} /></section>}
-    <FormError error={error} /><div className="resolution-editor-actions"><Button className="primary" type="submit" busy={busy} disabled={!text.trim() || outdated || reviewBusy}>保存记录</Button><Button className="text-button" type="button" onClick={onClose} disabled={busy || reviewBusy}>取消</Button></div>
+    <FormError error={error} /><div className="resolution-editor-actions">{!inline && cancelAction}<Button className="primary" type="submit" busy={busy} disabled={!text.trim() || outdated || reviewBusy}>保存记录</Button>{inline && cancelAction}</div>
   </form>;
   return inline ? form : <Modal title={item.resolution ? '编辑讨论记录' : '记下讨论结果'} onClose={onClose} closeDisabled={busy || reviewBusy}>{form}</Modal>;
 }

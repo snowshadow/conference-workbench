@@ -1,0 +1,105 @@
+/* Shared dialog surface. Colors follow the selected workspace palette. */
+.modal {
+  --dialog-inset: 28px;
+  padding: 0;
+  width: min(600px, calc(100vw - 40px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  overflow: hidden;
+  background: var(--reading-surface);
+  color: var(--ink);
+  border: 1px solid var(--floating-edge);
+  border-radius: 28px;
+  box-shadow: var(--shadow-modal);
+}
+.modal[open] { display: flex; flex-direction: column; }
+.modal.wide { width: min(900px, calc(100vw - 40px)); }
+.modal::backdrop { background: var(--backdrop); backdrop-filter: blur(8px); }
+.modal-header { flex-shrink: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 26px var(--dialog-inset) 18px; }
+.modal-header > div { min-width: 0; }
+.modal-header h2 { font-size: 22px; font-weight: 550; line-height: 1.45; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.modal-header p { margin-top: 8px; color: var(--ink-muted); font-size: 13px; font-weight: 400; line-height: 1.7; }
+.modal-header > .icon-button { width: 36px; height: 36px; margin: -2px -4px 0 0; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-control); color: var(--ink-muted); }
+.modal-header > .icon-button:hover { background: var(--surface-hover); color: var(--ink); }
+.modal-body { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-padding-block: 16px 88px; }
+.modal-body > form { margin: 0; padding: 10px var(--dialog-inset) 0; border: 0; box-shadow: none; background: none; }
+.modal-footer, .modal .resolution-editor-actions {
+  position: sticky; bottom: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px;
+  margin-top: 20px; padding: 18px var(--dialog-inset) 22px;
+  border: 0;
+  background: var(--reading-surface);
+  box-shadow: 0 -12px 18px var(--reading-surface);
+}
+.modal-body > form > .modal-footer, .modal-body > form > .resolution-editor-actions { margin-inline: calc(-1 * var(--dialog-inset)); }
+.modal label { gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink-secondary); }
+.modal form > label, .modal .settings-section > label, .modal .speaker-fields > label { margin-bottom: 20px; }
+.modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select) {
+  padding: 11px 14px;
+  border: 1px solid var(--floating-edge); border-radius: 13px;
+  background: var(--surface); color: var(--ink);
+  font-size: 14px; font-weight: 400; line-height: 1.55;
+  box-shadow: none;
+}
+.modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), select) { min-height: 44px; }
+.modal :is(input, textarea)::placeholder { color: var(--ink-placeholder); font-weight: 400; }
+.modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select):focus { border-color: var(--brand-border); box-shadow: var(--shadow-focus); }
+.modal textarea { line-height: 1.75; }
+.modal select { padding-right: 32px; }
+.modal .button { min-height: 40px; padding: 9px 17px; border-radius: 22px; border-color: var(--transparent); font-weight: 500; background: var(--surface); box-shadow: var(--shadow-control); }
+.modal .button:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--transparent); }
+.modal .button.primary { color: var(--action-text); background: var(--action); box-shadow: none; }
+.modal .button.primary:hover:not(:disabled) { color: var(--action-text); background: var(--action-hover); }
+.modal .button.text-button { background: none; color: var(--link); box-shadow: none; }
+.modal .button.text-button:hover:not(:disabled) { background: var(--navigation-surface); }
+.modal .button.small { min-height: 36px; padding: 7px 13px; font-size: 12px; }
+.modal :is(.form-hint, .optional) { font-size: 12px; font-weight: 400; line-height: 1.7; }
+.modal :is(.form-info, .form-error, .upload-progress) { border: 0; border-radius: 14px; padding: 13px 15px; }
+.modal .form-info { background: var(--navigation-surface); }
+.modal .entry-picker { max-height: min(340px, 38dvh); margin: 8px 0 0; padding: 4px; border: 0; border-radius: 16px; background: var(--navigation-surface); overscroll-behavior: contain; scrollbar-gutter: stable; }
+.modal .checkbox-label { align-items: flex-start; gap: 12px; padding: 14px; margin: 4px 0; border: 0; border-radius: 12px; color: var(--ink-secondary); font-size: 14px; font-weight: 400; line-height: 1.75; cursor: pointer; transition: background 150ms ease; }
+.modal .checkbox-label:hover { background: var(--surface-hover); }
+.modal .checkbox-label:has(input:checked) { color: var(--ink); background: var(--brand-selected); }
+.modal .checkbox-label:focus-within { outline: 2px solid var(--focus); outline-offset: -2px; }
+.modal .checkbox-label > input { width: 17px; height: 17px; min-height: 0; padding: 0; margin: 4px 0 0; box-shadow: none; accent-color: var(--action); }
+.modal .checkbox-label > span { min-width: 0; overflow-wrap: anywhere; }
+.modal .settings-section { padding: 18px; margin-bottom: 16px; border-radius: 18px; background: var(--navigation-surface); }
+.modal .settings-section h3 { color: var(--ink); font-size: 15px; font-weight: 550; margin-bottom: 12px; }
+.modal .settings-section h3 > svg { display: none; }
+.modal .config-pill { border: 0; border-radius: 12px; padding: 3px 9px; background: var(--surface); }
+.modal .config-pill.configured { color: var(--brand-deep); background: var(--brand-tint); }
+.modal .recording-file-field { border: 1px dashed var(--border-strong); border-radius: 18px; background: var(--navigation-surface); }
+.modal .recording-file-field.has-file { border-style: solid; border-color: var(--brand-border); }
+.modal .recording-file-field:focus-within, .modal .recording-file-field.is-dragging { background: var(--brand-tint); border-color: var(--brand-deep); }
+.modal .recording-file-icon { border-radius: 14px; }
+.modal :is(.minutes-toolbar, .minutes-versions) { padding: 12px var(--dialog-inset); border: 0; }
+.modal .minutes-toolbar { background: var(--navigation-surface); }
+.modal .minutes-content { max-height: none; overflow: visible; padding: 22px var(--dialog-inset); }
+.modal .minutes-markdown > h1 { color: var(--ink); font-weight: 550; }
+.modal .processing-history { max-height: none; overflow: visible; padding: 6px var(--dialog-inset) 0; }
+.modal .processing-record { margin: 0 0 12px; padding: 16px; border: 0; border-radius: 16px; background: var(--navigation-surface); }
+.modal .processing-heading { flex-wrap: wrap; }
+.modal .processing-status { border-radius: 12px; }
+.modal .agent-guide { padding: 12px var(--dialog-inset); }
+.modal .agent-guide-row { gap: 12px; }
+.modal .code-copy { border: 0; border-radius: 13px; background: var(--navigation-surface); }
+.modal .discussion-status-details { padding: 12px var(--dialog-inset) 24px; }
+.modal .theme-options { padding: 10px var(--dialog-inset) 2px; gap: 10px; }
+.modal .theme-choice-content { min-height: 76px; border-color: var(--transparent); border-radius: 16px; background: var(--navigation-surface); }
+.modal .theme-choice > input:checked + .theme-choice-content { border-color: var(--brand-border); background: var(--brand-selected); }
+.modal .theme-preview { border: 0; border-radius: 10px; }
+.modal .theme-choice-copy > strong { font-weight: 550; }
+.modal .resolution-context { padding: 14px 16px; border-radius: 15px; background: var(--navigation-surface); }
+.modal .resolution-extra, .modal .resolution-sources { border: 0; }
+.modal .resolution-extra { margin-top: 16px; padding-top: 0; }
+.modal .resolution-sources { background: var(--navigation-surface); border-radius: 16px; }
+@media (max-width: 600px) {
+  .modal, .modal.wide { --dialog-inset: 20px; width: calc(100vw - 24px); max-height: calc(100dvh - 24px); border-radius: 24px; }
+  .modal-header { padding-top: 21px; padding-bottom: 16px; gap: 12px; }
+  .modal-header h2 { font-size: 20px; }
+  .modal-header > .icon-button { width: 38px; height: 38px; }
+  .modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select) { font-size: 16px; }
+  .modal .button { min-height: 44px; }
+  .modal .settings-section { padding: 15px; }
+  .modal .theme-choice-content { padding: 11px; }
+}
