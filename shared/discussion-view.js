@@ -38,6 +38,11 @@ export function readingFocusId(meeting, selected, following = true, paused = fal
   return following && !paused ? recommendedFocusId(meeting) : resolveFocus(meeting, selected)?.id || null;
 }
 
+export function returnFocusId(meeting, readingId) {
+  const recommendation = recommendedFocusId(meeting);
+  return recommendation && recommendation !== resolveFocus(meeting, readingId)?.id ? recommendation : null;
+}
+
 export const isCurrentEntry = entry => !entry.stale && entry.status !== 'superseded' && !(entry.type === 'question' && entry.status === 'resolved');
 
 export function topicReadingEntries(entries = [], limit = 5) {

@@ -1,8 +1,9 @@
 import { memo, useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, ChevronDown, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { api, formatTime, meetingPath } from '../lib/api.js';
-import { isActiveFocus, readingFocusId, recommendedFocusId } from '../../shared/discussion-view.js';
+import { isActiveFocus, readingFocusId, recommendedFocusId, returnFocusId } from '../../shared/discussion-view.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 
 export const clarificationKinds = {
@@ -120,16 +121,17 @@ function QuestionEvidence({ item, meeting, onEvidence, onTopic, onRead }) {
   </details>;
 }
 
-function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopic, mutate, job, analysisStatus, onRequestQuestion, questionRequestBusy = false, pauseFollowing = false }) {
+function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopic, mutate, job, analysisStatus, onRequestQuestion, questionRequestBusy = false, pauseFollowing = false, toolbarTarget, visible = true }) {
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const recordTrigger = useRef(null);
   const focusHeading = useRef(null);
+  const readingScroll = useRef(null);
   const [following, setFollowing] = useState(true);
   const active = (meeting.followups || []).filter(isActiveFocus);
-  const recommendation = recommendedFocusId(meeting);
   const readingId = readingFocusId(meeting, selected, following, Boolean(editingItem) || pauseFollowing);
+  const returnTarget = returnFocusId(meeting, readingId);
   const selectedItem = (meeting.followups || []).find(item => item.id === readingId);
   const current = isActiveFocus(selectedItem) ? selectedItem : null;
   const otherItems = active.filter(item => item.id !== current?.id);
@@ -139,7 +141,15 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   function holdReading() { setSelected(readingId); setFollowing(false); }
   function showEvidence(id) { holdReading(); onEvidence(id); }
   function editResult(item) { setSelected(readingId); setEditingItem(item); }
-  function returnToCurrent() { setFollowing(true); setSelected(recommendation); }
+  function returnToRecommended() {
+    if (!returnTarget) return;
+    setFollowing(true);
+    setSelected(returnTarget);
+    requestAnimationFrame(() => {
+      readingScroll.current?.scrollTo({ top: 0, behavior: 'instant' });
+      focusHeading.current?.focus({ preventScroll: true });
+    });
+  }
   async function ignore(id) {
     setUpdating(id); setError('');
     try {
@@ -169,9 +179,9 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   const closeEditor = () => { setEditingItem(null); requestAnimationFrame(() => (recordTrigger.current || focusHeading.current)?.focus({ preventScroll: true })); };
   const readingState = current ? 'active' : selectedResult ? (staleResult ? 'saved-stale' : 'saved') : selectedItem ? 'previous' : 'empty';
   return <div className="clarification-content reading-focus">
+    {visible && toolbarTarget && returnTarget && createPortal(<Button className="focus-return-button" onClick={returnToRecommended} disabled={Boolean(editingItem) || pauseFollowing || Boolean(updating)} aria-label="回到推荐问题" title="回到推荐问题"><ArrowLeft size={15} aria-hidden="true" /><span>回到推荐问题</span></Button>, toolbarTarget)}
     <FormError error={error} />
-    <div className="clarification-scroll">
-      {!following && <div className="focus-return"><Button className="text-button small" onClick={returnToCurrent} disabled={Boolean(editingItem)}>回到当前</Button></div>}
+    <div className="clarification-scroll" ref={readingScroll}>
       <div className="focus-reading-view" key={`${readingId || 'none'}:${readingState}`}>
       {current ? <article className="focus-question">
         <p className="focus-origin">{current.author === 'agent' ? 'Agent 提问' : current.author === 'host' ? '主持人提问' : 'AI 提问'}{(current.pendingReview || current.sourceRevision < meeting.transcriptRevision) && <span role="status">有新发言，待复核</span>}</p>

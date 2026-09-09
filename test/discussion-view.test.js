@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isActiveFocus, readingFocusId, recommendedFocusId, resolveFocus, topicReadingEntries } from '../shared/discussion-view.js';
+import { isActiveFocus, readingFocusId, recommendedFocusId, resolveFocus, returnFocusId, topicReadingEntries } from '../shared/discussion-view.js';
 
 const question = (id, extra = {}) => ({ id, status: 'active', ...extra });
 
@@ -80,6 +80,60 @@ test('reading sources or an explicitly selected result keeps that item until ret
   meeting.focusFollowupId = null;
   assert.equal(readingFocusId(meeting, 'read', false), 'read');
   assert.equal(readingFocusId(meeting, 'read', true), null);
+});
+
+test('opening the recommended question sources holds reading without offering a redundant return', () => {
+  const meeting = { focusFollowupId: 'current', followups: [question('current'), question('other')] };
+  const readingId = readingFocusId(meeting, 'current', false);
+  assert.equal(readingId, 'current');
+  assert.equal(returnFocusId(meeting, readingId), null);
+});
+
+test('reading another question offers the recommendation and returning clears the target', () => {
+  const meeting = { focusFollowupId: 'current', followups: [question('current'), question('other')] };
+  const readingId = readingFocusId(meeting, 'other', false);
+  const target = returnFocusId(meeting, readingId);
+  assert.equal(readingId, 'other');
+  assert.equal(target, 'current');
+  assert.equal(returnFocusId(meeting, readingFocusId(meeting, target, true)), null);
+});
+
+test('a new recommendation becomes available without taking away a held question', () => {
+  const meeting = { focusFollowupId: 'read', followups: [question('read'), question('next')] };
+  assert.equal(returnFocusId(meeting, readingFocusId(meeting, 'read', false)), null);
+  meeting.focusFollowupId = 'next';
+  const readingId = readingFocusId(meeting, 'read', false);
+  assert.equal(readingId, 'read');
+  assert.equal(returnFocusId(meeting, readingId), 'next');
+});
+
+test('a quiet, missing or stale recommendation never offers an empty return destination', () => {
+  const followups = [question('read'), question('stale', { stale: true }), question('stale-result', { status: 'resolved', stale: true })];
+  for (const focusFollowupId of [null, 'missing', 'stale', 'stale-result']) {
+    assert.equal(returnFocusId({ focusFollowupId, followups }, 'read'), null);
+  }
+  assert.equal(returnFocusId({ followups: [] }, null), null);
+});
+
+test('merged aliases of the same question do not offer a return, including merge chains', () => {
+  const meeting = { focusFollowupId: 'old', followups: [question('old', { mergedInto: 'middle' }), question('middle', { mergedInto: 'current' }), question('current')] };
+  for (const readingId of ['old', 'middle', 'current']) assert.equal(returnFocusId(meeting, readingId), null);
+  meeting.followups[2].mergedInto = 'old';
+  assert.equal(returnFocusId(meeting, 'old'), null);
+});
+
+test('held completed results can return to a pending question in live or ended meetings', () => {
+  for (const status of ['recorded', 'resolved', 'ignored']) {
+    for (const lifecycle of ['active', 'ended']) {
+      const meeting = { status: lifecycle, focusFollowupId: 'finished', followups: [question('finished', { status }), question('next')] };
+      const readingId = readingFocusId(meeting, 'finished', false);
+      assert.equal(readingId, 'finished');
+      assert.equal(returnFocusId(meeting, readingId), 'next');
+      assert.equal(returnFocusId(meeting, readingFocusId(meeting, 'finished', true)), null);
+      meeting.focusFollowupId = null;
+      assert.equal(returnFocusId(meeting, readingId), null);
+    }
+  }
 });
 
 test('merged questions redirect to their target and never remain eligible themselves', () => {

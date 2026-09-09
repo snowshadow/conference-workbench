@@ -29,8 +29,6 @@
 .reading-focus .focus-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 28px; }
 .reading-focus .focus-actions > .button { min-height: 44px; padding: 10px 21px; border-radius: 25px; font-size: 14px; }
 .reading-focus .focus-actions > .text-button { color: var(--ink-muted); padding-left: 10px; padding-right: 10px; }
-.reading-focus .focus-return { position: absolute; top: 8px; right: 20px; width: auto; margin: 0; z-index: 1; }
-.reading-focus .focus-return > .button { min-height: 36px; color: var(--link); font-size: 13px; }
 .reading-focus .focus-partial { max-width: 48em; margin-top: 22px; padding: 18px 22px; border-radius: 18px; background: var(--surface-muted); }
 .reading-focus .focus-partial .resolution-summary > p { font-size: 15px; line-height: 1.85; }
 .quiet-resolution .resolution-partial-label { color: var(--ink-secondary); font-size: 12px; font-weight: 500; }
