@@ -146,7 +146,11 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   function returnToCurrent() { setFollowing(true); setSelected(recommendation); }
   async function ignore(id) {
     setUpdating(id); setError('');
-    try { await mutate(`/followups/${id}`, 'PATCH', { status: 'ignored' }); } catch (failure) { setError(failure.message); } finally { setUpdating(''); }
+    try {
+      const updated = await mutate(`/followups/${id}`, 'PATCH', { status: 'ignored' });
+      setSelected(recommendedFocusId(updated));
+      setFollowing(true);
+    } catch (failure) { setError(failure.message); } finally { setUpdating(''); }
   }
   const selectedResult = ['resolved', 'recorded'].includes(selectedItem?.status) && selectedItem.resolution;
   const staleResult = selectedResult && (selectedItem.stale || selectedItem.resolution.stale);

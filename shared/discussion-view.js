@@ -11,6 +11,15 @@ export function resolveFocus(meeting, id) {
   return item || null;
 }
 
+export function nextFocusId(meeting, currentId) {
+  const items = meeting.followups || [];
+  const index = items.findIndex(item => item.id === currentId);
+  const candidates = (index < 0 ? items : [...items.slice(index + 1), ...items.slice(0, index)]).filter(isActiveFocus);
+  const topicId = items[index]?.topicId;
+  const related = topicId && candidates.find(item => item.topicId === topicId);
+  return related?.id || candidates[0]?.id || null;
+}
+
 export function recommendedFocusId(meeting) {
   // An explicit empty recommendation means the meeting can continue quietly.
   if (Object.hasOwn(meeting, 'focusFollowupId')) {
@@ -20,11 +29,7 @@ export function recommendedFocusId(meeting) {
     // Host actions can finish a question without another model run. Continue
     // locally only from a known finished item; missing or stale sources wait.
     if (!item || item.stale || !['resolved', 'ignored'].includes(item.status)) return null;
-    const items = meeting.followups || [];
-    const index = items.findIndex(followup => followup.id === item.id);
-    const candidates = [...items.slice(index + 1), ...items.slice(0, index)].filter(isActiveFocus);
-    const related = item.topicId && candidates.find(candidate => candidate.topicId === item.topicId);
-    return related?.id || candidates[0]?.id || null;
+    return nextFocusId(meeting, item.id);
   }
   return (meeting.followups || []).find(isActiveFocus)?.id || null;
 }

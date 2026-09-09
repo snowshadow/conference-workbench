@@ -139,16 +139,19 @@ test('MCP context follows the same focus after a host ignores it, while explicit
   assert.equal((await context()).focusFollowupId, 'current');
   const ignored = await request(`/api/meetings/${meeting.id}/followups/current`, 'PATCH', { status: 'ignored', author: 'host' });
   assert.equal(ignored.status, 200);
-  assert.equal(ignored.data.focusFollowupId, 'current', 'host mutation does not require a model to rewrite its recommendation');
+  assert.equal(ignored.data.focusFollowupId, 'next', 'dismissing explicitly advances focus without a model call');
   const next = await context();
   assert.equal(next.focusFollowupId, 'next', 'MCP advances to the same valid related question as the page');
   assert.equal(next.followups.some(item => item.id === 'current'), false);
-  assert.equal(workbench.store.getMeeting(meeting.id).focusFollowupId, 'current', 'context is a read-only projection');
+  assert.equal(workbench.store.getMeeting(meeting.id).focusFollowupId, 'next', 'context preserves the focus saved by the host action');
   assert.equal(workbench.store.listJobs(meeting.id).length, 0);
   workbench.store.mutateMeeting(meeting.id, draft => { draft.focusFollowupId = null; });
   const quiet = await context();
   assert.equal(quiet.focusFollowupId, null);
   assert.ok(quiet.followups.some(item => item.id === 'next' && item.status === 'active'), 'an explicit quiet recommendation does not consume or promote the queue');
+  const manualIgnore = await request(`/api/meetings/${meeting.id}/followups/next`, 'PATCH', { status: 'ignored', author: 'host' });
+  assert.equal(manualIgnore.data.focusFollowupId, 'unrelated', 'explicit dismissal advances from a manually selected question while AI was quiet');
+  assert.equal((await context()).focusFollowupId, 'unrelated');
 });
 
 test('export identifies historical minutes after transcript changes instead of declaring stale decisions current',async t=>{

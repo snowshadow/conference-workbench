@@ -6,8 +6,45 @@ import path from 'node:path';
 import { Store } from '../server/store.js';
 import { addTopic,editTopic,mergeTopic,editEntry,editFollowup } from '../server/content.js';
 import { reduceOrganization } from '../server/ai/reducer.js';
+import { readingFocusId } from '../shared/discussion-view.js';
 
 function fixture(t) {const dir=fs.mkdtempSync(path.join(os.tmpdir(),'meeting-store-test-')),store=new Store(dir);t.after(()=>store.close());return store;}
+test('dismissing a manually selected question advances even from an AI quiet recommendation',t=>{
+  const s=fixture(t),m=s.createMeeting({title:'先放下后继续'});
+  s.mutateMeeting(m.id,d=>{
+    d.focusFollowupId=null;
+    d.followups=[
+      {id:'earlier',topicId:'t',status:'active'},
+      {id:'selected',topicId:'t',status:'active'},
+      {id:'stale',topicId:'t',status:'active',stale:true},
+      {id:'merged',topicId:'t',status:'active',mergedInto:'next'},
+      {id:'finished',topicId:'t',status:'resolved'},
+      {id:'other-topic',topicId:'other',status:'active'},
+      {id:'next',topicId:'t',status:'active'},
+    ];
+  });
+  assert.equal(readingFocusId(s.getMeeting(m.id),'selected',false),'selected');
+  const updated=editFollowup(s,m.id,'selected',{status:'ignored'});
+  assert.equal(updated.focusFollowupId,'next');
+  assert.equal(readingFocusId(updated,'selected',true),'next');
+  assert.equal(s.getMeeting(m.id).focusFollowupId,'next');
+  assert.equal(updated.followups[1].status,'ignored');
+  assert.equal(editFollowup(s,m.id,'next',{status:'ignored'}).focusFollowupId,'earlier');
+  assert.equal(editFollowup(s,m.id,'earlier',{status:'ignored'}).focusFollowupId,'other-topic');
+  assert.equal(editFollowup(s,m.id,'other-topic',{status:'ignored'}).focusFollowupId,null);
+});
+test('failed and repeated dismissals do not move the current focus',t=>{
+  const s=fixture(t),m=s.createMeeting({title:'保留阅读位置'});
+  s.mutateMeeting(m.id,d=>{d.focusFollowupId='first';d.followups=[{id:'first',status:'active'},{id:'second',status:'active'}];});
+  assert.throws(()=>editFollowup(s,m.id,'first',{status:'ignored',sourceRevision:1}),/来源版本无效/);
+  assert.equal(s.getMeeting(m.id).focusFollowupId,'first');
+  assert.equal(s.getMeeting(m.id).followups[0].status,'active');
+  editFollowup(s,m.id,'first',{status:'ignored'});
+  s.mutateMeeting(m.id,d=>{d.focusFollowupId=null;});
+  assert.equal(editFollowup(s,m.id,'first',{status:'ignored'}).focusFollowupId,null);
+  s.mutateMeeting(m.id,d=>{d.followups[1].stale=true;});
+  assert.equal(editFollowup(s,m.id,'second',{status:'ignored'}).focusFollowupId,null);
+});
 test('clarification outcomes preserve uncertainty, authorship and revisions without becoming transcript facts',t=>{
   const s=fixture(t),m=s.createMeeting({title:'实时同步的含义'}),line=s.appendTranscript(m.id,{text:'打开时最新就可以；后台告警才需要立即同步。',speakerId:'a'});
   s.mutateMeeting(m.id,d=>{d.followups=[{id:'focus',kind:'concept',question:'哪些场景需要立即同步？',rationale:'实时可能有不同含义',impact:'影响同步架构',evidenceIds:[line.id],status:'active',author:'ai'}];});
