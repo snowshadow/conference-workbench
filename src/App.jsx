@@ -297,23 +297,25 @@ export default function App() {
           <details className="discussion-options meeting-options">
             <summary aria-label="会议操作" title="会议操作"><MoreHorizontal size={20} /></summary>
             <div className="discussion-options-menu" onClick={closeDiscussionMenu}>
-              <div className="meeting-menu-group">
-                <button onClick={() => setModal('minutes')}>会议纪要</button>
-                <button onClick={() => setModal('edit')}>编辑会议名称和目标</button>
+              <div className="meeting-menu-group" role="group" aria-labelledby="meeting-menu-view">
+                <h3 id="meeting-menu-view">查看与展示</h3>
+                <button onClick={() => setModal('minutes')}>查看会议纪要</button>
                 <button onClick={() => setPresentation(!presentation)}>{presentation ? '退出展示模式' : '进入展示模式'}</button>
+              </div>
+              <div className="meeting-menu-group" role="group" aria-labelledby="meeting-menu-analysis">
+                <div className="meeting-menu-heading"><h3 id="meeting-menu-analysis">AI 分析</h3><span className="meeting-menu-status">{organizeJob ? '分析中…' : meeting.processedRevision ? `已分析至 ${formatTime(meeting.processedThroughMs)}` : meeting.transcriptRevision ? '尚未分析' : '等待原文'}</span></div>
+                <button aria-label="更新讨论分析" aria-describedby="meeting-menu-update-hint" disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize')}><span>更新讨论分析</span><small id="meeting-menu-update-hint">接着上次进度，分析新发言</small></button>
+                <button aria-label="重新分析整场会议" aria-describedby="meeting-menu-reanalyze-hint" disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize', { force: true })}><span>重新分析整场会议</span><small id="meeting-menu-reanalyze-hint">重新核对全部原文，保留手动修改</small></button>
+                <button disabled={Boolean(followupJob) || submitting === 'followup' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('followup')}>查找需要澄清的问题</button>
+                {meeting.status !== 'ended' && !meeting.archived && <button onClick={() => mutate('', 'PATCH', { autoOrganize: !meeting.autoOrganize }).catch(error => notify(error.message))}>{meeting.autoOrganize ? '暂停自动分析' : '开启自动分析'}</button>}
+                <button onClick={() => setModal('processing')}>查看处理记录</button>
+              </div>
+              <div className="meeting-menu-group" role="group" aria-labelledby="meeting-menu-manage">
+                <h3 id="meeting-menu-manage">会议管理</h3>
+                <button onClick={() => setModal('edit')}>修改名称和目标</button>
                 {['recording', 'paused'].includes(capture.state) && <button disabled={commandBusy || activeCommand} onClick={() => requestCommand('stop')}>停止录音，保留会议</button>}
+                <button disabled={locked} title={locked ? '先停止当前录音，再归档会议' : undefined} onClick={() => archiveMeeting(meeting.id, !meeting.archived)}>{meeting.archived ? '移出归档' : '归档会议'}</button>
               </div>
-              <div className="meeting-menu-group">
-                <button disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize', { force: true })}>重新分析全部原文</button>
-                <button disabled={Boolean(followupJob) || submitting === 'followup' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('followup')}>再找一个问题</button>
-                <button onClick={() => mutate('', 'PATCH', { autoOrganize: !meeting.autoOrganize }).catch(error => notify(error.message))}>{meeting.autoOrganize ? '暂停自动整理' : '恢复自动整理'}</button>
-                <button disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize')}>仅更新新增原文</button>
-                <button onClick={() => setModal('processing')}>处理记录</button>
-              </div>
-              <div className="meeting-menu-group"><button onClick={() => setModal('settings')}>连接设置</button><button onClick={() => setModal('theme')}>外观配色</button></div>
-              <div className="meeting-menu-group"><button disabled={locked} title={locked ? '先停止当前录音，再归档会议' : undefined} onClick={() => archiveMeeting(meeting.id, !meeting.archived)}>{meeting.archived ? '恢复会议' : '归档会议'}</button></div>
-              <p className="meeting-menu-status">{organizeJob ? '正在整理…' : meeting.processedRevision ? `已整理至 ${formatTime(meeting.processedThroughMs)}` : meeting.transcriptRevision ? '等待分析' : '等待原文'} · {meeting.autoOrganize ? '自动整理已开启' : '自动整理已暂停'}</p>
-              {meeting.goal && <p className="meeting-menu-goal">讨论目标：{meeting.goal}</p>}
             </div>
           </details>
         </div>
