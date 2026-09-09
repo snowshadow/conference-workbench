@@ -161,7 +161,7 @@ test('minutes keep neutral notes in discussion records and never use them as dec
   assert.match(notes, /先把告警场景记下来/);
   assert.match(notes, /#transcript:/);
   assert.doesNotMatch(markdown.split('## 讨论记录\n')[0], /先把告警场景记下来|相关前提/);
-  assert.doesNotMatch(markdown.split('## 已澄清口径\n')[1], /先把告警场景记下来/);
+  assert.doesNotMatch(markdown.split('## 已经说清楚\n')[1], /先把告警场景记下来/);
   assert.match(markdown.split('## 尚待澄清\n')[1], /响应时延是否已经测量/);
   assert.match(markdown.split('## 尚待澄清\n')[1], /已有讨论记录，问题仍待澄清/);
   assert.equal(f.calls.length, 0, 'the test uses existing organization without a provider request');

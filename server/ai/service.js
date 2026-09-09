@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { minutesDocumentMarkdown } from '../../shared/minutes-format.js';
+import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 import { reduceOrganization } from './reducer.js';
 import { knownContext, supplementEvidence, reviewEvidence } from './context.js';
 import { evidenceFor, retrieve, sourceLines, sourceView } from './retrieval.js';
@@ -109,9 +110,9 @@ function minutesMarkdown(meeting, lines) {
   }
   const clarificationSections = [
     ['讨论记录', item => item.status === 'recorded' && item.resolution?.outcome === 'recorded'],
-    ['已澄清口径', item => item.status === 'resolved' && item.resolution?.outcome === 'clarified'],
-    ['待验证前提', item => item.status === 'resolved' && item.resolution?.outcome === 'needs_verification'],
-    ['仍有分歧或取舍', item => item.status === 'resolved' && item.resolution?.outcome === 'difference_remains'],
+    [resolutionOutcomes.clarified.label, item => item.status === 'resolved' && item.resolution?.outcome === 'clarified'],
+    [resolutionOutcomes.needs_verification.label, item => item.status === 'resolved' && item.resolution?.outcome === 'needs_verification'],
+    [resolutionOutcomes.difference_remains.label, item => item.status === 'resolved' && item.resolution?.outcome === 'difference_remains'],
     ['尚待澄清', item => ['active','recorded'].includes(item.status)],
   ];
   for (const [title, matches] of clarificationSections) {

@@ -3,18 +3,13 @@ import { ChevronDown, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Q
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { api, formatTime, meetingPath } from '../lib/api.js';
 import { isActiveFocus, readingFocusId, recommendedFocusId } from '../../shared/discussion-view.js';
+import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 
 export const clarificationKinds = {
   concept: { label: '概念澄清', icon: Quote },
   assumption: { label: '隐含假设', icon: Compass },
   criteria: { label: '取舍标准', icon: Scale },
   other: { label: '值得澄清', icon: CircleHelp },
-};
-export const resolutionOutcomes = {
-  recorded: { label: '讨论记录', description: '只保存记录，尚未确认是否解决。' },
-  clarified: { label: '工作口径', description: '记下已说清的定义、范围或判断标准。' },
-  needs_verification: { label: '待验证前提', description: '记下还需验证的前提，以及要补充的依据。' },
-  difference_remains: { label: '保留分歧', description: '记下仍然不同的看法或取舍，不写成已经达成一致。' },
 };
 
 const questionFor = item => !item.stale && !item.resolution?.stale && item.shortQuestion ? item.shortQuestion : item.question;
@@ -98,9 +93,9 @@ function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline =
     {!inline && <p className="resolution-context">{questionFor(item)}</p>}
     <label htmlFor={noteId}>这次说清了什么，还有什么没定？</label>
     <textarea id={noteId} ref={textarea} rows={3} value={text} onChange={event => setText(event.target.value)} placeholder="用自己的话记下来…" required maxLength={4000} disabled={busy} />
-    <details className="resolution-extra"><summary>补充分类与来源{item.resolution?.outcome && item.resolution.outcome !== 'recorded' ? ` · ${resolutionOutcomes[item.resolution.outcome]?.label || '已有分类'}` : ''}</summary>
-      <label>记录分类<select value={outcome} onChange={event => setOutcome(event.target.value)} disabled={busy}>{Object.entries(resolutionOutcomes).map(([value, option]) => <option key={value} value={value}>{option.label}</option>)}</select><span className="form-hint">{resolutionOutcomes[outcome]?.description}</span></label>
-      {choices.length > 0 && <fieldset className="resolution-sources"><legend>关联原文 <span className="optional">可选</span></legend><p>选择支持这份记录的发言。</p>{choices.map((id, index) => <label className="checkbox-label" key={id}><input type="checkbox" checked={evidenceIds.includes(id)} disabled={busy} onChange={event => setEvidenceIds(previous => event.target.checked ? [...previous, id] : previous.filter(value => value !== id))} /><span><strong>原文 {index + 1}</strong>{evidenceText(id) || '已关联到此问题的转录引用'}</span></label>)}</fieldset>}
+    <details className="resolution-extra"><summary>补充说明（可选）{item.resolution?.outcome && item.resolution.outcome !== 'recorded' ? ` · ${resolutionOutcomes[item.resolution.outcome]?.label || ''}` : ''}</summary>
+      <label>这个问题现在怎么样了？<select value={outcome} onChange={event => setOutcome(event.target.value)} disabled={busy}>{Object.entries(resolutionOutcomes).map(([value, option]) => <option key={value} value={value}>{option.label}</option>)}</select><span className="form-hint">{resolutionOutcomes[outcome]?.description}</span></label>
+      {choices.length > 0 && <fieldset className="resolution-sources"><legend>附上原话 <span className="optional">可选</span></legend><p>勾选作为依据的原话，方便以后回看。</p>{choices.map((id, index) => <label className="checkbox-label" key={id}><input type="checkbox" checked={evidenceIds.includes(id)} disabled={busy} onChange={event => setEvidenceIds(previous => event.target.checked ? [...previous, id] : previous.filter(value => value !== id))} /><span><strong>原文 {index + 1}</strong>{evidenceText(id) || '这段原话已关联到当前问题'}</span></label>)}</fieldset>}
       <p className="resolution-source">保存为主持人记录 · 转录版本 {sourceRevision}{!evidenceIds.length && ' · 未关联原文'}</p>
     </details>
     {outdated && <section className="resolution-review"><p className="form-error" role="alert">原文已修正，输入已保留。核对后可继续保存。</p><Button className="text-button" busy={reviewBusy} onClick={reviewSources}>核对最新原文</Button>{review && <><div className="resolution-review-lines">{review.lines.length ? review.lines.map(line => <blockquote key={line.id}><time>{formatTime(line.startMs)}</time><p>{line.text}</p></blockquote>) : <p>当前没有关联原文，也没有找到需核对的修正发言。请确认这份记录仍适用于当前讨论。</p>}</div>{reviewOutdated && <p className="form-error">原文又有修正，请重新核对。</p>}<Button onClick={acceptReview} disabled={reviewOutdated} busy={reviewBusy}>已核对，继续编辑</Button></>}<FormError error={reviewError} /></section>}

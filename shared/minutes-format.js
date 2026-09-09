@@ -1,4 +1,11 @@
+import { resolutionOutcomes } from './resolution-copy.js';
+
 const entrySections = new Set(['决定', '行动项', '未决问题', '讨论要点']);
+const legacyResolutionHeadings = new Map([
+  ['## 已澄清口径', `## ${resolutionOutcomes.clarified.label}`],
+  ['## 待验证前提', `## ${resolutionOutcomes.needs_verification.label}`],
+  ['## 仍有分歧或取舍', `## ${resolutionOutcomes.difference_remains.label}`],
+]);
 
 // Older generated minutes repeat the topic before every entry. Reformat that
 // template without rebuilding historical content from today's discussion data.
@@ -29,7 +36,7 @@ export function minutesDocumentMarkdown(artifact) {
       }
       output.push(`- ${entry[2]}`);
     } else {
-      output.push(line);
+      output.push(legacyResolutionHeadings.get(line) ?? line);
       if (line && !/^\s/.test(line)) topic = null;
     }
   }

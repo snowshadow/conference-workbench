@@ -80,7 +80,34 @@ test('AI minutes drafts share the same grouping as the current minutes', () => {
 
 test('clarification sections and nested custom sections are not interpreted as generated discussion entries', () => {
   const markdown = ['## 已澄清口径', '', '- **实时是什么意思？**：下次打开可见。', '', '## 待验证前提', '', '- **并发**：尚未验证。', '', '## 尚待澄清', '', '- **离线**：需要继续讨论。', '', '## 讨论要点', '', '### 主持人的示例', '', '- **保留这一格式**：这是嵌套章节中的写法。', ''].join('\n');
-  assert.equal(minutesDocumentMarkdown(document(markdown)), markdown);
+  assert.equal(minutesDocumentMarkdown(document(markdown)), markdown.replace('## 已澄清口径', '## 已经说清楚').replace('## 待验证前提', '## 还需要验证'));
+});
+
+test('historical AI resolution headings use plain language without rewriting quoted, nested or authored content', () => {
+  const unchanged = [
+    '- 原话提到「已澄清口径」「待验证前提」「仍有分歧或取舍」。 [01:00](#transcript:original)',
+    '> ## 已澄清口径',
+    '### 待验证前提',
+    '  ## 仍有分歧或取舍',
+    '```markdown\n## 已澄清口径\n```',
+    '~~~markdown\n## 待验证前提\n~~~',
+    '````markdown\n```\n## 仍有分歧或取舍\n```\n````',
+    '## 讨论记录',
+    '## 尚待澄清',
+  ].join('\n\n');
+  const markdown = ['## 已澄清口径', '## 待验证前提', '## 仍有分歧或取舍', unchanged, ''].join('\n\n');
+  const expected = ['## 已经说清楚', '## 还需要验证', '## 还有不同意见', unchanged, ''].join('\n\n');
+
+  for (const type of ['minutes', 'minutes-draft', 'minutes-draft-2']) {
+    const artifact = document(markdown, { type, stale: true, sourceRevision: 8 });
+    const before = structuredClone(artifact);
+    const formatted = minutesDocumentMarkdown(artifact);
+    assert.equal(formatted, expected);
+    assert.equal(minutesDocumentMarkdown({ ...artifact, markdown: formatted }), formatted);
+    assert.deepEqual(artifact, before, 'historical artifacts and provenance are not mutated');
+    for (const author of ['host', 'agent']) assert.equal(minutesDocumentMarkdown({ ...artifact, author }), markdown);
+  }
+  assert.equal(minutesDocumentMarkdown(document(markdown, { type: 'decision-log' })), markdown);
 });
 
 test('Markdown examples inside backtick or tilde code fences remain untouched', () => {

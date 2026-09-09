@@ -11,6 +11,7 @@ import ImportStatus from './components/ImportStatus.jsx';
 import DiscussionStatus, { latestDiscussionJob } from './components/DiscussionStatus.jsx';
 import ThemeDialog from './components/ThemeDialog.jsx';
 import { Button, EmptyState, IconButton, PanelErrorBoundary, ResizeHandle } from './components/ui.jsx';
+import { resolutionOutcomes } from '../shared/resolution-copy.js';
 
 const TopicPanel = lazy(() => import('./components/TopicPanel.jsx'));
 
@@ -40,7 +41,7 @@ function Sidebar({ meetings, archived, setArchived, selectedId, select, create, 
 
 function Welcome({ create, importRecording, settings, agent }) {
   return <main id="meeting-main" tabIndex={-1} className="welcome"><div className="welcome-heading"><span className="eyebrow"><span className="small-ring" />为共同思考留出空间</span><h1>让每次讨论<br />都有进展<span>。</span></h1><p>发现藏在细节里的不同理解，把前提和取舍说清。<br />让每个人知道，当前的决定建立在什么基础上。</p><div className="welcome-actions"><Button className="primary welcome-create" onClick={create}><Plus size={17} />创建第一场会议<ArrowUpRight size={16} /></Button><Button className="welcome-import" onClick={importRecording}><Upload size={16} />导入已有录音</Button></div></div>
-    <div className="welcome-preview" aria-label="会议工作方式"><div className="preview-heading"><span className="preview-dot" /><span>从原话，到共同的理解</span><AudioLines size={17} /></div><div className="preview-flow"><div><span className="preview-number">01</span><AudioLines size={24} strokeWidth={1.4} /><h3>留住原话</h3><p>实时转录与录音回听，<br />让依据始终可见。</p></div><div><span className="preview-number">02</span><GitBranch size={24} strokeWidth={1.4} /><h3>找到卡点</h3><p>澄清概念、前提与取舍，<br />找到值得共同回答的问题。</p></div><div><span className="preview-number">03</span><Sparkles size={24} strokeWidth={1.4} /><h3>说清再往前</h3><p>记下工作口径与待验证前提，<br />把澄清带进下一步决定。</p></div></div><div className="preview-footer"><span><CheckCheck size={13} />工作口径</span><span><Target size={13} />待验证前提</span><span><CircleHelp size={13} />保留分歧</span><span className="preview-footer-caption">保留依据，也保留分歧</span></div></div>
+    <div className="welcome-preview" aria-label="会议工作方式"><div className="preview-heading"><span className="preview-dot" /><span>从原话，到共同的理解</span><AudioLines size={17} /></div><div className="preview-flow"><div><span className="preview-number">01</span><AudioLines size={24} strokeWidth={1.4} /><h3>留住原话</h3><p>实时转录与录音回听，<br />让依据始终可见。</p></div><div><span className="preview-number">02</span><GitBranch size={24} strokeWidth={1.4} /><h3>找到卡点</h3><p>澄清概念、前提与取舍，<br />找到值得共同回答的问题。</p></div><div><span className="preview-number">03</span><Sparkles size={24} strokeWidth={1.4} /><h3>说清再往前</h3><p>记下说清楚的事和要验证的想法，<br />方便继续讨论和做决定。</p></div></div><div className="preview-footer"><span><CheckCheck size={13} />{resolutionOutcomes.clarified.label}</span><span><Target size={13} />{resolutionOutcomes.needs_verification.label}</span><span><CircleHelp size={13} />{resolutionOutcomes.difference_remains.label}</span><span className="preview-footer-caption">能找到原话，也能看到不同意见</span></div></div>
     <div className="welcome-footer"><button onClick={settings}><Settings2 size={14} />配置语音识别与 AI</button><span>·</span><button onClick={agent}><Terminal size={14} />连接 Codex 等 Agent</button></div>
   </main>;
 }

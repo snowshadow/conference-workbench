@@ -105,7 +105,7 @@ export function editFollowup(store,meetingId,followupId,input) {
     let resolution;
     if(input.resolution!==undefined) {
       const r=input.resolution;
-      if(!r || typeof r!=='object' || Array.isArray(r) || !['recorded','clarified','needs_verification','difference_remains'].includes(r.outcome)) throw fail('请选择讨论记录、工作口径、待验证前提或保留分歧');
+      if(!r || typeof r!=='object' || Array.isArray(r) || !['recorded','clarified','needs_verification','difference_remains'].includes(r.outcome)) throw fail('请选择这个问题当前的讨论结果');
       if((r.outcome==='recorded')!==(input.status==='recorded')) throw fail('讨论记录使用 recorded 状态，明确结果使用 resolved 状态');
       if(typeof r.text!=='string' || !r.text.trim() || r.text.length>6000) throw fail('请填写 1–6000 字的讨论记录');
       const ids=r.evidenceIds ?? [];

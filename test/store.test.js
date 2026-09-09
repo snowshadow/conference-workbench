@@ -65,7 +65,7 @@ test('clarification writes reject fabricated/cross-meeting sources and stale sou
   const input={status:'resolved',sourceRevision:1,resolution:{outcome:'needs_verification',text:'并发量待验证。',evidenceIds:[foreign.id]}};
   assert.throws(()=>editFollowup(s,m.id,'f',input),/本次会议/);
   assert.throws(()=>editFollowup(s,m.id,'f',{...input,resolution:{...input.resolution,evidenceIds:['fabricated']}}),/本次会议/);
-  assert.throws(()=>editFollowup(s,m.id,'f',{...input,resolution:{outcome:'consensus',text:'全部同意'}}),/工作口径/);
+  assert.throws(()=>editFollowup(s,m.id,'f',{...input,resolution:{outcome:'consensus',text:'全部同意'}}),/请选择这个问题当前的讨论结果/);
   assert.equal(s.getMeeting(m.id).followups[0].status,'active');
   editFollowup(s,m.id,'f',{...input,resolution:{...input.resolution,evidenceIds:[line.id]}});
   s.editTranscript(m.id,line.id,{text:'并发量已核对为十个请求。'});

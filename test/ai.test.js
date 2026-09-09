@@ -539,7 +539,7 @@ test('minutes preserve decision-related assumptions and distinguish clarified, u
   const job = await finish(store, ai.submit(current.id, 'minutes'));
   assert.equal(job.status, 'done');
   const markdown = job.result.markdown;
-  for (const title of ['已澄清口径', '待验证前提', '仍有分歧或取舍', '尚待澄清']) assert.ok(markdown.includes(`## ${title}`));
+  for (const title of ['已经说清楚', '还需要验证', '还有不同意见', '尚待澄清']) assert.ok(markdown.includes(`## ${title}`));
   assert.match(markdown, /相关前提（AI 按原文整理；前提仍待验证）/);
   assert.match(markdown, /主持人记录/);
   assert.match(markdown, /Agent 记录/);
