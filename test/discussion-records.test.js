@@ -11,6 +11,7 @@ import { editFollowup } from '../server/content.js';
 import { reduceOrganization } from '../server/ai/reducer.js';
 import { createAIService } from '../server/ai/service.js';
 import { createWorkbench } from '../server/app.js';
+import { readingFocusId } from '../shared/discussion-view.js';
 
 function fixture(t, responder = () => ({ topics: [], followups: [] })) {
   const store = new Store(mkdtempSync(join(tmpdir(), 'discussion-records-test-')));
@@ -53,6 +54,37 @@ function record(fixture, extra = {}) {
     resolution: { outcome: 'recorded', text: '先把告警场景记下来，具体时延还没说清。', evidenceIds: [line.id] }, ...extra,
   });
 }
+
+test('saving a note advances focus while keeping the record unresolved and independently editable', t => {
+  const f = fixture(t);
+  f.store.mutateMeeting(f.meeting.id, meeting => {
+    meeting.focusFollowupId = f.followup.id;
+    meeting.followups.push({ id: 'next', status: 'active', question: '下一项验收标准是什么？' });
+  });
+  const before = f.store.allTranscript(f.meeting.id);
+  const updated = record(f);
+  assert.equal(updated.focusFollowupId, 'next');
+  assert.equal(readingFocusId(updated, f.followup.id, true, true), f.followup.id, 'the open editor keeps its reading position');
+  assert.equal(readingFocusId(updated, f.followup.id, true, false), 'next', 'closing the editor resumes the next question');
+  assert.equal(updated.followups[0].status, 'recorded');
+  assert.equal(updated.followups[0].resolution.outcome, 'recorded');
+  assert.equal(updated.followups[0].resolution.complete, undefined);
+  assert.deepEqual(f.store.allTranscript(f.meeting.id), before);
+  f.store.mutateMeeting(f.meeting.id, meeting => { meeting.focusFollowupId = null; });
+  assert.equal(record(f).focusFollowupId, null, 'editing a saved record leaves the current focus alone');
+  f.store.mutateMeeting(f.meeting.id, meeting => { meeting.focusFollowupId = 'next'; });
+  const last = editFollowup(f.store, f.meeting.id, 'next', { status: 'recorded', resolution: { outcome: 'recorded', text: '验收标准仍需补充。' } });
+  assert.equal(last.focusFollowupId, null);
+});
+
+test('recording a different question does not interrupt the current focus', t => {
+  const f = fixture(t);
+  f.store.mutateMeeting(f.meeting.id, meeting => {
+    meeting.focusFollowupId = 'current';
+    meeting.followups.push({ id: 'current', status: 'active', question: '当前正在讨论的问题？' });
+  });
+  assert.equal(record(f).focusFollowupId, 'current');
+});
 
 test('a brief note is recorded without resolving the question, changing transcript facts or losing previous outcomes', t => {
   const f = fixture(t), before = f.store.allTranscript(f.meeting.id);

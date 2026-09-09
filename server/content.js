@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { fail } from './store.js';
-import { isActiveFocus, nextFocusId } from '../shared/discussion-view.js';
+import { isActiveFocus, nextFocusId, recommendedFocusId } from '../shared/discussion-view.js';
 
 const string = (value,max=12000) => String(value ?? '').trim().slice(0,max);
 const findTopic = (meeting,id) => { const topic=meeting.topics.find(t=>t.id===id && !t.mergedInto); if(!topic) throw fail('主题不存在',404); return topic; };
@@ -116,9 +116,9 @@ export function editFollowup(store,meetingId,followupId,input) {
       resolution={outcome:r.outcome,text:r.text.trim(),evidenceIds,evidence:evidenceIds.map(id=>({id,quote:byId.get(id).text,revision:byId.get(id).revision})),author,sourceRevision:input.sourceRevision ?? m.transcriptRevision,updatedAt,stale:false};
     }
     if(input.status==='resolved' && !resolution && f.resolution?.outcome==='recorded') throw fail('请填写明确结果后再标记为已解决');
-    // Dismissing an active question explicitly asks to move on, even when the
-    // previous AI recommendation was quiet. Repeated writes do not move focus.
-    if(input.status==='ignored' && isActiveFocus(f)) m.focusFollowupId=nextFocusId(m,f.id);
+    // Handling the current question moves focus without a model call. A note
+    // remains unresolved; recording another question does not take over focus.
+    if(input.status!==undefined && isActiveFocus(f) && (input.status==='ignored' || recommendedFocusId(m)===f.id)) m.focusFollowupId=nextFocusId(m,f.id);
     f.history=[...(f.history || []),{status:f.status,resolution:f.resolution ? structuredClone(f.resolution) : null,shortQuestion:f.shortQuestion,discussionValue:f.discussionValue,presentationSourceRevision:f.presentationSourceRevision,updatedAt:f.updatedAt || f.createdAt,updatedBy:f.updatedBy || f.author}];
     if(input.status!==undefined) f.status=input.status;
     f.updatedAt=updatedAt;f.updatedBy=author;

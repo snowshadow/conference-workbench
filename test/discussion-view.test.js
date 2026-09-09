@@ -27,8 +27,8 @@ test('a missing or stale recommended item stays quiet instead of selecting the o
   assert.equal(recommendedFocusId({ focusFollowupId: 'missing', followups: [question('old')] }), null);
 });
 
-test('host completion advances without waiting for a new model recommendation', () => {
-  for (const status of ['resolved', 'ignored']) {
+test('host recording, completion and dismissal advance without a new model recommendation', () => {
+  for (const status of ['recorded', 'resolved', 'ignored']) {
     const meeting = { focusFollowupId: 'current', followups: [
       question('earlier', { topicId: 'topic' }),
       question('current', { status, topicId: 'topic' }),

@@ -26,9 +26,9 @@ export function recommendedFocusId(meeting) {
     if (meeting.focusFollowupId === null) return null;
     const item = resolveFocus(meeting, meeting.focusFollowupId);
     if (isActiveFocus(item)) return item.id;
-    // Host actions can finish a question without another model run. Continue
-    // locally only from a known finished item; missing or stale sources wait.
-    if (!item || item.stale || !['resolved', 'ignored'].includes(item.status)) return null;
+    // A saved note can leave the main focus without declaring the question
+    // resolved. Only known handled items advance; missing or stale sources wait.
+    if (!item || item.stale || !['recorded', 'resolved', 'ignored'].includes(item.status)) return null;
     return nextFocusId(meeting, item.id);
   }
   return (meeting.followups || []).find(isActiveFocus)?.id || null;
