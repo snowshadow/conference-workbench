@@ -73,7 +73,7 @@ test('clarification writes reject fabricated/cross-meeting sources and stale sou
   assert.throws(()=>editFollowup(s,m.id,'f',{...input,resolution:{...input.resolution,evidenceIds:[line.id]}}),error=>error.status===409);
   editFollowup(s,m.id,'f',{status:'resolved',sourceRevision:2,resolution:{outcome:'clarified',text:'核对并发量为十个请求。',evidenceIds:[line.id]}});
   s.updateMeeting(m.id,{speakerLabels:{a:'已核对的说话人'}});
-  item=s.getMeeting(m.id).followups[0];assert.equal(item.resolution.stale,true);
+  item=s.getMeeting(m.id).followups[0];assert.equal(item.resolution.stale,false,'adding a name keeps the verified result current');
 });
 test('legacy resolved status remains a state marker and never invents a clarification outcome',t=>{
   const s=fixture(t),m=s.createMeeting({title:'兼容旧追问'});
@@ -120,25 +120,67 @@ test('transcript corrections invalidate dependent evidence and retain manual pro
   editTopic(s,m.id,'t1',{summary:'主持人核对后确认尚未决定'});
   assert.equal(s.getMeeting(m.id).topics[0].stale,false);
 });
-test('speaker rename invalidates only linked discussion evidence and resets organization watermark',t=>{
-  const s=fixture(t),m=s.createMeeting({title:'说话人归属'});
-  const first=s.appendTranscript(m.id,{text:'我担心离线能力。',speakerId:'1'}),other=s.appendTranscript(m.id,{text:'我来验证成本。',speakerId:'2'});
-  s.updateMeeting(m.id,{speakerLabels:{'1':'张三','2':'王五'}});
+test('adding or changing speaker names preserves discussion, provenance and analysis progress',t=>{
+  const s=fixture(t),m=s.createMeeting({title:'补上说话人姓名'});
+  const line=s.appendTranscript(m.id,{text:'我担心离线能力。',speakerId:'speaker-5',endMs:12000});
+  s.mutateMeeting(m.id,d=>{
+    d.processedRevision=d.transcriptRevision;d.processedThroughMs=line.endMs;d.focusFollowupId='f1';
+    d.topics=[{id:'t1',summary:'讨论离线能力',stale:false,entries:[{id:'e1',text:'speaker-5 担心离线能力',type:'viewpoint',status:'active',evidenceIds:[line.id],stale:false,author:'ai'}]}];
+    d.questions=[{id:'q1',answer:'担心离线能力',evidenceIds:[line.id],stale:false}];
+    d.followups=[{id:'f1',question:'离线能力是否已经验证？',evidenceIds:[line.id],status:'active',stale:false},
+      {id:'f2',evidenceIds:[line.id],status:'recorded',stale:false,resolution:{text:'孙总的说法待验证',evidenceIds:[line.id],author:'host',stale:false}}];
+  });
+  s.saveArtifact(m.id,'minutes',{markdown:'原始记录：speaker-5 担心离线能力。',author:'host'});
+  const transcript=s.allTranscript(m.id);
+  for(const speakerLabels of [{'speaker-5':'孙总'},{'speaker-5':'孙先生'},{}]) {
+    const before=s.getMeeting(m.id),after=s.updateMeeting(m.id,{speakerLabels});
+    assert.deepEqual(after.speakerLabels,speakerLabels);
+    assert.equal(after.contentRevision,before.contentRevision+1,'late AI results must not commit with an outdated name mapping');
+    for(const key of ['transcriptRevision','transcriptEditRevision','processedRevision','processedThroughMs','focusFollowupId','topics','questions','followups','artifacts']) {
+      assert.deepEqual(after[key],before[key],`${key} must survive a name change`);
+    }
+    assert.deepEqual(s.allTranscript(m.id),transcript,'names must not rewrite original speech or speaker assignments');
+  }
+});
+test('saving unchanged speaker names does not invalidate an in-flight snapshot',t=>{
+  const s=fixture(t),m=s.createMeeting({title:'保存相同姓名'});
+  s.updateMeeting(m.id,{speakerLabels:{'speaker-5':'孙总','speaker-1':'李总'}});
+  const before=s.getMeeting(m.id);
+  const after=s.updateMeeting(m.id,{speakerLabels:{'speaker-1':'李总','speaker-5':'孙总'}});
+  assert.equal(after.contentRevision,before.contentRevision,'mapping key order is not an editorial change');
+  assert.equal(after.transcriptEditRevision,before.transcriptEditRevision);
+});
+test('renaming a speaker never revives conclusions invalidated by an actual transcript correction',t=>{
+  const s=fixture(t),m=s.createMeeting({title:'先修原文再补名'});
+  const line=s.appendTranscript(m.id,{text:'我们决定采用 A。',speakerId:'speaker-5'});
+  s.mutateMeeting(m.id,d=>{
+    d.processedRevision=d.transcriptRevision;
+    d.topics=[{id:'t',entries:[{id:'e',text:'采用 A',evidenceIds:[line.id],status:'active',stale:false}]}];
+    d.questions=[{id:'q',evidenceIds:[line.id],stale:false}];
+    d.followups=[{id:'f',status:'recorded',evidenceIds:[line.id],stale:false,resolution:{text:'采用 A',evidenceIds:[line.id],stale:false}}];
+  });
+  s.saveArtifact(m.id,'minutes',{markdown:'采用 A',author:'ai'});
+  s.editTranscript(m.id,line.id,{text:'我们还没决定采用 A。'});
+  const corrected=s.getMeeting(m.id);
+  assert.equal(corrected.topics[0].entries[0].stale,true);
+  const renamed=s.updateMeeting(m.id,{speakerLabels:{'speaker-5':'孙总'}});
+  for(const key of ['topics','questions','followups','artifacts','transcriptEditRevision','processedRevision']) assert.deepEqual(renamed[key],corrected[key]);
+});
+test('reassigning an actual utterance still invalidates linked discussion and preserves unrelated viewpoints',t=>{
+  const s=fixture(t),m=s.createMeeting({title:'修正发言归属'});
+  const first=s.appendTranscript(m.id,{text:'我担心离线能力。',speakerId:'speaker-5'}),other=s.appendTranscript(m.id,{text:'我来验证成本。',speakerId:'speaker-1'});
+  s.updateMeeting(m.id,{speakerLabels:{'speaker-5':'孙总','speaker-1':'李总'}});
   s.mutateMeeting(m.id,d=>{d.processedRevision=d.transcriptRevision;d.topics=[
-    {id:'a',title:'离线',stale:false,entries:[{id:'e1',text:'张三担心离线能力',evidenceIds:[first.id],stale:false}]},
-    {id:'b',title:'成本',stale:false,entries:[{id:'e2',text:'王五验证成本',evidenceIds:[other.id],stale:false}]},
-  ];d.questions=[{id:'q1',answer:'张三担心离线能力',evidenceIds:[first.id],stale:false},{id:'q2',answer:'王五验证成本',evidenceIds:[other.id],stale:false}];});
-  s.saveArtifact(m.id,'minutes',{markdown:'张三担心离线能力',author:'ai'});
-  const renamed=s.updateMeeting(m.id,{speakerLabels:{'1':'李四','2':'王五'}});
-  assert.equal(renamed.processedRevision,0);
-  assert.equal(renamed.topics[0].entries[0].stale,true);
-  assert.equal(renamed.topics[1].entries[0].stale,false);
-  assert.equal(renamed.questions[0].stale,true);
-  assert.equal(renamed.questions[1].stale,false);
-  assert.equal(renamed.artifacts[0].stale,true);
-  assert.equal(s.allTranscript(m.id)[0].text,first.text);
-  s.updateMeeting(m.id,{processedRevision:renamed.transcriptRevision});
-  assert.equal(s.updateMeeting(m.id,{speakerLabels:{'1':'李四','2':'王五',unused:'新名字'}}).processedRevision,renamed.transcriptRevision,'unused label does not invalidate organized sources');
+    {id:'a',title:'离线',stale:false,entries:[{id:'e1',evidenceIds:[first.id],stale:false}]},
+    {id:'b',title:'成本',stale:false,entries:[{id:'e2',evidenceIds:[other.id],stale:false}]},
+  ];d.questions=[{id:'q1',evidenceIds:[first.id],stale:false},{id:'q2',evidenceIds:[other.id],stale:false}];});
+  const before=s.getMeeting(m.id),corrected=s.editTranscript(m.id,first.id,{speakerId:'speaker-1'}),after=s.getMeeting(m.id);
+  assert.equal(corrected.speakerId,'speaker-1');assert.equal(corrected.history[0].speakerId,'speaker-5');
+  assert.equal(corrected.text,first.text);
+  assert.equal(after.transcriptRevision,before.transcriptRevision+1);assert.equal(after.transcriptEditRevision,before.transcriptEditRevision+1);
+  assert.equal(after.processedRevision,0);
+  assert.equal(after.topics[0].entries[0].stale,true);assert.equal(after.topics[1].entries[0].stale,false);
+  assert.equal(after.questions[0].stale,true);assert.equal(after.questions[1].stale,false);
 });
 
 test('completed jobs retain historical text but expose corrected or replaced results as stale to Agent readers',t=>{

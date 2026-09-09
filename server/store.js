@@ -77,31 +77,19 @@ export class Store {
   }
   updateMeeting(meetingId, patch) {
     const meeting = this.getMeeting(meetingId);
-    const previousSpeakerLabels=meeting.speakerLabels || {};
+    const labelsChanged = Object.hasOwn(patch, 'speakerLabels') &&
+      Object.keys({ ...meeting.speakerLabels, ...patch.speakerLabels }).some(key => meeting.speakerLabels?.[key] !== patch.speakerLabels?.[key]);
     const allowed = ['title','goal','status','archived','autoOrganize','speakerLabels','capture','endedAt','processedRevision','processedThroughMs','source','importJobId'];
     let contentChanged = false;
     for (const key of allowed) if (Object.hasOwn(patch, key)) {
-      if (['title','goal','speakerLabels'].includes(key) && JSON.stringify(meeting[key]) !== JSON.stringify(patch[key])) contentChanged = true;
+      if (['title','goal'].includes(key) && JSON.stringify(meeting[key]) !== JSON.stringify(patch[key]) || key === 'speakerLabels' && labelsChanged) contentChanged = true;
       meeting[key] = clone(patch[key]);
     }
     if (Object.hasOwn(patch,'title')) { meeting.title = bounded(patch.title,200); if (!meeting.title) throw fail('会议名称不能为空'); }
     if (Object.hasOwn(patch,'goal')) meeting.goal = bounded(patch.goal,6000);
-    if(Object.hasOwn(patch,'speakerLabels')) {
-      const labels=meeting.speakerLabels || {};
-      const changed=new Set([...Object.keys(previousSpeakerLabels),...Object.keys(labels)].filter(speakerId=>previousSpeakerLabels[speakerId]!==labels[speakerId]));
-      const affectedIds=new Set(this.allTranscript(meetingId).filter(line=>changed.has(line.speakerId)).map(line=>line.id));
-      if(affectedIds.size) {
-        meeting.transcriptEditRevision=(meeting.transcriptEditRevision || 0)+1;
-        for(const topic of meeting.topics) for(const entry of topic.entries || []) if((entry.evidenceIds || []).some(id=>affectedIds.has(id))) {entry.stale=true;topic.stale=true;}
-        for(const question of meeting.questions) if((question.evidenceIds || []).some(id=>affectedIds.has(id))) question.stale=true;
-        for(const followup of meeting.followups) {
-          if(['active','recorded'].includes(followup.status) && (followup.evidenceIds || []).some(id=>affectedIds.has(id))) followup.stale=true;
-          if((followup.resolution?.evidenceIds || []).some(id=>affectedIds.has(id))) {followup.resolution.stale=true;followup.stale=true;}
-        }
-        for(const artifact of meeting.artifacts) {artifact.stale=true;artifact.staleReason='speaker_changed';}
-        meeting.processedRevision=0;meeting.processedThroughMs=0;
-      }
-    }
+    // Names label stable speaker IDs; only editTranscript changes who said a line.
+    // Keep existing discussion and its watermark while contentRevision rejects AI
+    // results still using the old names. Never clear earlier source corrections.
     if (contentChanged) meeting.contentRevision++;
     return this.persistMeeting(meeting);
   }

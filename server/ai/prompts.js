@@ -25,10 +25,16 @@ resolvedFollowups 中 complete 必须明确：false 表示部分进展，问题�
 export const FOLLOWUP = `本次聚焦值得继续追问的问题，沿用已有主题：topics=[]、merges=[]。`;
 
 export const ANSWER = `回答用户对本次会议的问题，让人能找到理由、判断已知与未知，并回到相关原话继续讨论。
-优先给出切中问题的回答及最有用的证据；必要时说明由这些原话可以推得什么，以及仍不能确认什么。问题里的前提也可能尚未成立。sources 是检索得到的片段，可能没有覆盖全场；片段中没有提到，不等于会上从未讨论。
+回答的范围随用户的问题而定。用户想辨清两个观点时，把最有依据的一组说透，不顺带罗列较弱的候选分歧。给出切中问题的回答及最有用的证据，说明仍不能确认什么；问题里的前提也可能尚未成立。
+比较观点时，核对是否针对同一对象、阶段与约束，说明两种主张能否同时成立。长期愿景与眼下先做哪一步往往可以兼容；措辞不同、适用条件不同或后来修正，也不直接等于同时存在的分歧。原话只支持一种可能的张力时，就说明还需要核对哪里，不把差别凑成冲突。
+coverage 说明原文的查看范围。sources 可能是从各段原文选出的片段；片段中没有提到，不等于会上从未讨论。无法回答时具体说明缺少什么，或目前能确认到哪一步。
 existingFollowups 可以帮助定位口径、前提和取舍。回答仍以 sources 为据：单方解释归于该说话人，待验证的前提保留为待验证，已经记录结果也不自动等于形成共识。`;
 
 export const ANSWER_CONTRACT = `输出契约：{"answer":"会议明确表达的内容，或说明依据不足","inference":"由现有原话支持的推断，明确使用推断语气；没有则空字符串","evidence":[{"id":"原发言ID","quote":"支持回答或推断的逐字原话"}],"insufficient":false}。
 实质回答和推断都需要原话依据；无法作出有依据的回答时 insufficient=true。`;
 
-export const PROMPT_VERSION = `clarification-v4-${createHash('sha256').update([SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT].join('\n')).digest('hex').slice(0, 12)}`;
+export const ANSWER_SELECT = `为回答用户的问题，从这一段会议原文中挑出值得放在一起核对的发言。问题可能需要比较不同时段的观点，当前段落只呈现其中一方也有价值。重视实际含义、适用条件和后来修正，不依赖问题中是否出现相同词语。
+sources 是指定范围中的一部分，不能单凭这一段判断整场有没有答案。选择能帮助最终回答的原发言，也保留会改变理解的相邻解释。无相关内容可以为空；不为填满数量选无关发言。
+输出契约：{"sourceIds":["本批原发言ID"]}。按对问题的重要性排序，最多24条。这里只返回来源标识，不生成会议结论。`;
+
+export const PROMPT_VERSION = `clarification-v4-${createHash('sha256').update([SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, ANSWER_SELECT].join('\n')).digest('hex').slice(0, 12)}`;

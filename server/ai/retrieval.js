@@ -44,6 +44,57 @@ export function topicEvidence(meeting, topicId) {
   ]);
 }
 
+// Question answering must inspect the requested scope, including statements that
+// use different words for the same issue. Lexical retrieval remains useful for
+// live organization, but cannot establish coverage of a whole-meeting question.
+export function answerScope(meeting, allLines, topicId) {
+  const sources = sourceLines(meeting.id, allLines);
+  if (!topicId) return { meeting, sources };
+  const topics = new Set([topicId]);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const topic of meeting.topics || []) if (!topic.mergedInto && topics.has(topic.parentId) && !topics.has(topic.id)) {
+      topics.add(topic.id); changed = true;
+    }
+  }
+  const scopedMeeting = { ...meeting, topics: (meeting.topics || []).filter(topic => topics.has(topic.id) && !topic.mergedInto), followups: (meeting.followups || []).filter(item => topics.has(item.topicId) && !item.mergedInto) };
+  const ids = topicEvidence(scopedMeeting, topicId);
+  for (const topic of scopedMeeting.topics) for (const id of topic.summaryEvidenceIds || []) ids.add(id);
+  return { meeting: scopedMeeting, sources: sources.filter(line => ids.has(line.id)) };
+}
+
+export const ANSWER_BATCH_CHARS = 36000;
+export const ANSWER_CONTEXT_CHARS = 64000;
+const answerSourceCost = (line, speakerLabels) => JSON.stringify(sourceView([line], speakerLabels)).length;
+
+export function answerBatches(sources, maxChars = ANSWER_BATCH_CHARS, speakerLabels = {}) {
+  const batches = [];
+  let batch = [], size = 0;
+  for (const line of sources) {
+    const cost = answerSourceCost(line, speakerLabels);
+    if (batch.length && size + cost > maxChars) { batches.push(batch); batch = []; size = 0; }
+    batch.push(line); size += cost;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+// Spread a bounded synthesis window across batches so early or recent sections
+// cannot consume it before evidence from the rest of the meeting is considered.
+export function answerCandidates(batches, selections, maxChars = ANSWER_CONTEXT_CHARS, speakerLabels = {}) {
+  const candidates = selections.map((ids, index) => ids.map(id => batches[index].find(line => line.id === id)).filter(Boolean));
+  const selected = new Map();
+  let size = 0;
+  for (let rank = 0; rank < Math.max(0, ...candidates.map(lines => lines.length)); rank++) {
+    for (const lines of candidates) {
+      const line = lines[rank];
+      if (!line || selected.has(line.id) || size + answerSourceCost(line, speakerLabels) > maxChars) continue;
+      selected.set(line.id, line); size += answerSourceCost(line, speakerLabels);
+    }
+  }
+  return batches.flat().filter(line => selected.has(line.id));
+}
+
 /** Bounded lexical retrieval includes Chinese bigrams and ranks the full transcript, not just its tail. */
 export function retrieve(meeting, allLines, question, topicId, maxChars = 16000) {
   const sources = sourceLines(meeting.id, allLines);
@@ -85,7 +136,8 @@ export function evidenceFor(raw, linesById) {
   for (const item of evidence) {
     const line = linesById.get(item?.id);
     const quote = typeof item?.quote === 'string' ? item.quote.trim() : '';
-    if (!line || quote.length < 2 || !normalize(line.text).includes(normalize(quote))) return null;
+    const normalizedQuote = normalize(quote);
+    if (!line || quote.length < 2 || !normalizedQuote || !normalize(line.text).includes(normalizedQuote)) return null;
     result.push({ id: line.id, quote, revision: line.revision });
   }
   return result;

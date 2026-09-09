@@ -3,11 +3,10 @@ import { minutesDocumentMarkdown } from '../../shared/minutes-format.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 import { reduceOrganization } from './reducer.js';
 import { knownContext, supplementEvidence, reviewEvidence } from './context.js';
-import { evidenceFor, retrieve, sourceLines, sourceView } from './retrieval.js';
-import { SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, PROMPT_VERSION } from './prompts.js';
+import { answerBatches, answerCandidates, answerScope, evidenceFor, retrieve, sourceLines, sourceView } from './retrieval.js';
+import { SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, ANSWER_SELECT, PROMPT_VERSION } from './prompts.js';
 
 const TYPES = new Set(['organize', 'followup', 'answer', 'minutes']);
-const INSUFFICIENT = '本次会议转录中没有足够依据回答这个问题。';
 const CLARIFICATION_QUERY = '当前选择 范围 下一步行动 概念含义 隐含前提 评价标准 分歧 取舍 待澄清';
 
 class StaleResult extends Error { constructor() { super('会议内容已修正，本次结果未写入；请重新生成。'); this.code = 'STALE_RESULT'; } }
@@ -27,7 +26,9 @@ function validateResult(result, purpose) {
   const objects = value => Array.isArray(value) && value.every(object);
   const citations = value => objects(value) && value.every(item => typeof item.id === 'string' && typeof item.quote === 'string');
   let valid;
-  if (purpose === 'answer') {
+  if (purpose === 'answer_select') {
+    valid = Array.isArray(result.sourceIds) && result.sourceIds.length <= 24 && result.sourceIds.every(id => typeof id === 'string');
+  } else if (purpose === 'answer') {
     valid = typeof result.answer === 'string' && citations(result.evidence)
       && (result.inference === undefined || typeof result.inference === 'string')
       && (result.insufficient === undefined || typeof result.insufficient === 'boolean');
@@ -40,7 +41,7 @@ function validateResult(result, purpose) {
       && (result.focusFollowupId === undefined || result.focusFollowupId === null || typeof result.focusFollowupId === 'string')
       && (result.keepFollowupIds === undefined || Array.isArray(result.keepFollowupIds) && result.keepFollowupIds.every(id => typeof id === 'string'));
   }
-  if (!valid) throw fail(`模型返回的${purpose === 'answer' ? '问答' : '会议整理'}结果格式无效，请重试。`, 502);
+  if (!valid) throw fail(`模型返回的${purpose === 'answer_select' ? '问答来源选择' : purpose === 'answer' ? '问答' : '会议整理'}结果格式无效，请重试。`, 502);
   return result;
 }
 
@@ -199,7 +200,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         const response = await fetchImpl(url, {
           method: 'POST', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', ...(llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {}) },
-          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
+          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer_select' ? 'sourceIds 必须是本批原发言 ID 的数组，最多 24 条。' : purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
         });
         if (!response.ok) {
           const kind = await providerErrorKind(response);
@@ -296,17 +297,81 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
   async function answer(meetingId, input, execution) {
     const snapshot = store.getMeeting(meetingId);
     const allLines = sourceLines(meetingId, store.allTranscript(meetingId));
-    const sources = retrieve(snapshot, allLines, input.question, input.topicId);
-    let result = { answer: INSUFFICIENT, inference: '', evidence: [] };
+    const scoped = answerScope(snapshot, allLines, input.topicId);
+    const batches = answerBatches(scoped.sources, undefined, snapshot.speakerLabels);
+    const coverage = {
+      strategy: batches.length > 1 ? 'semantic_batches' : 'full_scope',
+      scope: input.topicId ? 'topic' : 'meeting', topicId: input.topicId || null,
+      sourceRevision: snapshot.transcriptRevision, transcriptEditRevision: snapshot.transcriptEditRevision || 0,
+      totalTranscriptLines: allLines.length, scopedLines: scoped.sources.length, reviewedLines: 0,
+      selectedLines: 0, omittedCandidateLines: 0, complete: false,
+      batches: batches.map(lines => ({ sources: lines.map(({ id, revision }) => ({ id, revision })), selectedSourceIds: [] })),
+    };
+    const publishCoverage = () => store.updateJob(execution.jobId, { coverage });
+    publishCoverage();
+    let sources = scoped.sources;
+    if (batches.length > 1) {
+      const selections = new Array(batches.length);
+      let nextBatch = 0, completed = 0, failure;
+      store.updateJob(execution.jobId, { progress: { phase: 'select', completedBatches: 0, totalBatches: batches.length } });
+      const worker = async () => {
+        while (!failure && nextBatch < batches.length) {
+          const index = nextBatch++, batch = batches[index];
+          try {
+            const data = { meetingId, question: input.question, topicId: input.topicId || null, sourceRevision: snapshot.transcriptRevision, sources: sourceView(batch, snapshot.speakerLabels), batch: { index: index + 1, total: batches.length } };
+            let raw = await complete(ANSWER_SELECT, data, execution, 'answer_select');
+            const ids = new Set(batch.map(line => line.id));
+            if (raw.sourceIds.some(id => !ids.has(id))) raw = await complete(`${ANSWER_SELECT}\n上次选择包含本批不存在的发言 ID。请重新核对 sources，只选择本批真实 ID。`, data, execution, 'answer_select');
+            if (raw.sourceIds.some(id => !ids.has(id))) throw fail('未能核对回答所需的原文来源，请重试。', 502);
+            if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
+            selections[index] = [...new Set(raw.sourceIds)];
+            coverage.batches[index].selectedSourceIds = selections[index];
+            coverage.reviewedLines += batch.length;
+            publishCoverage();
+            store.updateJob(execution.jobId, { progress: { phase: 'select', completedBatches: ++completed, totalBatches: batches.length } });
+          } catch (error) { failure ||= error; }
+        }
+      };
+      // Wait for both workers even on failure: no old request can update a job
+      // after it has failed or the next per-meeting task has begun.
+      await Promise.all([worker(), worker()]);
+      if (failure) throw failure;
+      sources = answerCandidates(batches, selections, undefined, snapshot.speakerLabels);
+      coverage.omittedCandidateLines = new Set(selections.flat()).size - sources.length;
+    } else {
+      if (batches.length) coverage.batches[0].selectedSourceIds = sources.map(line => line.id);
+    }
+    coverage.selectedSourceIds = sources.map(line => line.id);
+    coverage.selectedLines = sources.length;
+    coverage.complete = coverage.reviewedLines === coverage.scopedLines;
+    publishCoverage();
+    store.updateJob(execution.jobId, { progress: { phase: 'answer', completedBatches: batches.length, totalBatches: batches.length } });
+    let result = { answer: scoped.sources.length ? '已查看这次会议的相关范围，但没有找到能回答这个问题的原话。' : input.topicId ? '这个主题还没有关联的原文，暂时无法据此回答。' : '这次会议还没有可用的转录，暂时无法回答。', inference: '', evidence: [], insufficient: true, reason: scoped.sources.length ? 'no_relevant_sources' : input.topicId ? 'no_topic_sources' : 'no_transcript' };
     if (sources.length) {
-      const raw = await complete(`${ANSWER}\n${ANSWER_CONTRACT}`, {
-        meetingId, question: input.question, topicId: input.topicId || null, sourceRevision: snapshot.transcriptRevision, ...knownContext(snapshot, sources), sources: sourceView(sources, snapshot.speakerLabels), totalTranscriptLines: allLines.length, retrievedLines: sources.length,
-      }, execution, 'answer');
-      const evidence = evidenceFor(raw, new Map(sources.map(line => [line.id, line])));
-      if (evidence && raw.insufficient !== true && typeof raw.answer === 'string' && raw.answer.trim()) result = { answer: raw.answer.trim().slice(0, 12000), inference: typeof raw.inference === 'string' ? raw.inference.trim().slice(0, 6000) : '', evidence };
+      const data = {
+        meetingId, question: input.question, topicId: input.topicId || null, sourceRevision: snapshot.transcriptRevision,
+        ...knownContext(scoped.meeting, sources), sources: sourceView(sources, snapshot.speakerLabels),
+        totalTranscriptLines: allLines.length, retrievedLines: sources.length,
+        coverage: { strategy: coverage.strategy, scope: coverage.scope, scopedLines: coverage.scopedLines, reviewedLines: batches.length === 1 ? scoped.sources.length : coverage.reviewedLines, selectedLines: coverage.selectedLines, omittedCandidateLines: coverage.omittedCandidateLines },
+      };
+      const byId = new Map(sources.map(line => [line.id, line]));
+      let accepted = false, failureReason;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const raw = await complete(`${ANSWER}\n${ANSWER_CONTRACT}${attempt ? '\n上次回答未通过原文引用核对。请重新给出回答：引用必须使用 sources 中的 ID 和逐字原话；若原文确实不足，具体说明缺少什么并设置 insufficient=true。' : ''}`, data, execution, 'answer');
+        if (batches.length === 1) { coverage.reviewedLines = scoped.sources.length; coverage.complete = true; publishCoverage(); }
+        const evidence = raw.evidence.length ? evidenceFor(raw, byId) : [];
+        failureReason = !raw.answer.trim() ? 'empty_answer' : !evidence || !evidence.length && (raw.insufficient !== true || raw.inference?.trim()) ? 'invalid_citations' : null;
+        execution.modelCalls.at(-1).validation = failureReason || (raw.insufficient === true ? 'insufficient_evidence' : 'grounded');
+        store.updateJob(execution.jobId, { modelCalls: execution.modelCalls });
+        if (raw.answer.trim() && evidence && (evidence.length || raw.insufficient === true && !raw.inference?.trim())) {
+          result = { answer: raw.answer.trim().slice(0, 12000), inference: raw.inference?.trim().slice(0, 6000) || '', evidence, insufficient: raw.insufficient === true, reason: raw.insufficient === true ? 'insufficient_evidence' : null };
+          accepted = true; break;
+        }
+      }
+      if (!accepted) throw fail(failureReason === 'empty_answer' ? 'AI 没有生成回答，请重试。' : '回答的原文引用未能核对，未保存这次回答。请重试。', 502);
     }
     if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
-    const item = { id: `answer_${randomUUID()}`, question: input.question, topicId: input.topicId || null, ...result, evidenceIds: [...new Set(result.evidence.map(item => item.id))], sourceRevision: snapshot.transcriptRevision, sourceThroughMs: allLines.reduce((end,line)=>Math.max(end,line.endMs || line.startMs || 0),0), stale: false, author: 'ai', createdAt: date() };
+    const item = { id: `answer_${randomUUID()}`, question: input.question, topicId: input.topicId || null, ...result, coverage, evidenceIds: [...new Set(result.evidence.map(item => item.id))], sourceRevision: snapshot.transcriptRevision, sourceThroughMs: allLines.reduce((end,line)=>Math.max(end,line.endMs || line.startMs || 0),0), stale: false, author: 'ai', createdAt: date() };
     store.mutateMeeting(meetingId, meeting => { meeting.questions ||= []; meeting.questions.push(item); });
     return item;
   }

@@ -436,7 +436,12 @@ form > label { margin-bottom: 20px; }
 .stale-tag { display: inline-block; font-size: 12px; line-height: 1.5; color: var(--warning); background: var(--warning-bg); border-radius: 4px; padding: 2px 6px; margin-left: 6px; }
 .stale-notice { color: var(--warning); font-size: 12px; line-height: 1.7; margin-top: 9px; }
 .stale-notice button { display: inline-flex; align-items: center; gap: 5px; color: var(--link); font-size: 12px; padding: 0; }
-.qa-pending { display: flex; align-items: center; gap: 8px; color: var(--warning); font-size: 13px; line-height: 1.7; padding: 16px 0; }
+.qa-job { content-visibility: visible; contain-intrinsic-size: none; }
+.qa-pending { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 13px; line-height: 1.7; padding: 13px 0 0 19px; }
+.qa-pending > svg { flex-shrink: 0; }
+.qa-failed { padding: 13px 0 0 19px; color: var(--warning); font-size: 13px; line-height: 1.7; }
+.qa-failed > p { margin-bottom: 8px; overflow-wrap: anywhere; }
+.qa-failed > button { display: inline-flex; align-items: center; gap: 5px; padding: 0; color: var(--link); font-size: 12px; }
 .question-composer { display: grid; grid-template-columns: minmax(0, 1fr) 34px; column-gap: 7px; flex-shrink: 0; margin: 8px 12px 12px; padding: 9px 12px 8px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-hover); }
 .question-composer:focus-within { border-color: var(--brand-deep); box-shadow: var(--shadow-focus); }
 .composer-scope { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 3px; }
