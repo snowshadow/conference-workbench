@@ -1,15 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Check, CircleAlert, Clock3, LoaderCircle, RefreshCw, Settings2 } from 'lucide-react';
 import { Button, Modal } from './ui.jsx';
 
 const labels = { organize: '讨论分析', followup: '澄清检查', minutes: '讨论整理与纪要' };
 
-export function latestDiscussionJob(jobs = []) {
-  const relevant = jobs.filter(job => labels[job.type]).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  return relevant.find(job => job.status === 'running') || relevant.find(job => job.status === 'queued') || relevant[0] || null;
-}
-
-export default function DiscussionStatus({ job, request, onRetry, onSettings, onHistory }) {
+export default function DiscussionStatus({ job, request, needsAnalysis = false, onAnalyze, onRetry, onSettings, onHistory }) {
+  const pendingLabelId = useId();
   const current = request || job;
   const [previous, setPrevious] = useState(current);
   const [completedId, setCompletedId] = useState(null);
@@ -27,6 +23,10 @@ export default function DiscussionStatus({ job, request, onRetry, onSettings, on
     const timer = setTimeout(() => setCompletedId(null), 1800);
     return () => clearTimeout(timer);
   }, [completedId, detailsOpen, focused]);
+  if (needsAnalysis && !detailsOpen) return <div className="discussion-status-slot manual-analysis-status">
+    <span id={pendingLabelId} className="manual-analysis-label" role="status">有内容尚未分析</span>
+    <button type="button" className="manual-analysis-button" aria-describedby={pendingLabelId} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onClick={onAnalyze}>现在分析</button>
+  </div>;
   if (!current) return null;
   const label = labels[current.type] || '讨论分析';
   const busy = ['submitting', 'queued', 'running'].includes(current.status);

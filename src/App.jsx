@@ -8,10 +8,11 @@ import { QuestionPanel } from './components/AiPanels.jsx';
 import { ClarificationPanel, ProgressPanel, ResolutionDialog } from './components/ClarificationPanel.jsx';
 import { AgentDialog, ImportDialog, MeetingDialog, MinutesDialog, ProcessingDialog, SettingsDialog } from './components/Dialogs.jsx';
 import ImportStatus from './components/ImportStatus.jsx';
-import DiscussionStatus, { latestDiscussionJob } from './components/DiscussionStatus.jsx';
+import DiscussionStatus from './components/DiscussionStatus.jsx';
 import ThemeDialog from './components/ThemeDialog.jsx';
 import { Button, EmptyState, IconButton, PanelErrorBoundary, ResizeHandle } from './components/ui.jsx';
 import { resolutionOutcomes } from '../shared/resolution-copy.js';
+import { latestDiscussionJob, needsManualAnalysis } from '../shared/discussion-status.js';
 
 const TopicPanel = lazy(() => import('./components/TopicPanel.jsx'));
 
@@ -262,6 +263,7 @@ export default function App() {
   const duration = (meeting?.recordings || []).reduce((sum, recording) => sum + (recording.sampleCount || 0) / 16, 0);
   const pendingAuthorization = command?.status === 'needs_user_action' ? command : null;
   const activeCommand = ['pending', 'running'].includes(command?.status);
+  const manualAnalysis = needsManualAnalysis(meeting, { request: discussionRequest, captureState: capture.state, configured: Boolean(settings?.llm?.configured), capturePending: commandBusy || activeCommand || Boolean(pendingAuthorization) });
   const showTopic = useCallback(id => { setSelectedTopic(id); setTopicsOpened(true); setDiscussionView('topics'); }, []);
   const askTopic = useCallback(id => { setAskScope(id); setActiveTool('questions'); requestAnimationFrame(() => questionInput.current?.focus()); }, []);
   const closeTool = useCallback(() => setActiveTool(null), []);
@@ -304,9 +306,8 @@ export default function App() {
               </div>
               <div className="meeting-menu-group" role="group" aria-labelledby="meeting-menu-analysis">
                 <div className="meeting-menu-heading"><h3 id="meeting-menu-analysis">AI 分析</h3><span className="meeting-menu-status">{organizeJob ? '分析中…' : meeting.processedRevision ? `已分析至 ${formatTime(meeting.processedThroughMs)}` : meeting.transcriptRevision ? '尚未分析' : '等待原文'}</span></div>
-                <button aria-label="更新讨论分析" aria-describedby="meeting-menu-update-hint" disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize')}><span>更新讨论分析</span><small id="meeting-menu-update-hint">接着上次进度，分析新发言</small></button>
                 <button aria-label="重新分析整场会议" aria-describedby="meeting-menu-reanalyze-hint" disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize', { force: true })}><span>重新分析整场会议</span><small id="meeting-menu-reanalyze-hint">重新核对全部原文，保留手动修改</small></button>
-                <button disabled={Boolean(followupJob) || submitting === 'followup' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('followup')}>查找需要澄清的问题</button>
+                <button disabled={Boolean(followupJob) || submitting === 'followup' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('followup')}>请 AI 再提问</button>
                 {meeting.status !== 'ended' && !meeting.archived && <button onClick={() => mutate('', 'PATCH', { autoOrganize: !meeting.autoOrganize }).catch(error => notify(error.message))}>{meeting.autoOrganize ? '暂停自动分析' : '开启自动分析'}</button>}
                 <button onClick={() => setModal('processing')}>查看处理记录</button>
               </div>
@@ -331,7 +332,7 @@ export default function App() {
           <div className="discussion-toolbar"><div className="discussion-tabs" role="tablist" aria-label="讨论工作区">
             <button id="clarification-tab" role="tab" aria-selected={discussionView === 'clarification'} aria-controls="clarification-view" tabIndex={discussionView === 'clarification' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => setDiscussionView('clarification')}>澄清焦点</button>
             <button id="topics-tab" role="tab" aria-selected={discussionView === 'topics'} aria-controls="topics-view" tabIndex={discussionView === 'topics' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => { setTopicsOpened(true); setDiscussionView('topics'); }}>讨论脉络</button>
-          </div><div className="discussion-toolbar-actions"><DiscussionStatus key={meeting.id} job={discussionJob} request={discussionRequest} onRetry={triggerJob} onSettings={() => setModal('settings')} onHistory={() => setModal('processing')} /><div className="clarification-toolbar" ref={setClarificationToolbar} /></div></div>
+          </div><div className="discussion-toolbar-actions"><DiscussionStatus key={meeting.id} job={discussionJob} request={discussionRequest} needsAnalysis={manualAnalysis} onAnalyze={() => triggerJob('organize')} onRetry={triggerJob} onSettings={() => setModal('settings')} onHistory={() => setModal('processing')} /><div className="clarification-toolbar" ref={setClarificationToolbar} /></div></div>
           <div id="clarification-view" className="discussion-view" role="tabpanel" aria-labelledby="clarification-tab" hidden={discussionView !== 'clarification'}><ClarificationPanel key={meeting.id} meeting={meeting} selected={selectedClarification} setSelected={setSelectedClarification} onEvidence={focusEvidence} onTopic={showTopic} mutate={mutate} job={followupJob} onRequestQuestion={() => triggerJob('followup')} questionRequestBusy={Boolean(followupJob) || submitting === 'followup'} analysisStatus={discussionRequest || discussionJob} pauseFollowing={Boolean(resolutionId)} toolbarTarget={clarificationToolbar} visible={discussionView === 'clarification'} /></div>
           <div id="topics-view" className="discussion-view" role="tabpanel" aria-labelledby="topics-tab" hidden={discussionView !== 'topics'}>{topicsOpened && <PanelErrorBoundary key={meeting.id} fallback={<EmptyState icon={CircleAlert} title="讨论脉络暂时无法加载" action={<><Button disabled={locked} onClick={() => window.location.reload()}>刷新页面重试</Button><Button onClick={() => setDiscussionView('clarification')}>返回澄清焦点</Button></>}>显示组件未能加载，会议数据仍保存在本机。{locked ? '请先保存或停止录音，再刷新页面。' : '刷新页面后重试；未发送的输入请先保留。'}</EmptyState>}><Suspense fallback={<div className="panel-loading" role="status"><LoaderCircle size={18} className="spin" />正在打开讨论脉络…</div>}><TopicPanel key={meeting.id} meeting={meeting} selected={selectedTopic} setSelected={setSelectedTopic} onEvidence={focusEvidence} mutate={mutate} onAskTopic={askTopic} /></Suspense></PanelErrorBoundary>}</div>
         </div>

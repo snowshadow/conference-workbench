@@ -45,6 +45,9 @@
 .discussion-toolbar-actions { display: flex; align-items: center; flex: 1; min-width: 0; gap: 6px; }
 .clarification-toolbar { display: flex; flex-shrink: 0; }
 .clarification-toolbar:empty { display: none; }
+.manual-analysis-status { gap: 8px; }
+.manual-analysis-label { color: var(--ink-muted); font-size: 12px; white-space: nowrap; }
+.manual-analysis-status .manual-analysis-button { flex-shrink: 0; min-height: 40px; padding: 0 12px; border: 0; border-radius: 22px; color: var(--link); background: var(--navigation-surface); box-shadow: none; font-size: 12px; }
 .clarification-toolbar .focus-return-button { min-height: 40px; padding: 0 12px; gap: 6px; border: 0; border-radius: 22px; color: var(--link); background: var(--navigation-surface); box-shadow: none; font-size: 12px; white-space: nowrap; }
 .focused-workbench .discussion-tabs { display: inline-flex; flex-shrink: 0; align-self: center; gap: 3px; padding: 4px; border-radius: 28px; background: var(--navigation-surface); }
 .focused-workbench .discussion-tabs > button { min-height: 37px; padding: 0 21px; border-radius: 23px; color: var(--ink-muted); transition: color 180ms, background 180ms, box-shadow 180ms; }
@@ -124,6 +127,7 @@
 }
 @media (prefers-reduced-motion: reduce) { .meeting-tool-launcher, .discussion-options > summary, .focused-workbench .discussion-tabs > button { transition: none; } .discussion-options-menu { animation: none; } }
 @container discussion-toolbar (max-width: 560px) {
+  .manual-analysis-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
   .focus-return-button > span { display: none; }
   .clarification-toolbar .focus-return-button { width: 40px; padding: 0; justify-content: center; }
 }

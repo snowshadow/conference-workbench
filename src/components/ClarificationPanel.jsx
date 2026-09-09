@@ -175,7 +175,7 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   } : {
     title: '可以继续讨论', text: '暂时没有需要停下来澄清的问题。',
   };
-  const requestQuestion = onRequestQuestion && <Button className="text-button focus-request" onClick={onRequestQuestion} disabled={questionRequestBusy || !meeting.transcriptRevision} busy={questionRequestBusy}>再找一个问题</Button>;
+  const requestQuestion = onRequestQuestion && <Button className="text-button focus-request" onClick={onRequestQuestion} disabled={questionRequestBusy || !meeting.transcriptRevision} busy={questionRequestBusy}>请 AI 再提问</Button>;
   const closeEditor = () => { setEditingItem(null); requestAnimationFrame(() => (recordTrigger.current || focusHeading.current)?.focus({ preventScroll: true })); };
   const readingState = current ? 'active' : selectedResult ? (staleResult ? 'saved-stale' : 'saved') : selectedItem ? 'previous' : 'empty';
   return <div className="clarification-content reading-focus">
