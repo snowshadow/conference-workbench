@@ -19,6 +19,20 @@
 .people-recognition-heading .people-muted { display:flex; align-items:center; gap:6px; margin:2px 0 0; }
 .people-recognition-heading > .button { flex-shrink:0; }
 .people-recognition > .people-muted { margin:12px 0 0; }
+.people-identify-action { flex-shrink:0; display:grid; justify-items:end; gap:7px; max-width:190px; }
+.people-identify-action > .people-muted { margin:0; font-size:11px; text-align:right; }
+.people-utterances { margin:0 0 24px; }
+.people-utterances-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.people-utterances-heading h4 { font-size:13px; line-height:1.6; font-weight:500; color:var(--ink-secondary); margin:0; }
+.people-utterances-heading > span { font-size:11px; color:var(--ink-muted); }
+.people-utterance-list { display:grid; gap:8px; max-height:260px; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.people-utterance { padding:10px 12px; border-radius:12px; background:var(--surface-muted); min-width:0; }
+.people-utterance-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:24px; font-size:11px; font-variant-numeric:tabular-nums; color:var(--ink-muted); }
+.people-utterance > p { margin:4px 0 0; font-size:13px; line-height:1.75; color:var(--ink-secondary); white-space:pre-wrap; overflow-wrap:anywhere; }
+.people-utterance-unavailable { display:block; margin-top:6px; color:var(--ink-muted); font-size:11px; line-height:1.6; }
+.people-utterance audio { display:block; width:100%; min-width:0; height:36px; margin-top:10px; }
+.people-utterance > .people-muted { font-size:11px; color:var(--ink-muted); }
+.people-utterances .people-utterances-more { margin-top:6px; }
 .people-name-form { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1.15fr); gap:14px; margin:0 0 24px; }
 .modal .people-name-form > label, .modal .people-member > label, .modal .people-merge label { display:grid; gap:7px; font-size:13px; margin:0; }
 .people-name-actions { grid-column:1 / -1; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -82,6 +96,7 @@
   .people-layout.has-selection .people-list { display:none; }
   .people-back { display:flex; align-items:center; gap:4px; border:0; background:none; color:var(--ink-muted); margin:0 0 18px; padding:0; cursor:pointer; font:inherit; font-size:12px; }
   .people-recognition-heading { gap:10px; }
+  .people-identify-action { max-width:145px; }
   .people-enrollment-content, .people-merge-content { padding-inline:12px; }
   .people-team-member > summary { padding:15px; }
   .people-member-detail { padding:0 12px 12px; }

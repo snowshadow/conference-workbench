@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { fail } from './store.js';
 import { resolveParticipant } from './people/store.js';
 import { isVoiceprintTextEligible } from '../shared/voiceprint-policy.js';
@@ -46,6 +48,33 @@ export function registerPeopleRoutes({ app, store, ai, voiceprints, automatic, d
       return { ...person, lineCount: sources.length, samples };
     }).filter(person => person.lineCount > 0 || person.name || person.identitySource === 'manual'), members: store.listMembers(), profiles, voiceprintJobs: voiceprints.listJobs?.({ meetingId: req.params.id, limit: 50 }) || [] });
   }));
+  app.get('/api/meetings/:id/participants/:participantId/utterances', (req, res) => {
+    const cursor = Number(req.query.cursor ?? 0), limit = Number(req.query.limit ?? 20);
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw fail('发言分页范围无效');
+    const person = resolveParticipant(store.getMeeting(req.params.id), req.params.participantId);
+    if (!person) throw fail('这位说话人不在本场会议中', 404);
+    const sources = store.allTranscript(req.params.id).filter(line => line.participantId === person.id).sort((a, b) => a.startMs - b.startMs);
+    const recordings = new Map();
+    const lines = sources.slice(cursor, cursor + limit).map(line => {
+      const { id, text, startMs, endMs, recordingId, startSample, endSample } = line;
+      const result = { id, text, startMs, endMs, recordingId, startSample, endSample, playbackAvailable: false };
+      // Replay includes short utterances; enrollment has its own stricter filter.
+      if (!recordingId) return { ...result, playbackReason: '这段只有文字记录，没有对应录音。' };
+      if (!Number.isSafeInteger(startSample) || !Number.isSafeInteger(endSample) || startSample < 0 || endSample <= startSample) return { ...result, playbackReason: '这段发言没有可用的录音位置。' };
+      if (!recordings.has(recordingId)) {
+        try {
+          const recording = store.getRecording(recordingId);
+          const file = statSync(path.join(store.dataDir, 'audio', `${recordingId}.pcm`));
+          recordings.set(recordingId, { ...recording, savedSamples: file.isFile() ? Math.floor(file.size / 2) : 0 });
+        } catch { recordings.set(recordingId, null); }
+      }
+      const recording = recordings.get(recordingId);
+      if (!recording || recording.meetingId !== req.params.id || endSample > recording.sampleCount || endSample > recording.savedSamples) return { ...result, playbackReason: '这段录音暂时无法读取。' };
+      if (endSample - startSample > 16000 * 3600) return { ...result, playbackReason: '这段录音超过一小时，请在“录音与原文”中分段回听。' };
+      return { ...result, playbackAvailable: true, playbackLabel: line.timing === 'chunk' ? '回听所在录音段' : '回听' };
+    });
+    res.json({ lines, total: sources.length, nextCursor: cursor + limit < sources.length ? cursor + limit : null });
+  });
   app.post('/api/meetings/:id/participants', (req, res) => res.status(201).json(store.createParticipant(req.params.id, req.body).participant));
   app.patch('/api/meetings/:id/participants/:participantId', (req, res) => {
     const previous = resolveParticipant(store.getMeeting(req.params.id), req.params.participantId);

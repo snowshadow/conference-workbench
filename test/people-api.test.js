@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -107,6 +107,70 @@ test('speaker samples and voiceprint HTTP jobs use bounded audio ranges and sepa
   const automaticSelection = await request(endpoint, 'POST', {});
   assert.equal(automaticSelection.status, 202);
   assert.equal(voiceCalls.at(-1).input.sourceIds, undefined);
+});
+
+test('speaker utterances retain short speech and playable audio independently of voiceprint enrollment', async t => {
+  const { workbench: { store }, request, base } = await fixture(t);
+  const meeting = store.createMeeting({ title: '短句回听' });
+  const recording = store.createRecording(meeting.id, { sampleCount: 16000 * 8 });
+  const pcm = Buffer.alloc(16000 * 8 * 2, 12);
+  writeFileSync(path.join(store.dataDir, 'audio', `${recording.id}.pcm`), pcm);
+  const lines = [
+    store.appendTranscript(meeting.id, { text: '嗯嗯。', speakerId: 'seven', recordingId: recording.id, startMs: 100, endMs: 700, startSample: 1600, endSample: 11200 }),
+    store.appendTranscript(meeting.id, { text: '嗯，继续。', speakerId: 'seven', recordingId: recording.id, startMs: 1000, endMs: 2790, startSample: 16000, endSample: 44640 }),
+    store.appendTranscript(meeting.id, { text: '还有一点需要补充。', speakerId: 'seven', recordingId: recording.id, startMs: 3000, endMs: 7000, startSample: 48000, endSample: 112000, timing: 'chunk' }),
+  ];
+  store.appendTranscript(meeting.id, { text: '另一位的发言不能混进来。', speakerId: 'other' });
+  const person = (await request(`/api/meetings/${meeting.id}/people`)).data.participants.find(item => item.id === lines[0].participantId);
+  assert.equal(person.lineCount, 3);
+  assert.deepEqual(person.samples, [], 'short utterances and imprecise chunks remain ineligible for enrollment');
+  const endpoint = `/api/meetings/${meeting.id}/participants/${person.id}/utterances`;
+  const first = await request(`${endpoint}?limit=2`);
+  assert.equal(first.status, 200);
+  assert.equal(first.data.total, 3);
+  assert.equal(first.data.nextCursor, 2);
+  assert.deepEqual(first.data.lines.map(line => line.id), lines.slice(0, 2).map(line => line.id));
+  assert.ok(first.data.lines.every(line => line.playbackAvailable));
+  assert.equal(first.data.lines[0].text, '嗯嗯。');
+  const audio = await fetch(`${base}/api/recordings/${recording.id}/audio?startSample=1600&endSample=11200`);
+  assert.equal(audio.status, 200);
+  const wav = Buffer.from(await audio.arrayBuffer());
+  assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+  assert.deepEqual(wav.subarray(44), pcm.subarray(3200, 22400), 'even a 0.6 second clip can be replayed');
+  const second = (await request(`${endpoint}?cursor=${first.data.nextCursor}&limit=2`)).data;
+  assert.equal(second.nextCursor, null);
+  assert.equal(second.lines.length, 1);
+  assert.equal(second.lines[0].playbackAvailable, true);
+  assert.equal(second.lines[0].playbackLabel, '回听所在录音段');
+  for (const query of ['cursor=-1', 'cursor=1.5', 'cursor=Infinity', 'cursor=9007199254740992', 'limit=0', 'limit=101', 'limit=nope']) assert.equal((await request(`${endpoint}?${query}`)).status, 400);
+});
+
+test('speaker utterances explain unavailable audio and follow corrected or merged identities', async t => {
+  const { workbench: { store }, request } = await fixture(t);
+  const meeting = store.createMeeting({ title: '只有文字的发言' });
+  const recording = store.createRecording(meeting.id, { sampleCount: 16000 });
+  const manual = store.appendTranscript(meeting.id, { text: '会后补充的文字。', speakerId: 'one', origin: 'host' });
+  const noPosition = store.appendTranscript(meeting.id, { text: '没有时间位置的转录。', speakerId: 'one', recordingId: recording.id });
+  const missingFile = store.appendTranscript(meeting.id, { text: '录音文件丢失。', speakerId: 'one', recordingId: recording.id, startSample: 0, endSample: 3200 });
+  const other = store.appendTranscript(meeting.id, { text: '需要纠正归属的发言。', speakerId: 'two' });
+  const endpoint = `/api/meetings/${meeting.id}/participants/${manual.participantId}/utterances`;
+  const result = (await request(endpoint)).data;
+  assert.equal(result.total, 3);
+  assert.ok(result.lines.every(line => !line.playbackAvailable));
+  assert.match(result.lines.find(line => line.id === manual.id).playbackReason, /只有文字/);
+  assert.match(result.lines.find(line => line.id === noPosition.id).playbackReason, /录音位置/);
+  assert.match(result.lines.find(line => line.id === missingFile.id).playbackReason, /无法读取/);
+  writeFileSync(path.join(store.dataDir, 'audio', `${recording.id}.pcm`), Buffer.alloc(100));
+  assert.equal((await request(endpoint)).data.lines.find(line => line.id === missingFile.id).playbackAvailable, false, 'incomplete files are not offered for replay');
+  store.assignTranscriptParticipant(meeting.id, other.id, manual.participantId, { author: 'host' });
+  assert.equal((await request(endpoint)).data.total, 4);
+  const third = store.appendTranscript(meeting.id, { text: '后来确认是同一个人。', speakerId: 'three' });
+  store.mergeParticipants(meeting.id, third.participantId, manual.participantId);
+  assert.equal((await request(endpoint)).data.total, 5);
+  assert.equal((await request(`/api/meetings/${meeting.id}/participants/${third.participantId}/utterances`)).data.total, 5);
+  const elsewhere = store.createMeeting({ title: '别的会议' });
+  assert.equal((await request(`/api/meetings/${elsewhere.id}/participants/${manual.participantId}/utterances`)).status, 404);
+  assert.equal((await request(`/api/meetings/${meeting.id}/participants/missing/utterances`)).status, 404);
 });
 
 test('HTTP keeps speaker recognition state across reads and exposes reversible team sample management', async t => {
