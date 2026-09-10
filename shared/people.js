@@ -31,7 +31,7 @@ export function resolvePeopleText(text, meeting) {
   return typeof text === 'string' ? text.replace(PERSON, (_, id) => speakerName(id, meeting)) : text;
 }
 
-const TEXT_FIELDS = new Set(['title', 'summary', 'text', 'question', 'shortQuestion', 'discussionValue', 'rationale', 'impact', 'answer', 'inference', 'markdown', 'owner']);
+const TEXT_FIELDS = new Set(['title', 'summary', 'text', 'question', 'shortQuestion', 'discussionValue', 'rationale', 'impact', 'explanation', 'example', 'reason', 'answer', 'inference', 'markdown', 'owner']);
 const SKIP = new Set(['evidence', 'resolvedEvidence', 'coverage', 'sources', 'input', 'participants', 'speakerLabels', 'transcript']);
 
 /** Presentation-only clone, also suitable for AI job results. IDs stay intact. */
@@ -44,7 +44,7 @@ export function presentPeopleValue(value, meeting) {
     if (SKIP.has(key) || human && key === 'history' || key === 'question' && Object.hasOwn(value, 'answer')) continue;
     if (TEXT_FIELDS.has(key) && typeof child === 'string') {
       if (!human && !value.manualFields?.includes(key)) copy[key] = resolvePeopleText(child, meeting);
-    } else if (child && typeof child === 'object') copy[key] = presentPeopleValue(child, meeting);
+    } else if (child && typeof child === 'object' && !value.manualFields?.includes(key) && !(human && ['clarification', 'attention', 'distinctions'].includes(key))) copy[key] = presentPeopleValue(child, meeting);
   }
   return copy;
 }

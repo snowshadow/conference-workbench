@@ -192,7 +192,10 @@ export class Store {
       meeting.processedRevision = 0; meeting.processedThroughMs = 0;
       for (const topic of meeting.topics) for (const entry of topic.entries || []) if ((entry.evidenceIds || []).includes(lineId)) { entry.stale = true; topic.stale = true; }
       for (const followup of meeting.followups) {
-        if (followup.status === 'active' || followup.status === 'recorded' && (followup.evidenceIds || []).includes(lineId)) followup.stale = true;
+        if (followup.status === 'active' || (followup.evidenceIds || []).includes(lineId)) followup.stale = true;
+        if ((followup.clarification?.evidenceIds || []).includes(lineId)) followup.clarification.stale = true;
+        for (const part of followup.clarification?.distinctions || []) if ((part.evidenceIds || []).includes(lineId)) part.stale = true;
+        if ((followup.attention?.evidenceIds || []).includes(lineId)) followup.attention.stale = true;
         if ((followup.resolution?.evidenceIds || []).includes(lineId)) {followup.resolution.stale=true;followup.stale=true;}
       }
       for (const question of meeting.questions) if ((question.evidenceIds || []).includes(lineId)) question.stale = true;

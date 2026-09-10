@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { evidenceFor, normalize, similarQuestion, sourceLines } from './retrieval.js';
 import { attributedPeople, groundedPeopleText, markPeopleFields } from './people.js';
 import { resolvePeopleText } from '../../shared/people.js';
+import { isActiveFocus, nextFocusId } from '../../shared/discussion-view.js';
 
 const ENTRY_TYPES = new Set(['viewpoint', 'question', 'decision', 'action']);
 const STATUSES = new Set(['active', 'open', 'resolved', 'superseded']);
@@ -50,6 +51,50 @@ function hasNewEvidence(evidence, previous, byId) {
   return evidence.some(item => !known.has(`${item.id}:${item.revision}:${normalize(item.quote)}`) && ((byId.get(item.id)?.startMs ?? -1) >= latest || previous.some(old => old.id === item.id && old.revision !== item.revision)));
 }
 
+const mergeEvidence = (...groups) => [...new Map(groups.flat().filter(Boolean).map(item => [`${item.id}:${item.revision}:${normalize(item.quote)}`, item])).values()];
+const clarificationEvidence = item => mergeEvidence(item?.evidence || [], ...(item?.distinctions || []).map(part => part.evidence || []));
+const followupEvidence = item => mergeEvidence(item.evidence || [], clarificationEvidence(item.clarification), item.attention?.evidence || []);
+const evidenceIds = evidence => [...new Set(evidence.map(item => item.id))];
+const human = item => item?.author && item.author !== 'ai';
+const protectedClarification = item => item && (human(item) || item.manualFields?.length || item.distinctions?.some(part => human(part) || part.manualFields?.length));
+const explanationMeaning = item => item && ({ explanation: item.explanation, distinctions: (item.distinctions || []).map(({ title, text, example }) => ({ title, text, example })) });
+const REVIEW_METADATA = new Set(['sourceRevision', 'presentationSourceRevision', 'updatedAt', 'createdAt', 'pendingReview', 'stale', 'peopleFields', 'identityReview', 'identityReviewedAt', 'history']);
+const substantiveValue = value => {
+  if (Array.isArray(value)) return value.map(substantiveValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !REVIEW_METADATA.has(key)).map(([key, child]) => [key, substantiveValue(child)]));
+};
+const sameSubstance = (a, b) => JSON.stringify(substantiveValue(a)) === JSON.stringify(substantiveValue(b));
+
+// Every explanation and comparison carries its own source support. One invalid
+// card rejects the new explanation as a whole, leaving the previous one intact.
+function groundedClarification(input, byId, sourceRevision, meeting, previous) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const evidence = evidenceFor(input, byId);
+  const explanation = presentationText(input.explanation, 4000);
+  if (!evidence || !explanation || input.distinctions !== undefined && !Array.isArray(input.distinctions) || (input.distinctions?.length || 0) > 12) return null;
+  const used = new Set();
+  const distinctions = [];
+  for (const [index, raw] of (input.distinctions || []).entries()) {
+    const support = evidenceFor(raw, byId);
+    const title = presentationText(raw?.title, 200), text = presentationText(raw?.text, 2400);
+    const example = raw?.example === undefined ? '' : presentationText(raw.example, 1200);
+    if (!support || !title || !text || raw.example !== undefined && !example) return null;
+    const oldParts = previous?.distinctions || [];
+    const old = oldParts.find(part => !used.has(part.id) && part.id === raw.id)
+      || oldParts.find(part => !used.has(part.id) && normalize(part.title) === normalize(title))
+      || (oldParts[index] && !used.has(oldParts[index].id) ? oldParts[index] : null);
+    const id = old?.id || makeId('distinction');
+    used.add(id);
+    const part = { id, title: groundedPeopleText(title, support, byId, meeting), text: groundedPeopleText(text, support, byId, meeting), ...(example ? { example: groundedPeopleText(example, support, byId, meeting) } : {}), evidence: support, evidenceIds: evidenceIds(support), author: 'ai', sourceRevision, stale: false, ...(old?.history ? { history: structuredClone(old.history) } : {}) };
+    markPeopleFields(part, ['title', 'text', 'example'], meeting);
+    distinctions.push(part);
+  }
+  const result = { explanation: groundedPeopleText(explanation, evidence, byId, meeting), distinctions, evidence, evidenceIds: evidenceIds(mergeEvidence(evidence, ...distinctions.map(part => part.evidence))), author: 'ai', sourceRevision, stale: false, ...(previous?.history ? { history: structuredClone(previous.history) } : {}) };
+  markPeopleFields(result, ['explanation'], meeting);
+  return result;
+}
+
 function groundedResolution(input, byId, sourceRevision, meeting) {
   const evidence = evidenceFor(input, byId);
   const outcome = input?.resolution?.outcome;
@@ -66,7 +111,9 @@ function groundedResolution(input, byId, sourceRevision, meeting) {
   // specify it; a partial explanation remains an active question.
   const complete = input.resolution.complete === undefined ? true : input.resolution.complete;
   if (typeof complete !== 'boolean') return null;
-  return { outcome, text, complete, evidenceIds: [...new Set(evidence.map(item => item.id))], evidence, author: 'ai', sourceRevision, updatedAt: new Date().toISOString(), stale: false, pendingReview: false, peopleFields: { text: 1 } };
+  const result = { outcome, text, complete, evidenceIds: [...new Set(evidence.map(item => item.id))], evidence, author: 'ai', sourceRevision, updatedAt: new Date().toISOString(), stale: false, pendingReview: false };
+  markPeopleFields(result, ['text'], meeting);
+  return result;
 }
 
 function validParent(topics, topicId, parentId) {
@@ -110,11 +157,11 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     }
     if (input.id) aliases.set(input.id, topic.id);
     keepManual(topic, 'title', title);
-    markPeopleFields(topic, ['title']);
+    markPeopleFields(topic, ['title'], next);
     const summary = clean(groundedPeopleText(input.summary, summaryEvidence, byId, next), 1500);
     if (summary && summaryEvidence?.length && !(topic.manualFields || []).includes('summary') && sourceRevision >= (topic.sourceRevision || 0)) {
       writeSummary(topic, summary, summaryEvidence.map(item => item.id), sourceRevision);
-      markPeopleFields(topic, ['summary']);
+      markPeopleFields(topic, ['summary'], next);
     }
     pendingParents.push({ topic, parentId: input.parentId });
     validInputs.push({ topic, grounded });
@@ -150,7 +197,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       }
       const manual = (entry.manualFields || []).length > 0;
       keepManual(entry, 'text', text);
-      markPeopleFields(entry, ['text']);
+      markPeopleFields(entry, ['text'], next);
       keepManual(entry, 'type', type);
       if (!manual) {
         entry.evidenceIds = [...new Set(evidence.map(item => item.id))];
@@ -165,7 +212,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
         const sourceText = evidence.map(item => byId.get(item.id).text).join(' ');
         for (const field of ['owner', 'due']) {
           const value = clean(groundedPeopleText(input[field], evidence, byId, next), 200);
-          if (value && normalize(sourceText).includes(normalize(resolvePeopleText(value, next)))) { keepManual(entry, field, value); markPeopleFields(entry, [field]); }
+          if (value && normalize(sourceText).includes(normalize(resolvePeopleText(value, next)))) { keepManual(entry, field, value); markPeopleFields(entry, [field], next); }
           else if (!manual) delete entry[field];
         }
       }
@@ -219,7 +266,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
         }
       }
       followup.status = resolution.complete ? 'resolved' : 'active'; followup.resolution = { ...resolution, pendingReview: !fresh }; followup.resolvedEvidence = resolution.evidence; followup.sourceRevision = sourceRevision; followup.stale = false; followup.pendingReview = !fresh;
-    } else if (followup.status === 'active' && keep.has(followup.id) && evidenceFor(followup, byId)) { followup.sourceRevision = sourceRevision; followup.stale = false; followup.pendingReview = !fresh; }
+    } else if (followup.status === 'active' && keep.has(followup.id) && followupEvidence(followup).length && followupEvidence(followup).every(item => evidenceFor({ evidence: [item] }, byId))) { followup.sourceRevision = sourceRevision; followup.stale = false; followup.pendingReview = !fresh; }
   }
   let added = 0;
   const followupAliases = new Map(next.followups.map(item => [item.id, item.id]));
@@ -230,40 +277,64 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     if (!evidence) continue;
     const exact = next.followups.find(f => f.id === input.id);
     const existing = exact || next.followups.find(f => question && similarQuestion(f.question, question));
+    const clarification = groundedClarification(input.clarification, byId, sourceRevision, next, existing?.clarification);
+    if (input.clarification !== undefined && !clarification) continue;
+    const incomingEvidence = mergeEvidence(evidence, clarificationEvidence(clarification));
     // Dropping an overlong display summary is safer than cutting off a condition or option.
     const shortQuestion = presentationText(groundedPeopleText(input.shortQuestion, evidence, byId, next), 200), discussionValue = presentationText(groundedPeopleText(input.discussionValue, evidence, byId, next), 800);
     if (existing) {
       if (input.id) followupAliases.set(input.id, existing.id);
       // Similarity prevents duplicates; only an explicit stable ID authorizes
       // evolving the substance of an existing question.
-      if (!exact || existing.status !== 'active' || existing.mergedInto || existing.author !== 'ai' || existing.manualFields?.includes('status') || sourceRevision < (existing.sourceRevision || 0) || existing.resolution && existing.resolution.author !== 'ai') continue;
+      if (!exact || existing.status !== 'active' || existing.mergedInto || existing.author !== 'ai' || existing.manualFields?.some(key => ['status', 'resolution'].includes(key)) || sourceRevision < Math.max(existing.sourceRevision || 0, existing.clarification?.sourceRevision || 0, existing.attention?.sourceRevision || 0) || existing.resolution && existing.resolution.author !== 'ai') continue;
       const original = meeting.followups?.find(item => item.id === existing.id) || existing;
-      const previousEvidence = [...(original.evidence || []), ...(original.resolution?.evidence || [])];
-      const newEvidence = hasNewEvidence(evidence, previousEvidence, byId);
+      const previousEvidence = mergeEvidence(followupEvidence(original), original.resolution?.evidence || []);
+      const newEvidence = hasNewEvidence(incomingEvidence, previousEvidence, byId);
       const substantive = question && rationale && impact;
       const changedMeaning = substantive && (question !== existing.question || rationale !== existing.rationale || impact !== existing.impact);
       // Presentation-only edits can reuse current evidence. A changed question
       // after a partial answer needs evidence beyond that answer.
-      if (changedMeaning && original.resolution && !newEvidence) continue;
-      if (changedMeaning && !newEvidence && Math.max(-1, ...evidence.map(item => byId.get(item.id)?.startMs ?? -1)) < Math.max(-1, ...previousEvidence.map(item => byId.get(item.id)?.startMs ?? -1))) continue;
-      if (changedMeaning && !newEvidence && !evidenceFor(existing, byId)) continue;
+      const cannotReword = changedMeaning && !newEvidence && (original.resolution
+        || Math.max(-1, ...evidence.map(item => byId.get(item.id)?.startMs ?? -1)) < Math.max(-1, ...previousEvidence.map(item => byId.get(item.id)?.startMs ?? -1))
+        || !evidenceFor(existing, byId));
+      // Legacy questions may gain their first explanation without changing an
+      // already recorded partial answer or accepting the model's rewritten ask.
+      if (cannotReword && (existing.clarification || !clarification)) continue;
       const patch = {};
-      if (substantive && (newEvidence || changedMeaning)) {
+      if (!cannotReword && substantive && (newEvidence || changedMeaning)) {
         for (const [key, value] of Object.entries({ question, rationale, impact })) if (!existing.manualFields?.includes(key)) patch[key] = value;
         if (CLARIFICATION_KINDS.has(input.kind) && !existing.manualFields?.includes('kind')) patch.kind = input.kind;
         if (Object.hasOwn(input, 'topicId') && (!input.topicId || aliases.has(input.topicId)) && !existing.manualFields?.includes('topicId')) patch.topicId = aliases.get(input.topicId) || null;
         if (!existing.manualFields?.some(key => ['question', 'rationale', 'impact', 'evidence'].includes(key))) {
-          patch.evidence = evidence; patch.evidenceIds = [...new Set(evidence.map(item => item.id))]; patch.sourceRevision = sourceRevision;
+          patch.evidence = evidence; patch.sourceRevision = sourceRevision;
           patch.stale = false; patch.pendingReview = !fresh;
         }
       }
-      if (shortQuestion && !existing.manualFields?.includes('shortQuestion')) patch.shortQuestion = shortQuestion;
+      const mayExplain = !existing.manualFields?.includes('clarification') && !protectedClarification(existing.clarification);
+      const explanationChanged = clarification && JSON.stringify(explanationMeaning(clarification)) !== JSON.stringify(explanationMeaning(existing.clarification));
+      const mayReviseExplanation = !existing.clarification || existing.clarification.stale || !explanationChanged || newEvidence;
+      if (clarification && mayExplain && mayReviseExplanation) {
+        patch.clarification = clarification;
+        patch.sourceRevision = sourceRevision;
+        if (!cannotReword && !existing.manualFields?.includes('evidence')) patch.evidence = evidence;
+        patch.stale = false; patch.pendingReview = !fresh;
+      } else if (patch.question && patch.question !== existing.question && existing.clarification && mayExplain) {
+        patch.clarification = { ...existing.clarification, stale: true };
+      }
+      // Another analysis of the same utterance does not make a retired issue
+      // newly relevant. Require an explicit explanation and a new/revised source.
+      const renewed = incomingEvidence.some(item => !previousEvidence.some(old => old.id === item.id && old.revision === item.revision)) && newEvidence;
+      if (existing.attention?.needed === false && clarification && mayExplain && renewed && !existing.manualFields?.length && !human(existing.attention) && !existing.attention.manualFields?.length) {
+        patch.attention = { needed: true, evidence: incomingEvidence, evidenceIds: evidenceIds(incomingEvidence), sourceRevision, author: 'ai', stale: false };
+      }
+      if (patch.evidence || patch.clarification || patch.attention) patch.evidenceIds = evidenceIds(followupEvidence({ ...existing, ...patch }));
+      if (!cannotReword && shortQuestion && !existing.manualFields?.includes('shortQuestion')) patch.shortQuestion = shortQuestion;
       else if (patch.question && patch.question !== existing.question && !existing.manualFields?.includes('shortQuestion')) patch.shortQuestion = undefined;
-      if (discussionValue && !existing.manualFields?.includes('discussionValue')) patch.discussionValue = discussionValue;
+      if (!cannotReword && discussionValue && !existing.manualFields?.includes('discussionValue')) patch.discussionValue = discussionValue;
       if (Object.keys(patch).some(key => JSON.stringify(patch[key]) !== JSON.stringify(existing[key]))) {
-        followupHistory(existing);
+        if (!sameSubstance(existing, { ...existing, ...patch })) followupHistory(existing);
         Object.assign(existing, patch, { updatedAt: new Date().toISOString() });
-        markPeopleFields(existing, Object.keys(patch));
+        markPeopleFields(existing, Object.keys(patch), next);
         if (patch.shortQuestion || patch.discussionValue) existing.presentationSourceRevision = sourceRevision;
       }
       continue;
@@ -273,8 +344,8 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     if (input.topicId && !topicId) continue;
     const id = makeId('followup');
     if (input.id) followupAliases.set(input.id, id);
-    next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), evidenceIds: [...new Set(evidence.map(e => e.id))], evidence, status: 'active', sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
-    markPeopleFields(next.followups.at(-1), ['question', 'shortQuestion', 'rationale', 'impact', 'discussionValue']);
+    next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), ...(clarification ? { clarification } : {}), evidenceIds: evidenceIds(incomingEvidence), evidence, status: 'active', sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
+    markPeopleFields(next.followups.at(-1), ['question', 'shortQuestion', 'rationale', 'impact', 'discussionValue'], next);
     added++;
   }
   const resolveAlias = id => {
@@ -290,7 +361,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     const { history: sourceHistory, ...sourceSnapshot } = source;
     followupHistory(source); followupHistory(target);
     target.history.push({ ...structuredClone(sourceSnapshot), mergedFrom: source.id, changedAt: new Date().toISOString() });
-    const evidence = [...(target.evidence || []), ...(source.evidence || []), ...(target.resolution?.evidence || []), ...(source.resolution?.evidence || [])]
+    const evidence = [...followupEvidence(target), ...followupEvidence(source), ...(target.resolution?.evidence || []), ...(source.resolution?.evidence || [])]
       .flatMap(item => evidenceFor({ evidence: [item] }, byId) || []);
     target.evidence = evidence.filter((item, index) => evidence.findIndex(other => other.id === item.id && other.quote === item.quote && other.revision === item.revision) === index);
     target.evidenceIds = [...new Set(target.evidence.map(item => item.id))];
@@ -299,11 +370,26 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     source.status = 'merged'; source.mergedInto = target.id;
     source.sourceRevision = sourceRevision;
   }
+  for (const input of Array.isArray(payload.retiredFollowups) ? payload.retiredFollowups.slice(0, 100) : []) {
+    const item = next.followups.find(followup => followup.id === input?.id);
+    if (!item || item.status !== 'active' || item.mergedInto || item.author !== 'ai' || item.manualFields?.length || human(item.resolution) || protectedClarification(item.clarification) || human(item.attention) || item.attention?.manualFields?.length || sourceRevision < Math.max(item.sourceRevision || 0, item.attention?.sourceRevision || 0)) continue;
+    const evidence = evidenceFor(input, byId);
+    const reason = presentationText(input.reason, 1600);
+    if (!evidence || !reason) continue;
+    const attention = { needed: false, reason: groundedPeopleText(reason, evidence, byId, next), evidence, evidenceIds: evidenceIds(evidence), sourceRevision, author: 'ai', stale: false };
+    markPeopleFields(attention, ['reason'], next);
+    if (JSON.stringify(item.attention) === JSON.stringify(attention)) continue;
+    if (!sameSubstance(item.attention, attention)) followupHistory(item);
+    item.attention = attention;
+    item.evidenceIds = evidenceIds(followupEvidence(item));
+    item.sourceRevision = sourceRevision;
+    item.updatedAt = new Date().toISOString();
+  }
   const chosen = Object.hasOwn(payload, 'focusFollowupId') ? payload.focusFollowupId : next.focusFollowupId;
   const focus = chosen ? resolveAlias(chosen) : null;
   if (sourceRevision >= (next.focusSourceRevision || 0)) {
     if (Object.hasOwn(payload, 'focusFollowupId') || next.focusFollowupId !== undefined) {
-      next.focusFollowupId = focus?.status === 'active' && !focus.stale && !focus.mergedInto ? focus.id : null;
+      next.focusFollowupId = isActiveFocus(focus) ? focus.id : focus?.attention?.needed === false && !focus.stale ? nextFocusId(next, focus.id) : null;
       next.focusSourceRevision = sourceRevision;
     }
   }

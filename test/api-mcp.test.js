@@ -24,6 +24,30 @@ async function fixture(t,options={}) {
 }
 async function until(fn){const end=Date.now()+5000;while(Date.now()<end){const result=await fn();if(result)return result;await new Promise(r=>setTimeout(r,20));}throw new Error('Timed out');}
 
+test('export distinguishes a retired focus from a resolved fact', async t => {
+  const { workbench, base } = await fixture(t);
+  const meeting = workbench.store.createMeeting({ title: '当前不必展开' });
+  const source = workbench.store.appendTranscript(meeting.id, { text: '本次只验入口，参数在后续验证。' });
+  workbench.store.mutateMeeting(meeting.id, item => {
+    item.followups = [{ id: 'f1', status: 'active', question: '参数纳入哪一阶段？', impact: '后续排期', evidenceIds: [source.id],
+      attention: { needed: false, reason: '本次范围已明确，参数验证有后续安排。', evidenceIds: [source.id] } }];
+  });
+  const exported = await (await fetch(`${base}/api/meetings/${meeting.id}/export`)).text();
+  assert.match(exported, /暂不展开/);
+  assert.match(exported, /本次范围已明确，参数验证有后续安排/);
+  assert.doesNotMatch(exported, /尚待澄清|已解决/);
+  assert.equal(workbench.store.getMeeting(meeting.id).followups[0].status, 'active');
+  const later = workbench.store.appendTranscript(meeting.id, { text: '参数的具体验证安排另约时间。' });
+  workbench.store.mutateMeeting(meeting.id, item => {
+    item.followups[0].resolution = { outcome: 'needs_verification', complete: false, text: '本次验收范围只含入口。', author: 'ai', evidenceIds: [source.id], sourceRevision: 1 };
+    item.followups[0].attention.evidenceIds = [later.id];
+  });
+  const withProgress = (await (await fetch(`${base}/api/meetings/${meeting.id}/export`)).text()).split('## 原始转录')[0];
+  assert.match(withProgress, /已说清的部分.*本次验收范围只含入口/s);
+  assert.match(withProgress, /暂不展开：本次范围已明确/);
+  assert.ok(withProgress.includes(`#transcript:${later.id}`), 'retirement evidence is retained alongside partial progress');
+});
+
 test('export reformats historical AI minutes without rewriting their source, version or human replacements', async t => {
   const { workbench, base } = await fixture(t);
   const meeting = workbench.store.createMeeting({ title: '旧纪要排版' });

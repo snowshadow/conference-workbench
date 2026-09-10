@@ -7,6 +7,23 @@ import { openAsBlob } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { recommendedFocusId } from '../shared/discussion-view.js';
 
+function withoutHistory(value) {
+  if (!value || typeof value !== 'object') return value;
+  const { history, ...current } = value;
+  return current;
+}
+
+function currentFollowup(value) {
+  const item = withoutHistory(value);
+  if (item.resolution) item.resolution = withoutHistory(item.resolution);
+  if (item.attention) item.attention = withoutHistory(item.attention);
+  if (item.clarification) {
+    item.clarification = withoutHistory(item.clarification);
+    if (Array.isArray(item.clarification.distinctions)) item.clarification.distinctions = item.clarification.distinctions.map(withoutHistory);
+  }
+  return item;
+}
+
 export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://127.0.0.1:8797'}={}) {
   const url=new URL(baseUrl);
   if(!['http:','https:'].includes(url.protocol) || !['127.0.0.1','localhost','[::1]'].includes(url.hostname)) throw new Error('WORKBENCH_URL 必须指向本机会议工作台');
@@ -44,11 +61,7 @@ export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://12
     return {id:m.id,title:m.title,goal:m.goal,status:m.status,source:m.source,importJobId:m.importJobId,archived:m.archived,transcriptRevision:m.transcriptRevision,transcriptEditRevision:m.transcriptEditRevision,processedRevision:m.processedRevision,processedThroughMs:m.processedThroughMs,capture:m.capture,speakerLabels:m.speakerLabels,focusFollowupId:recommendedFocusId(m),
       participants:m.participants,identityRevision:m.identityRevision,
       topics:m.topics.filter(t=>!t.mergedInto).map(({history,entries,...topic})=>({...topic,entries:entries.map(({history,...entry})=>entry)})),
-      followups:m.followups.filter(f=>!f.mergedInto && (f.status==='active'||f.resolution)).map(({history,resolution,...followup})=>{
-        if(!resolution)return followup;
-        const {history:resolutionHistory,...currentResolution}=resolution;
-        return {...followup,resolution:currentResolution};
-      }),recordings:m.recordings,
+      followups:m.followups.filter(f=>!f.mergedInto && (f.status==='active'||f.resolution)).map(currentFollowup),recordings:m.recordings,
       artifacts:m.artifacts.map(({id,type,title,author,sourceRevision,stale,updatedAt})=>({id,type,title,author,sourceRevision,stale,updatedAt})),jobs:m.jobs.map(({id,type,status,error,progress,promptVersion,model,sourceRevision})=>({id,type,status,error,progress,promptVersion,model,sourceRevision}))};
   },true);
   tool('get_transcript_chunk','分页读取本次会议原始转录，可用 q 在转录中检索。nextCursor 为 null 表示读完。',{...mid,cursor:z.number().int().min(0).default(0),limit:z.number().int().min(1).max(500).default(100),q:z.string().max(500).optional()},({meetingId,...query})=>request(`/api/meetings/${enc(meetingId)}/transcript?${new URLSearchParams(Object.entries(query).filter(([,v])=>v!==undefined).map(([k,v])=>[k,String(v)]))}`),true);

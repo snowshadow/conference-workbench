@@ -45,9 +45,38 @@ export function attributedPeople(input, evidence, byId, meeting) {
   return [...new Set(ids.filter(id => id && allowed.has(id)))];
 }
 
-export function markPeopleFields(item, fields) {
+// This is a review signal, not an attribution rule. A name mentioned in prose
+// may be a quoted third person, so only the existing evidence-based review may
+// turn it into a stable person reference; never replace names here.
+export function hasUnstructuredPeopleName(text, meeting) {
+  if (typeof text !== 'string' || !meeting) return false;
+  const prose = text.replace(/\[\[person:[^\]\s]+\]\]/g, ' ');
+  const names = new Set();
+  for (const item of meeting.participants || []) {
+    const person = participantFor(item.id, meeting);
+    if (!person) continue;
+    const name = person.name?.trim() || person.speakerIds?.map(id => meeting.speakerLabels?.[id]).find(value => typeof value === 'string' && value.trim())?.trim();
+    if (name) names.add(name);
+  }
+  for (const name of names) {
+    const characters = [...name];
+    for (let index = prose.indexOf(name); index !== -1; index = prose.indexOf(name, index + name.length)) {
+      const before = [...prose.slice(0, index)].at(-1) || '', after = [...prose.slice(index + name.length)][0] || '';
+      // A one-character label needs explicit boundaries: 甲 is not 甲方.
+      // Chinese full names can adjoin Chinese prose. Latin names must not
+      // match inside another word (Ann / Planning), but may adjoin Chinese.
+      if (characters.length === 1 && /[\p{L}\p{N}_]/u.test(before + after)) continue;
+      if (/[^\p{Script=Han}]/u.test(characters[0]) && /[\p{L}\p{N}_]/u.test(before) && !/\p{Script=Han}/u.test(before)) continue;
+      if (/[^\p{Script=Han}]/u.test(characters.at(-1)) && /[\p{L}\p{N}_]/u.test(after) && !/\p{Script=Han}/u.test(after)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+export function markPeopleFields(item, fields, meeting) {
   item.peopleFields = { ...item.peopleFields };
-  for (const field of fields) if (typeof item[field] === 'string' && !item.manualFields?.includes(field)) item.peopleFields[field] = 1;
+  for (const field of fields) if (typeof item[field] === 'string' && !item.manualFields?.includes(field)) item.peopleFields[field] = hasUnstructuredPeopleName(item[field], meeting) ? 0 : 1;
 }
 
 const refs = item => [...new Set([...(item.evidenceIds || []), ...(item.evidence || []).map(source => source.id)])];
@@ -62,7 +91,7 @@ export function peopleReviewRecords(meeting, lines, sourceIds, kind = 'attributi
     const ids = [...new Set(evidenceIds)].filter(id => byId.has(id));
     if (!ids.some(id => affected.has(id))) return;
     for (const field of fields) {
-      if (typeof item[field] !== 'string' || !item[field].trim() || item.manualFields?.includes(field) || kind === 'labels' && item.peopleFields?.[field] === 1) continue;
+      if (typeof item[field] !== 'string' || !item[field].trim() || item.manualFields?.includes(field) || kind === 'labels' && item.peopleFields?.[field] === 1 && !hasUnstructuredPeopleName(item[field], meeting)) continue;
       records.push({ id: `${path.join('/')}/${field}`, path, field, text: item[field], evidenceIds: ids, ...context });
     }
   };
@@ -76,6 +105,14 @@ export function peopleReviewRecords(meeting, lines, sourceIds, kind = 'attributi
     if (item.mergedInto || item.status === 'ignored') continue;
     add(item, ['followups', item.id], ['question', 'shortQuestion', 'rationale', 'impact', 'discussionValue'], refs(item));
     add(item.resolution, ['followups', item.id, 'resolution'], ['text'], refs(item.resolution || {}));
+    if (!human(item) && !item.manualFields?.includes('clarification') && item.clarification && !human(item.clarification)) {
+      const explanation = item.clarification;
+      add(explanation, ['followups', item.id, 'clarification'], ['explanation'], (explanation.evidence || []).map(source => source.id));
+      if (!explanation.manualFields?.includes('distinctions')) for (const part of explanation.distinctions || []) {
+        if (part.id) add(part, ['followups', item.id, 'clarification', 'distinctions', part.id], ['title', 'text', 'example'], refs(part));
+      }
+    }
+    if (!human(item) && !item.manualFields?.includes('attention')) add(item.attention, ['followups', item.id, 'attention'], ['reason'], refs(item.attention || {}));
   }
   for (const item of meeting.questions || []) add(item, ['questions', item.id], ['answer', 'inference'], refs(item), { question: item.question });
   for (const item of meeting.artifacts || []) {

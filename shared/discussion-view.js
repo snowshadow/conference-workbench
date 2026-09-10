@@ -1,4 +1,4 @@
-export const isActiveFocus = item => item?.status === 'active' && !item.stale && !item.mergedInto;
+export const isActiveFocus = item => item?.status === 'active' && !item.stale && !item.mergedInto && item.attention?.needed !== false;
 
 export function resolveFocus(meeting, id) {
   const seen = new Set();
@@ -28,7 +28,7 @@ export function recommendedFocusId(meeting) {
     if (isActiveFocus(item)) return item.id;
     // A saved note can leave the main focus without declaring the question
     // resolved. Only known handled items advance; missing or stale sources wait.
-    if (!item || item.stale || !['recorded', 'resolved', 'ignored'].includes(item.status)) return null;
+    if (!item || item.stale || !['recorded', 'resolved', 'ignored'].includes(item.status) && item.attention?.needed !== false) return null;
     return nextFocusId(meeting, item.id);
   }
   return (meeting.followups || []).find(isActiveFocus)?.id || null;

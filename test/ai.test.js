@@ -8,7 +8,7 @@ import { editEntry } from '../server/content.js';
 import { createAIService } from '../server/ai/service.js';
 import { reduceOrganization, validateTopicTree } from '../server/ai/reducer.js';
 import { retrieve, sourceLines } from '../server/ai/retrieval.js';
-import { PROMPT_VERSION } from '../server/ai/prompts.js';
+import { SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, PROMPT_VERSION } from '../server/ai/prompts.js';
 
 function line(id, text, revision = 1, meetingId = 'meeting1') { return { id, meetingId, text, origin: 'asr', revision, speakerId: '说话人1', startMs: 1000, endMs: 2000 }; }
 function meeting(overrides = {}) { return { id: 'meeting1', transcriptRevision: 1, contentRevision: 0, topics: [], followups: [], questions: [], artifacts: [], ...overrides }; }
@@ -315,17 +315,14 @@ test('clarification records guide concept, premise and criteria retrieval withou
   assert.deepEqual(retrieve(current, lines, '口径与前提', 't1').map(item => item.id), ['s3', 's5', 's7']);
 });
 
-test('clarification prompting distinguishes material concepts, assumptions and criteria and grounds answers in transcript', async t => {
+test('followup jobs use the current explanation contract; authored records remain context, not source speech', async t => {
   const { store, ai, calls } = fixture(t, data => response(data.mode ? { topics: [], followups: [] } : { answer: '没有足够依据', insufficient: true, evidence: [] }));
   const current = store.createMeeting({ title: '澄清边界' });
   const source = store.appendTranscript(current.id, { text: '我理解的实时是下次刷新。' });
   store.mutateMeeting(current.id, meeting => { meeting.followups = [{ id: 'f1', question: '实时是否立即', status: 'resolved', kind: 'concept', evidenceIds: [source.id], resolution: { outcome: 'clarified', text: '人工记录的全员共识', author: 'host', evidenceIds: [source.id] } }]; });
   await finish(store, ai.submit(current.id, 'followup'));
   const prompt = calls[0].body.messages[0].content;
-  assert.match(prompt, /具体选择、范围、协作或行动/);
-  for (const kind of ['concept', 'assumption', 'criteria', 'other']) assert.ok(prompt.includes(kind));
-  assert.match(prompt, /不把单方表达扩大为全体共识/);
-  assert.match(prompt, /说明是谁的观点，并保留适用范围/);
+  assert.equal(prompt, `${SYSTEM}\n${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}`);
   await finish(store, ai.submit(current.id, 'answer', { question: '大家对实时是否已经达成共识？' }));
   assert.equal(calls[1].data.existingFollowups[0].resolution.author, 'host');
   assert.equal(calls[1].data.sources[0].text, '我理解的实时是下次刷新。');
@@ -715,6 +712,11 @@ test('malformed organization objects fail without advancing the watermark; expli
     { topics: [{ entries: {} }], followups: [] },
     { topics: [], followups: [], resolvedFollowups: {} },
     { topics: [], followups: [], keepFollowupIds: [null] },
+    { topics: [], followups: [{ clarification: null }] },
+    { topics: [], followups: [{ clarification: { explanation: '建议', evidence: [], distinctions: {} } }] },
+    { topics: [], followups: [{ clarification: { explanation: '建议', evidence: [], distinctions: [{ title: '栏目', text: '定义', evidence: '原文' }] } }] },
+    { topics: [], followups: [], retiredFollowups: {} },
+    { topics: [], followups: [], retiredFollowups: [{ id: 'f1', reason: '已有安排', evidence: null }] },
   ];
   for (const type of ['organize', 'followup']) {
     for (const value of malformed) {
@@ -800,4 +802,47 @@ test('provider error does not expose API keys or generated facts', async t => {
   assert.match(job.error, /HTTP 401/);
   assert.doesNotMatch(job.error, /echo-secret-key/);
   assert.equal(store.getMeeting(current.id).topics.length, 0);
+});
+
+test('clarification suggestions survive jobs as suggestions; retirement preserves factual progress in minutes', async t => {
+  let phase = 'explain';
+  const { store, ai, calls } = fixture(t, data => {
+    const evidence = data.sources.map(source => ({ id: source.id, quote: source.text }));
+    if (phase === 'explain') return response({ topics: [], followups: [clarification(data.sources[0], {
+      id: 'new_focus', kind: 'concept', question: '字段不变，用户的信息还能更新吗？', rationale: '字段与字段中的值混在了一起。', impact: '影响主动更新的范围。', evidence,
+      clarification: { explanation: '字段可以保持稳定，里面的用户信息仍可更新。', distinctions: [
+        { title: '字段', text: '规定关注用户哪些方面。', evidence: [evidence[0]] },
+        { title: '信息', text: '记录这个用户的具体情况。', evidence: [evidence[1]] },
+      ], evidence },
+    })], focusFollowupId: 'new_focus' });
+    const item = data.existingFollowups[0];
+    assert.equal(item.clarification.distinctions.length, 2, 'subsequent analysis receives the previous explanation');
+    if (phase === 'retire') return response({ topics: [], followups: [], retiredFollowups: [{ id: item.id, reason: '更新范围已说清，剩余排期可以按后续安排推进。', evidence }],
+      resolvedFollowups: [{ id: item.id, resolution: { outcome: 'needs_verification', complete: false, text: '先更新用户信息，具体排期以后核对。' }, evidence }], focusFollowupId: null });
+    assert.equal(item.attention.needed, false);
+    return response({ topics: [], followups: [], keepFollowupIds: [item.id], focusFollowupId: null });
+  });
+  const m = store.createMeeting({ title: '澄清与事实边界' });
+  store.appendTranscript(m.id, { text: '画像的字段由产品规定。', startMs: 0, endMs: 1000 });
+  store.appendTranscript(m.id, { text: '这个用户的饮食偏好可以更新。', startMs: 1000, endMs: 2000 });
+  assert.equal((await finish(store, ai.submit(m.id, 'organize'))).status, 'done');
+  let item = store.getMeeting(m.id).followups[0];
+  assert.equal(item.clarification.explanation, '字段可以保持稳定，里面的用户信息仍可更新。');
+  assert.equal(item.resolution, undefined, 'an AI explanation is not a participant resolution');
+  assert.equal(item.status, 'active');
+  phase = 'retire';
+  store.appendTranscript(m.id, { text: '先只改字段中的用户信息，具体排期以后核对。', startMs: 3000, endMs: 4000 });
+  assert.equal((await finish(store, ai.submit(m.id, 'organize'))).status, 'done');
+  item = store.getMeeting(m.id).followups[0];
+  assert.equal(item.status, 'active', 'retiring attention does not assert the factual issue is resolved');
+  assert.equal(item.resolution.complete, false);
+  assert.equal(item.attention.needed, false);
+  assert.equal(store.getMeeting(m.id).focusFollowupId, null);
+  phase = 'minutes';
+  assert.equal((await finish(store, ai.submit(m.id, 'minutes'))).status, 'done');
+  const markdown = store.getMeeting(m.id).artifacts.find(artifact => artifact.type === 'minutes').markdown;
+  assert.match(markdown, /暂不展开的问题/);
+  assert.match(markdown, /先更新用户信息，具体排期以后核对/);
+  assert.doesNotMatch(markdown.split('## 尚待澄清')[1]?.split('## ')[0] || '', /字段不变/);
+  assert.ok(calls.every(call => call.body.messages[0].content.includes('clarification')));
 });

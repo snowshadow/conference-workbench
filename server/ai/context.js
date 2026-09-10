@@ -3,6 +3,11 @@ import { isUnassignedUtterance, participantFor, speakerName } from '../../shared
 
 const currentEntry = entry => entry.status !== 'superseded';
 const sourceCost = line => line.text.length + 180;
+const clarificationContext = item => item && ({
+  explanation: item.explanation, evidenceIds: item.evidenceIds, stale: item.stale, author: item.author, manualFields: item.manualFields,
+  distinctions: (item.distinctions || []).map(({ id, title, text, example, evidenceIds, stale, author, manualFields }) => ({ id, title, text, example, evidenceIds, stale, author, manualFields })),
+});
+const attentionContext = item => item && ({ needed: item.needed, reason: item.reason, evidenceIds: item.evidenceIds, stale: item.stale, author: item.author, manualFields: item.manualFields });
 
 export function knownContext(meeting, sources) {
   const sourceIds = new Set(sources.map(line => line.id));
@@ -18,7 +23,7 @@ export function knownContext(meeting, sources) {
     if (size + cost > 18000) continue;
     knownEntries.push(item); size += cost;
   }
-  const existingFollowups = (meeting.followups || []).filter(item => !item.mergedInto).slice(-80).map(({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, status, evidenceIds, resolution, stale, pendingReview, manualFields }) => ({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, status, evidenceIds, resolution, stale, pendingReview, manualFields }));
+  const existingFollowups = (meeting.followups || []).filter(item => !item.mergedInto).slice(-80).map(({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, clarification, attention, status, evidenceIds, resolution, sourceRevision, stale, pendingReview, manualFields }) => ({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, clarification: clarificationContext(clarification), attention: attentionContext(attention), status, evidenceIds, resolution, sourceRevision, stale, pendingReview, manualFields }));
   return { knownTopics, knownEntries, existingFollowups, participants: (meeting.participants || []).filter(person => !person.mergedInto && !isUnassignedUtterance(person)).map(person => ({ id: person.id, memberId: person.memberId || null, displayName: speakerName(person.id, meeting) })), focusFollowupId: meeting.focusFollowupId ?? null, omittedEntryCount: entries.length - knownEntries.length };
 }
 
@@ -58,6 +63,7 @@ export function supplementEvidence(meeting, chunk, allLines, maxChars = 14000) {
   const followups = (meeting.followups || []).filter(item => !item.mergedInto && item.status !== 'ignored');
   const relevant = followups.filter(item => item.status === 'active' || item.stale || item.pendingReview)
     .sort((a, b) => Number(b.id === meeting.focusFollowupId) - Number(a.id === meeting.focusFollowupId)
+      || Number(a.attention?.needed === false) - Number(b.attention?.needed === false)
       || terms(b.question).filter(term => chunkTerms.has(term)).length - terms(a.question).filter(term => chunkTerms.has(term)).length);
   const relatedTopics = (meeting.topics || []).filter(topic => !topic.mergedInto && (topic.entries || []).some(entry => entry.evidenceIds?.some(id => chunkIds.has(id))) || !topic.mergedInto && terms(topic.title).some(term => chunkTerms.has(term)));
   // Preserve existing conclusions before spending the remaining budget on search.

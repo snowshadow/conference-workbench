@@ -38,9 +38,16 @@ function validateResult(result, purpose) {
   } else {
     valid = objects(result.topics) && objects(result.followups)
       && result.followups.every(item => ['shortQuestion','discussionValue'].every(key => item[key] === undefined || typeof item[key] === 'string'))
+      && result.followups.every(item => item.clarification === undefined || object(item.clarification)
+        && typeof item.clarification.explanation === 'string' && citations(item.clarification.evidence)
+        && (item.clarification.distinctions === undefined || objects(item.clarification.distinctions)
+          && item.clarification.distinctions.every(part => typeof part.title === 'string' && typeof part.text === 'string'
+            && (part.example === undefined || typeof part.example === 'string') && citations(part.evidence))))
       && result.topics.every(topic => topic.entries === undefined || objects(topic.entries))
       && ['merges', 'mergedFollowups', 'resolvedFollowups'].every(key => result[key] === undefined || objects(result[key]))
       && (result.resolvedFollowups === undefined || result.resolvedFollowups.every(item => object(item.resolution) && typeof item.resolution.complete === 'boolean'))
+      && (result.retiredFollowups === undefined || objects(result.retiredFollowups)
+        && result.retiredFollowups.every(item => typeof item.id === 'string' && typeof item.reason === 'string' && citations(item.evidence)))
       && (result.focusFollowupId === undefined || result.focusFollowupId === null || typeof result.focusFollowupId === 'string')
       && (result.keepFollowupIds === undefined || Array.isArray(result.keepFollowupIds) && result.keepFollowupIds.every(id => typeof id === 'string'));
   }
@@ -117,17 +124,20 @@ function minutesMarkdown(meeting, lines) {
     [resolutionOutcomes.clarified.label, item => item.status === 'resolved' && item.resolution?.outcome === 'clarified'],
     [resolutionOutcomes.needs_verification.label, item => item.status === 'resolved' && item.resolution?.outcome === 'needs_verification'],
     [resolutionOutcomes.difference_remains.label, item => item.status === 'resolved' && item.resolution?.outcome === 'difference_remains'],
-    ['尚待澄清', item => ['active','recorded'].includes(item.status)],
+    ['尚待澄清', item => ['active','recorded'].includes(item.status) && item.attention?.needed !== false],
+    ['暂不展开的问题', item => item.status === 'active' && item.attention?.needed === false],
   ];
   for (const [title, matches] of clarificationSections) {
-    content.push(`## ${title}`, '');
     const selected = clarifications.filter(matches);
+    if (title === '暂不展开的问题' && !selected.length) continue;
+    content.push(`## ${title}`, '');
     if (!selected.length) { content.push('暂无记录。', ''); continue; }
     for (const item of selected) {
       const resolution = item.resolution && (title !== '尚待澄清' || item.resolution.complete === false) ? item.resolution : null;
       const label = resolution ? `${authorLabel(resolution.author)}${resolution.complete === false ? '；已有部分进展，问题尚未解决' : ''}${resolution.outcome === 'recorded' ? '；未标记为已解决' : ''}` : `${item.author === 'ai' ? 'AI 待核对解释' : authorLabel(item.author)}${item.status === 'recorded' ? '；已有讨论记录，问题仍待澄清' : ''}`;
       const evidenceIds = resolution?.evidenceIds || item.evidenceIds || [];
       content.push(`- **${item.question}**（${label}${resolution ? `；依据版本 ${resolution.sourceRevision}${evidenceIds.length?'':'；未关联原文'}` : ''}）`, `  ${resolution?.text || item.rationale || ''}${item.impact && resolution?.outcome !== 'recorded' ? ` 可能影响：${item.impact}` : ''} ${evidenceIds.map(evidenceLink).filter(Boolean).join(' ')}`);
+      if (title === '暂不展开的问题') content.push(`  暂不展开：${item.attention.reason} ${(item.attention.evidenceIds || []).map(evidenceLink).filter(Boolean).join(' ')}`);
     }
     content.push('');
   }
@@ -375,7 +385,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     }
     if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
     const item = { id: `answer_${randomUUID()}`, question: input.question, topicId: input.topicId || null, ...result, coverage, evidenceIds: [...new Set(result.evidence.map(item => item.id))], sourceRevision: snapshot.transcriptRevision, sourceThroughMs: allLines.reduce((end,line)=>Math.max(end,line.endMs || line.startMs || 0),0), stale: false, author: 'ai', createdAt: date() };
-    store.mutateMeeting(meetingId, meeting => { meeting.questions ||= []; markPeopleFields(item, ['answer', 'inference']); meeting.questions.push(item); });
+    store.mutateMeeting(meetingId, meeting => { meeting.questions ||= []; markPeopleFields(item, ['answer', 'inference'], meeting); meeting.questions.push(item); });
     return item;
   }
 
@@ -389,7 +399,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       const group = pending.slice(offset, offset + 6);
       const sources = reviewEvidence(draft, allLines, group);
       store.updateJob(execution.jobId, { progress: { phase: 'clarify', completedBatches: offset / 6, totalBatches: Math.ceil(pending.length / 6) } });
-      const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}\n本次核对 reviewFollowupIds 中的问题是否已被后续发言回答、已有部分进展，或实际上属于同一个问题。sources 含按问题检索的上下文；没有找到答案不等于会上没有答案。未充分核对的问题保持待核对。此轮不新增问题。`, {
+      const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}\n本次核对 reviewFollowupIds：哪些核心疑问已经回答，哪些还有值得澄清的差别，哪些虽有未知细节却已不阻碍讨论。分别使用 resolvedFollowups、更新 clarification 或 retiredFollowups，已有部分进展如实保留。sources 含按问题检索的上下文；没有找到答案不等于会上没有答案。未充分核对的问题保持待核对。此轮不新增问题。`, {
         meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
         ...knownContext(draft, sources), sources: sourceView(sources, snapshot),
         mode: 'review', meetingStatus: snapshot.status, reviewFollowupIds: group.map(item => item.id), followupLimit: 0,
@@ -425,7 +435,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     const artifact = store.saveArtifact(meetingId, type, { title: edited ? '会议纪要更新草稿' : '会议纪要', markdown: minutesMarkdown(snapshot, lines), author: 'ai', sourceRevision: snapshot.processedRevision });
     const legacy = peopleReviewRecords(snapshot, lines, lines.map(line => line.id), 'labels').some(record => ['topics', 'followups'].includes(record.path[0]));
     if (!legacy) {
-      markPeopleFields(artifact, ['markdown']);
+      markPeopleFields(artifact, ['markdown'], snapshot);
       store.mutateMeeting(meetingId, meeting => { const saved = meeting.artifacts.find(item => item.id === artifact.id); if (saved) saved.peopleFields = artifact.peopleFields; });
     }
     return artifact;
@@ -485,7 +495,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
           target.history.push({ [record.field]: target[record.field], evidenceIds: record.evidenceIds, changedAt: date(), identityCorrected: true });
           target[record.field] = text;
         }
-        markPeopleFields(target, [record.field]);
+        markPeopleFields(target, [record.field], meeting);
         if (record.path.includes('entries') && record.field === 'text') target.participantIds = participantIds;
         target.identityReview = false;
         target.identityReviewedAt = date();

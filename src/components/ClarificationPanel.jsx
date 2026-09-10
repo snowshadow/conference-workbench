@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ChevronDown, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { api, formatTime, meetingPath } from '../lib/api.js';
 import { isActiveFocus, readingFocusId, recommendedFocusId, returnFocusId } from '../../shared/discussion-view.js';
@@ -15,8 +15,27 @@ export const clarificationKinds = {
 };
 
 const questionFor = item => !item.stale && !item.resolution?.stale && item.shortQuestion ? item.shortQuestion : item.question;
+const textValue = value => typeof value === 'string' ? value.trim() : '';
+const sameText = (first, second) => textValue(first).replace(/\s+/g, '') === textValue(second).replace(/\s+/g, '');
 
-export function ResolutionSummary({ item, onEvidence, onEdit, onRead, compact = false }) {
+// One source can support several distinctions. Keep its different excerpts together.
+function questionSources(item) {
+  const sources = new Map();
+  const clarification = item.clarification?.stale ? null : item.clarification;
+  function add(id, quote) {
+    if (!id) return;
+    if (!sources.has(id)) sources.set(id, { id, quotes: [] });
+    const text = textValue(quote);
+    if (text && !sources.get(id).quotes.includes(text)) sources.get(id).quotes.push(text);
+  }
+  for (const group of [item, clarification, ...(clarification?.distinctions || []).filter(part => !part.stale), item.resolution]) {
+    for (const id of group?.evidenceIds || []) add(id);
+    for (const source of group?.evidence || []) add(source.id || source.lineId, source.quote);
+  }
+  return [...sources.values()];
+}
+
+export function ResolutionSummary({ item, onEvidence, onEdit, onRead, compact = false, showProvenance = true }) {
   const resolution = item.resolution;
   if (!resolution) return null;
   const outcome = resolutionOutcomes[resolution.outcome];
@@ -28,11 +47,11 @@ export function ResolutionSummary({ item, onEvidence, onEdit, onRead, compact = 
     <p className="resolution-text">{resolution.text}</p>
     {review && <p className={`record-review-state ${review}`} role="status">{review === 'source_changed' ? '引用的原文已修改，请核对这条记录。' : 'AI 尚未核对后续发言。'}</p>}
     <div className="resolution-heading"><span className="resolution-origin">{origin}</span>{partial ? <span className="resolution-partial-label">已说清的部分</span> : !neutral && <span className={`outcome-badge ${resolution.outcome}`}>{outcome?.label || '讨论记录'}</span>}{onEdit && <IconButton title="编辑讨论记录" onClick={() => onEdit(item.id)}><Pencil size={13} /></IconButton>}</div>
-    <details className="resolution-provenance" onToggle={event => { if (event.currentTarget.open) onRead?.(); }}>
+    {showProvenance && <details className="resolution-provenance" onToggle={event => { if (event.currentTarget.open) onRead?.(); }}>
       <summary>{resolution.evidenceIds?.length ? `查看来源 · ${resolution.evidenceIds.length} 处` : '记录信息'}<ChevronDown size={12} aria-hidden="true" /></summary>
       <div className="resolution-evidence"><Evidence ids={resolution.evidenceIds} onSelect={onEvidence} /></div>
       {(!resolution.evidenceIds?.length || neutral) && <dl className="reading-metadata">{!resolution.evidenceIds?.length && <div><dt>原文引用</dt><dd>未关联</dd></div>}{neutral && <div><dt>问题状态</dt><dd>已记下结果，尚未标记已解决</dd></div>}</dl>}
-    </details>
+    </details>}
   </div>;
 }
 
@@ -61,8 +80,9 @@ function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline =
     const offset = Math.min(editor.bottom - bounds.bottom + 18, editor.top - bounds.top - 18);
     if (offset > 0) viewport.scrollBy({ top: offset, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }, [inline]);
-  const choices = [...new Set([...(item.evidenceIds || []), ...(item.resolution?.evidenceIds || [])])];
-  const evidenceText = id => review?.lines.find(line => line.id === id)?.text || lines.find(line => line.id === id)?.text || [...(item.resolution?.evidence || []), ...(item.evidence || [])].find(source => (source.id || source.lineId) === id)?.quote || '';
+  const sources = questionSources(item);
+  const choices = sources.map(source => source.id);
+  const evidenceText = id => review?.lines.find(line => line.id === id)?.text || lines.find(line => line.id === id)?.text || sources.find(source => source.id === id)?.quotes.join('\n\n') || '';
   async function reviewSources() {
     setReviewBusy(true); setReviewError(''); setReview(null);
     try {
@@ -114,17 +134,44 @@ function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline =
 export function ResolutionDialog(props) { return <ResolutionEditor {...props} />; }
 
 function QuestionEvidence({ item, meeting, onEvidence, onTopic, onRead }) {
-  const count = new Set(item.evidenceIds || []).size;
-  const byId = new Map((item.evidence || []).map(source => [source.id || source.lineId, source.quote]));
-  return <details className="focus-evidence" onToggle={event => { if (event.currentTarget.open) onRead(); }}>
-    <summary>查看依据{count > 0 ? ` · ${count} 处` : ''}<ChevronDown size={13} aria-hidden="true" /></summary>
+  const sources = questionSources(item);
+  const topic = meeting.topics?.find(topic => topic.id === item.topicId);
+  const fullQuestion = !sameText(questionFor(item), item.question) && item.question;
+  return <details className="focus-evidence" onToggle={event => { if (event.currentTarget.open) onRead?.(); }}>
+    <summary>核对原话{sources.length > 0 ? ` · ${sources.length} 段` : ''}<ChevronDown size={13} aria-hidden="true" /></summary>
     <div className="focus-evidence-body">
-      {item.rationale && <p className="focus-evidence-explanation">{item.rationale}</p>}
-      {item.evidenceIds?.some(id => byId.get(id)) && <div className="focus-quotes">{[...new Set(item.evidenceIds)].filter(id => byId.get(id)).map(id => <blockquote key={id}><p>{byId.get(id)}</p><Evidence ids={[id]} onSelect={onEvidence} /></blockquote>)}</div>}
-      <Evidence ids={(item.evidenceIds || []).filter(id => !byId.get(id))} onSelect={onEvidence} />
-      <details className="focus-source-details"><summary>问题详情</summary><p>{item.question}</p>{item.impact && <p>{item.impact}</p>}<div className="focus-source-meta"><span>{clarificationKinds[item.kind]?.label || '既有追问'}</span>{item.topicId && <button type="button" onClick={() => onTopic(item.topicId)}>{meeting.topics?.find(topic => topic.id === item.topicId)?.title || '相关主题'}<ChevronRight size={12} aria-hidden="true" /></button>}</div></details>
+      {sources.length > 0 ? <div className="focus-quotes">{sources.map((source, index) => <div className="focus-quote" key={source.id}>
+        <button type="button" className="focus-quote-link" onClick={() => onEvidence(source.id)} title="定位这段原话并回听">原话 {index + 1}<ArrowUpRight size={13} aria-hidden="true" /></button>
+        {source.quotes.length > 0 && <blockquote>{source.quotes.map((quote, index) => <p key={index}>{quote}</p>)}</blockquote>}
+      </div>)}</div> : <p className="focus-source-note">这条问题尚未关联原话。</p>}
+      {item.resolution && <section className="focus-record"><h4>已记下的讨论结果</h4><ResolutionSummary item={item} onEvidence={onEvidence} showProvenance={false} /></section>}
+      {fullQuestion && <div className="focus-full-question"><span>完整问题</span><p>{fullQuestion}</p></div>}
+      {topic && <div className="focus-source-meta"><button type="button" onClick={() => onTopic(topic.id)}>{topic.title}<ChevronRight size={12} aria-hidden="true" /></button></div>}
     </div>
   </details>;
+}
+
+function ClarificationReading({ item }) {
+  const clarification = item.clarification?.stale ? null : item.clarification;
+  const explanation = textValue(clarification?.explanation);
+  const distinctions = (clarification?.distinctions || []).filter(value => !value.stale && textValue(value.title) && textValue(value.text));
+  const manualReason = item.manualFields?.includes('discussionValue') || ['host', 'agent'].includes(item.author);
+  const reason = (manualReason ? textValue(item.discussionValue) : '') || textValue(item.rationale) || textValue(item.discussionValue) || (!explanation ? textValue(item.impact) : '');
+  const impact = textValue(item.impact);
+  const separateImpact = impact && !sameText(impact, reason) && !sameText(impact, explanation);
+  return <>
+    {reason && <p className="focus-value">{reason}</p>}
+    {distinctions.length > 0 && <div className={`focus-meanings ${distinctions.length === 2 ? 'has-two' : distinctions.length === 3 ? 'has-three' : 'is-list'}`}>
+      {distinctions.map((distinction, index) => <section className="focus-meaning" key={distinction.id || index}>
+        <h4>{distinction.title}</h4><p>{distinction.text}</p>
+        {textValue(distinction.example) && <p className="focus-meaning-example">{distinction.example}</p>}
+      </section>)}
+    </div>}
+    {explanation ? <section className="focus-interpretation" aria-label="AI 建议的澄清解释">
+      <p className="focus-interpretation-label">可以这样理解 · AI 建议</p>
+      <blockquote><p className="focus-explanation">{explanation}</p>{separateImpact && <p className="focus-impact">{impact}</p>}</blockquote>
+    </section> : separateImpact && <p className="focus-legacy-impact">{impact}</p>}
+  </>;
 }
 
 function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopic, mutate, job, analysisStatus, onRequestQuestion, questionRequestBusy = false, pauseFollowing = false, toolbarTarget, visible = true }) {
@@ -164,7 +211,7 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
       setFollowing(true);
     } catch (failure) { setError(failure.message); } finally { setUpdating(''); }
   }
-  const selectedResult = ['resolved', 'recorded'].includes(selectedItem?.status) && selectedItem.resolution;
+  const selectedResult = selectedItem?.resolution && (['resolved', 'recorded'].includes(selectedItem.status) || selectedItem.attention?.needed === false);
   const staleResult = selectedResult && clarificationRecordReview(selectedItem) === 'source_changed';
   const importing = meeting.jobs?.some(item => item.type === 'import' && ['queued', 'running'].includes(item.status));
   const analyzing = ['submitting', 'queued', 'running'].includes(analysisStatus?.status) || job || meeting.jobs?.some(item => ['organize', 'followup', 'minutes'].includes(item.type) && ['queued', 'running'].includes(item.status));
@@ -190,13 +237,12 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
     <div className="clarification-scroll" ref={readingScroll}>
       <div className="focus-reading-view" key={`${readingId || 'none'}:${readingState}`}>
       {current ? <article className="focus-question">
-        <p className="focus-origin">{current.author === 'agent' ? 'Agent 提问' : current.author === 'host' ? '主持人提问' : 'AI 提问'}{(current.pendingReview || current.sourceRevision < meeting.transcriptRevision) && <span role="status">有新发言，待复核</span>}</p>
+        {(current.author === 'agent' || current.author === 'host' || current.pendingReview || current.sourceRevision < meeting.transcriptRevision) && <p className="focus-origin">{current.author === 'agent' ? 'Agent 提问' : current.author === 'host' ? '主持人提问' : null}{(current.pendingReview || current.sourceRevision < meeting.transcriptRevision) && <span role="status">有新发言，待复核</span>}</p>}
         <h3 ref={focusHeading} tabIndex={-1}>{questionFor(current)}</h3>
-        {(current.discussionValue || current.impact || current.rationale) && <p className="focus-value">{current.discussionValue || current.impact || current.rationale}</p>}
-        {current.resolution && <div className="focus-partial"><ResolutionSummary item={current} onEvidence={showEvidence} onRead={holdReading} /></div>}
+        <ClarificationReading item={current} />
         <QuestionEvidence key={current.id} item={current} meeting={meeting} onEvidence={showEvidence} onTopic={onTopic} onRead={holdReading} />
         {!editingItem && <div className="focus-actions"><Button ref={recordTrigger} className="primary" onClick={() => editResult(current)}>记下讨论结果</Button><Button className="text-button" disabled={updating === current.id} onClick={() => ignore(current.id)}>先放下</Button></div>}
-      </article> : selectedResult ? <article className={`focus-saved${staleResult ? ' is-stale' : ''}`}><p className="focus-origin" role="status">{staleResult ? '此前的问题' : '已保存到讨论进展'}</p><h3 ref={focusHeading} tabIndex={-1}>{questionFor(selectedItem)}</h3><ResolutionSummary item={selectedItem} onEvidence={showEvidence} onEdit={editingItem ? undefined : () => editResult(selectedItem)} /></article> : selectedItem && (selectedItem.stale || selectedItem.status !== 'active') ? <div className="clarification-transition"><h3>{selectedItem.stale ? '刚才的问题需要重新核对' : selectedItem.status === 'ignored' ? '这条问题已先放下' : '刚才的问题已处理'}</h3><p>{selectedItem.stale ? '原文已修正，更新后再查看。' : '可以回到当前讨论。'}</p></div> : <EmptyState title={emptyState.title} action={!active.length && !importing && !analyzing && meeting.processedRevision ? requestQuestion : null}>{emptyState.text}</EmptyState>}
+      </article> : selectedResult ? <article className={`focus-saved${staleResult ? ' is-stale' : ''}`}><p className="focus-origin" role="status">{staleResult ? '此前的问题' : selectedItem.attention?.needed === false ? '已退出当前提示，讨论记录已保留' : '已保存到讨论进展'}</p><h3 ref={focusHeading} tabIndex={-1}>{questionFor(selectedItem)}</h3><ResolutionSummary item={selectedItem} onEvidence={showEvidence} onEdit={editingItem ? undefined : () => editResult(selectedItem)} /></article> : selectedItem && (selectedItem.stale || selectedItem.status !== 'active' || selectedItem.attention?.needed === false) ? <div className="clarification-transition"><h3>{selectedItem.stale ? '刚才的问题需要重新核对' : selectedItem.status === 'ignored' ? '这条问题已先放下' : selectedItem.attention?.needed === false ? '这条问题暂时不需要继续提示' : '刚才的问题已处理'}</h3><p>{selectedItem.stale ? '原文已修正，更新后再查看。' : selectedItem.attention?.needed === false ? textValue(selectedItem.attention.reason) || '可以回到当前讨论。' : '可以回到当前讨论。'}</p></div> : <EmptyState title={emptyState.title} action={!active.length && !importing && !analyzing && meeting.processedRevision ? requestQuestion : null}>{emptyState.text}</EmptyState>}
       </div>
       {editingItem && <ResolutionEditor key={editingItem.id} inline item={(meeting.followups || []).find(item => item.id === editingItem.id) || editingItem} meeting={meeting} mutate={mutate} onClose={closeEditor} />}
       {otherItems.length > 0 && <details className="focus-queue"><summary>其他问题 · {otherItems.length}<ChevronDown size={13} aria-hidden="true" /></summary><div>{otherItems.map(item => <button className="focus-queue-item" key={item.id} disabled={Boolean(editingItem)} onClick={() => { setFollowing(false); setSelected(item.id); }}><span>{questionFor(item)}</span><ChevronRight size={15} aria-hidden="true" /></button>)}{requestQuestion}</div></details>}

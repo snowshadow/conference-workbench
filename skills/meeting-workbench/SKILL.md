@@ -31,7 +31,7 @@ description: Operate the local meeting workbench through MCP to record or import
 
 - 原始证据用 `get_transcript_chunk` 按需分页读取；`nextCursor=null` 才是读取完成。`q` 在本次会议转录内查找。
 - `organize_meeting` 整理讨论、提出澄清焦点或生成纪要；`ask_meeting` 回答整场或指定主题的问题。两者返回任务，使用 `get_ai_job` 回读结果。
-- 澄清服务于当前方案、范围或下一步行动。概念含义、隐含前提和选择标准是常见例子，其他有实际影响的阻碍也值得保留。用能直接问出口的问题、触发依据和原文引用帮助参会者核对，不替任何人推断内心，也不把目标或利益取舍上的分歧都当作误会。
+- 澄清服务于当前方案、范围或下一步行动。概念含义、隐含前提和选择标准是常见例子，其他有实际影响的阻碍也值得保留。除了提出问题，还要用 `clarification.explanation` 解释可以怎样理解，必要时用 `distinctions` 拆开多种含义或前提；按实际差别组织，不固定两项。解释是 AI 建议，引用帮助主持人核对，不能写成参会者已接受的定义。不替任何人推断内心，也不把目标或利益取舍上的分歧都当作误会。
 - 区分参会者观点、建议、AI 推测和明确决定。隐含假设是待核对的解释；潜在分歧是待澄清的问题。未明确负责人或截止时间时不补造。
 - 更正转录用 `correct_transcript`；修改主题、讨论条目和追问状态使用相应工具。`add_meeting_note` 只补充用户提供的现场事实，不能将 AI 生成的内容写成参会者原话。
 
@@ -63,7 +63,7 @@ description: Operate the local meeting workbench through MCP to record or import
 
 保存后用 `get_meeting_context` 回读结果、作者、来源和过期状态，再据此整理纪要。`resolve_followup` 用于忽略或兼容旧流程；仅标记 `resolved` 不等于已经记录了澄清结果。
 
-主画面优先显示 `shortQuestion` 与 `discussionValue`，完整 `question`、解释和引用保留在依据详情。用 `update_followup_presentation` 可以收短展示文案；提供读取时的来源版本，保留原问题的条件、选项与不确定性。展示文案不是新的会议事实。
+主画面展示问题、没对齐的原因及 AI 的澄清解释，必要时并列展示多种含义；原话统一在“核对原话”中。`attention.needed=false` 表示暂不展开，事实状态及已有进展仍保留，不能据此宣布已解决；不要把这类问题继续当作当前焦点。用 `update_followup_presentation` 可以收短展示文案；提供读取时的来源版本，保留原问题的条件、选项与不确定性。展示文案不是新的会议事实。
 
 ## 会后产物
 

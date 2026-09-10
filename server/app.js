@@ -124,7 +124,10 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
       const r=f.resolution;
       const ids=r?.evidenceIds || f.evidenceIds || [];
       const references=ids.map(id=>`[原文](#transcript:${encodeURIComponent(id)})`).join(' ');
-      return r ? `- **${r.complete===false?'已说清的部分':r.outcome==='recorded'?'讨论记录':resolutionOutcomes[r.outcome]?.label || '讨论记录'}**：${r.text}（${r.author==='ai'?'AI 整理':r.author==='agent'?'Agent 记录':'主持人记录'}；依据转录版本 ${r.sourceRevision}${ids.length?'':'；未关联原文'}） ${references}` : f.status==='active' ? `- **尚待澄清**：${f.question}${f.impact?`\n  可能影响：${f.impact}`:''} ${references}` : '';
+      const retired=f.status==='active' && f.attention?.needed===false;
+      const attentionReferences=(f.attention?.evidenceIds || []).map(id=>`[原文](#transcript:${encodeURIComponent(id)})`).join(' ');
+      const progress=r ? `- **${r.complete===false?'已说清的部分':r.outcome==='recorded'?'讨论记录':resolutionOutcomes[r.outcome]?.label || '讨论记录'}**：${r.text}（${r.author==='ai'?'AI 整理':r.author==='agent'?'Agent 记录':'主持人记录'}；依据转录版本 ${r.sourceRevision}${ids.length?'':'；未关联原文'}） ${references}` : f.status==='active' ? `- **${retired?'暂不展开':'尚待澄清'}**：${f.question}${!retired&&f.impact?`\n  可能影响：${f.impact}`:''} ${references}` : '';
+      return `${progress}${retired?`\n  暂不展开：${f.attention.reason} ${attentionReferences}`:''}`;
     }).filter(Boolean);
     const content=minutesDocumentMarkdown(minutes) || `# ${m.title}\n\n${m.goal?`讨论目标（不作为会议事实）：${m.goal}\n\n`:''}${clarifications.length?`## 澄清进展\n\n${clarifications.join('\n\n')}\n\n`:''}${m.topics.filter(t=>!t.mergedInto).map(t=>`## ${t.title}\n\n${t.stale?'主题摘要等待重新整理。':t.summary || ''}\n\n${t.entries.filter(e=>e.status!=='superseded'&&!e.stale).map(e=>`- ${e.text}`).join('\n')}`).join('\n\n')}`;
     const revisionNote=minutes?.stale?`> 以下纪要基于转录版本 ${minutes.sourceRevision}，当前为版本 ${m.transcriptRevision}。原文或整理内容已经更新，以下内容属于历史草稿，等待重新整理或人工核对。\n\n`:'';
