@@ -16,7 +16,7 @@ test('historical minutes show one topic heading while retaining every distinct p
 
   const formatted = minutesDocumentMarkdown(artifact);
 
-  assert.equal(formatted, ['# 记忆方案讨论', '', '已整理的转录版本：18', '', '## 讨论要点', '', '### 画像与记忆的区别和关系', '', ...points.map(point => `- ${point}`), ''].join('\n'));
+  assert.equal(formatted, ['# 记忆方案讨论', '', '## 讨论要点', '', '### 画像与记忆的区别和关系', '', ...points.map(point => `- ${point}`), ''].join('\n'));
   assert.equal((formatted.match(/#transcript:/g) || []).length, 4);
   assert.deepEqual(artifact, before, 'formatting does not rewrite the saved artifact or its historical provenance');
 });
@@ -128,4 +128,60 @@ test('formatting a Windows Markdown document preserves CRLF line endings and its
   const formatted = minutesDocumentMarkdown(document(markdown));
   assert.equal(formatted, expected);
   assert.doesNotMatch(formatted, /(?<!\r)\n/);
+});
+
+test('generated metadata hides internal revision numbers while retaining time, authors and transcript links', () => {
+  const markdown = [
+    '# 产品讨论', '', '已整理的转录版本：854 · 生成时间：2026-09-09T09:30:00.000Z', '',
+    '## 讨论记录', '',
+    '- **1.0 是否支持多个角色？**（主持人记录；未标记为已解决；依据版本 697；未关联原文）',
+    '  保留多角色能力，1.0 先聚焦一部分角色。', '',
+    '## 还需要验证', '',
+    '- **响应时间够快吗？**（Agent 记录；依据版本 830）',
+    '  等实际测试结果。 [10:00](#transcript:latency)', '',
+    '## 尚待澄清', '',
+    '- **哪些入口属于本次发布？**（AI 按原文整理；已有部分进展，问题尚未解决；依据版本 854）',
+    '  App 范围仍待说明。 [15:00](#transcript:scope)', '',
+  ].join('\r\n');
+  const expected = markdown.replace('已整理的转录版本：854 · ', '').replace('；依据版本 697', '').replace('；依据版本 830', '').replace('；依据版本 854', '');
+  for (const type of ['minutes', 'minutes-draft', 'minutes-draft-2']) {
+    const artifact = document(markdown, { type, sourceRevision: 854, stale: true });
+    const before = structuredClone(artifact);
+    const formatted = minutesDocumentMarkdown(artifact);
+    assert.equal(formatted, expected);
+    assert.deepEqual(artifact, before);
+    assert.equal(minutesDocumentMarkdown({ ...artifact, markdown: formatted }), formatted);
+    for (const author of ['host', 'agent']) assert.equal(minutesDocumentMarkdown({ ...artifact, author }), markdown);
+  }
+});
+
+test('revision wording in meeting content, quotes and code remains untouched', () => {
+  const record = '- **依据版本 3 的测试结果可靠吗？**（AI 按原文整理；依据版本 20）';
+  const markdown = [
+    '# 版本讨论', '', '## 讨论要点', '',
+    '已整理的转录版本：18 · 生成时间：这是原文举例，不是文档元数据。',
+    '我们讨论过“依据版本 3”代表什么。 [01:00](#transcript:version)',
+    '`已整理的转录版本：18 · 生成时间：示例`',
+    '## 讨论记录', '',
+    '> 已整理的转录版本：18',
+    `> ${record}`,
+    `    ${record}`,
+    '  正文提到“；依据版本 20”的写法。',
+    '```markdown', record, '已整理的转录版本：18 · 生成时间：示例', '```',
+    '~~~markdown', record, '~~~',
+    '````markdown', '```', record, '```', '````',
+    '### 正文示例', record, '',
+  ].join('\n');
+  assert.equal(minutesDocumentMarkdown(document(markdown)), markdown);
+});
+
+test('old resolution section names retain record text and references when system revisions are hidden', () => {
+  const markdown = [
+    '# 旧纪要', '', '已整理的转录版本：18', '',
+    '## 已澄清口径', '',
+    '- **“依据版本 3”是什么意思？**（AI 按原文整理；依据版本 18）',
+    '  指当次测试的输入版本。 [01:00](#transcript:original)', '',
+  ].join('\n');
+  const expected = markdown.replace('已整理的转录版本：18\n\n', '').replace('## 已澄清口径', '## 已经说清楚').replace('；依据版本 18', '');
+  assert.equal(minutesDocumentMarkdown(document(markdown)), expected);
 });

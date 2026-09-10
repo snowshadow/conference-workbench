@@ -31,7 +31,7 @@ export function ResolutionSummary({ item, onEvidence, onEdit, onRead, compact = 
     <details className="resolution-provenance" onToggle={event => { if (event.currentTarget.open) onRead?.(); }}>
       <summary>{resolution.evidenceIds?.length ? `查看来源 · ${resolution.evidenceIds.length} 处` : '记录信息'}<ChevronDown size={12} aria-hidden="true" /></summary>
       <div className="resolution-evidence"><Evidence ids={resolution.evidenceIds} onSelect={onEvidence} /></div>
-      <dl className="reading-metadata"><div><dt>原文版本</dt><dd>{resolution.sourceRevision ?? item.sourceRevision ?? '未知'}</dd></div>{!resolution.evidenceIds?.length && <div><dt>原文引用</dt><dd>未关联</dd></div>}{neutral && <div><dt>问题状态</dt><dd>已记下结果，尚未标记已解决</dd></div>}</dl>
+      {(!resolution.evidenceIds?.length || neutral) && <dl className="reading-metadata">{!resolution.evidenceIds?.length && <div><dt>原文引用</dt><dd>未关联</dd></div>}{neutral && <div><dt>问题状态</dt><dd>已记下结果，尚未标记已解决</dd></div>}</dl>}
     </details>
   </div>;
 }
@@ -103,7 +103,7 @@ function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline =
     <details className="resolution-extra"><summary>补充说明（可选）{item.resolution?.outcome && item.resolution.outcome !== 'recorded' ? ` · ${resolutionOutcomes[item.resolution.outcome]?.label || ''}` : ''}</summary>
       <label>这个问题现在怎么样了？<select value={outcome} onChange={event => setOutcome(event.target.value)} disabled={busy}>{Object.entries(resolutionOutcomes).map(([value, option]) => <option key={value} value={value}>{option.label}</option>)}</select><span className="form-hint">{resolutionOutcomes[outcome]?.description}</span></label>
       {choices.length > 0 && <fieldset className="resolution-sources"><legend>附上原话 <span className="optional">可选</span></legend><p>勾选作为依据的原话，方便以后回看。</p>{choices.map((id, index) => <label className="checkbox-label" key={id}><input type="checkbox" checked={evidenceIds.includes(id)} disabled={busy} onChange={event => setEvidenceIds(previous => event.target.checked ? [...previous, id] : previous.filter(value => value !== id))} /><span><strong>原文 {index + 1}</strong>{evidenceText(id) || '这段原话已关联到当前问题'}</span></label>)}</fieldset>}
-      <p className="resolution-source">保存为主持人记录 · 转录版本 {sourceRevision}{!evidenceIds.length && ' · 未关联原文'}</p>
+      <p className="resolution-source">保存为主持人记录{!evidenceIds.length && ' · 未关联原文'}</p>
     </details>
     {outdated && <section className="resolution-review"><p className="form-error" role="alert">原文已修正，输入已保留。核对后可继续保存。</p><Button className="text-button" busy={reviewBusy} onClick={reviewSources}>核对最新原文</Button>{review && <><div className="resolution-review-lines">{review.lines.length ? review.lines.map(line => <blockquote key={line.id}><time>{formatTime(line.startMs)}</time><p>{line.text}</p></blockquote>) : <p>当前没有关联原文，也没有找到需核对的修正发言。请确认这份记录仍适用于当前讨论。</p>}</div>{reviewOutdated && <p className="form-error">原文又有修正，请重新核对。</p>}<Button onClick={acceptReview} disabled={reviewOutdated} busy={reviewBusy}>已核对，继续编辑</Button></>}<FormError error={reviewError} /></section>}
     <FormError error={error} /><div className="resolution-editor-actions">{!inline && cancelAction}<Button className="primary" type="submit" busy={busy} disabled={!text.trim() || outdated || reviewBusy}>保存记录</Button>{inline && cancelAction}</div>
@@ -122,7 +122,7 @@ function QuestionEvidence({ item, meeting, onEvidence, onTopic, onRead }) {
       {item.rationale && <p className="focus-evidence-explanation">{item.rationale}</p>}
       {item.evidenceIds?.some(id => byId.get(id)) && <div className="focus-quotes">{[...new Set(item.evidenceIds)].filter(id => byId.get(id)).map(id => <blockquote key={id}><p>{byId.get(id)}</p><Evidence ids={[id]} onSelect={onEvidence} /></blockquote>)}</div>}
       <Evidence ids={(item.evidenceIds || []).filter(id => !byId.get(id))} onSelect={onEvidence} />
-      <details className="focus-source-details"><summary>问题详情</summary><p>{item.question}</p>{item.impact && <p>{item.impact}</p>}<div className="focus-source-meta"><span>{clarificationKinds[item.kind]?.label || '既有追问'} · 转录版本 {item.sourceRevision ?? '未知'}</span>{item.topicId && <button type="button" onClick={() => onTopic(item.topicId)}>{meeting.topics?.find(topic => topic.id === item.topicId)?.title || '相关主题'}<ChevronRight size={12} aria-hidden="true" /></button>}</div></details>
+      <details className="focus-source-details"><summary>问题详情</summary><p>{item.question}</p>{item.impact && <p>{item.impact}</p>}<div className="focus-source-meta"><span>{clarificationKinds[item.kind]?.label || '既有追问'}</span>{item.topicId && <button type="button" onClick={() => onTopic(item.topicId)}>{meeting.topics?.find(topic => topic.id === item.topicId)?.title || '相关主题'}<ChevronRight size={12} aria-hidden="true" /></button>}</div></details>
     </div>
   </details>;
 }

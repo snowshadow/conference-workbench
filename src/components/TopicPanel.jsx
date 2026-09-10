@@ -42,7 +42,7 @@ function EntryForm({ entry, onClose, mutate }) {
   const [draft, setDraft] = useState({ text: entry.text, type: entry.type, status: entry.status || 'active', owner: entry.owner || '', due: entry.due || '' });
   const change = (key, value) => setDraft(previous => ({ ...previous, [key]: value }));
   const { submit, error, busy } = useFormAction(async () => { await mutate(`/entries/${entry.id}`, 'PATCH', draft); onClose(); });
-  return <Modal title="修正讨论条目" subtitle="原文引用和修订记录会保留。负责人、时间只填写会议中已明确的信息。" onClose={onClose} closeDisabled={busy}>
+  return <Modal title="修正讨论条目" subtitle="负责人、时间只填写会议中已明确的信息。" onClose={onClose} closeDisabled={busy}>
     <form onSubmit={submit}>
       <div className="form-row"><label>类型<select value={draft.type} onChange={event => change('type', event.target.value)}>{Object.entries(kinds).map(([key, value]) => <option value={key} key={key}>{value.label}</option>)}</select></label><label>状态<select value={draft.status} onChange={event => change('status', event.target.value)}>{Object.entries(statusNames).map(([key, value]) => <option value={key} key={key}>{value}</option>)}</select></label></div>
       <label>内容<textarea autoFocus value={draft.text} onChange={event => change('text', event.target.value)} rows={5} required /></label>

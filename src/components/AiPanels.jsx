@@ -62,14 +62,13 @@ function QuestionPanel({ meeting, onEvidence, askScope, setAskScope, inputRef, s
         <div className="qa-answer"><MeetingMarkdown onEvidence={onEvidence}>{item.answer}</MeetingMarkdown>
           {item.inference && <div className="ai-inference"><span>AI 推断</span><MeetingMarkdown onEvidence={onEvidence}>{item.inference}</MeetingMarkdown></div>}
         </div>
-        <div className="qa-source-row">
-          <details className="qa-provenance">
-            <summary>{item.evidenceIds?.length ? `查看依据 · ${item.evidenceIds.length} 处` : '回答信息'}<ChevronDown size={12} aria-hidden="true" /></summary>
+        {(item.evidenceIds?.length > 0 || Number.isFinite(item.sourceThroughMs)) && <div className="qa-source-row">
+          {item.evidenceIds?.length > 0 && <details className="qa-provenance">
+            <summary>查看依据 · {item.evidenceIds.length} 处<ChevronDown size={12} aria-hidden="true" /></summary>
             <Evidence ids={item.evidenceIds} onSelect={onEvidence} />
-            <dl className="reading-metadata"><div><dt>原文版本</dt><dd>{item.sourceRevision ?? '未知'}</dd></div></dl>
-          </details>
+          </details>}
           {Number.isFinite(item.sourceThroughMs) && <span className="qa-cutoff">回答截至 {formatTime(item.sourceThroughMs)}</span>}
-        </div>
+        </div>}
         {(item.stale || item.sourceRevision < meeting.transcriptRevision) && <div className={`qa-freshness${item.stale ? ' source-changed' : ''}`}>
           <span>{item.stale ? '引用的原文已修改，请重新核对回答。' : '回答后有新发言'}</span>
           <button onClick={() => prepareRetry(item)}>重新提问 <RefreshCw size={11} aria-hidden="true" /></button>

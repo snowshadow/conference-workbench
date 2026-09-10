@@ -14,7 +14,7 @@ function TranscriptForm({ meeting, line, focusSpeaker = false, onClose, mutate }
   const { submit, error, busy } = useFormAction(async () => {
     await mutate(line ? `/transcript/${line.id}` : '/transcript', line ? 'PATCH' : 'POST', { text: text.trim(), speakerId: speakerId.trim() || 'unknown' }); onClose();
   });
-  return <Modal title={line ? '修正这段发言' : '补录遗漏发言'} subtitle={line ? '只修改这段发言。修正会更新转录版本，依赖这段原文的 AI 内容将重新整理。' : '仅补录会议中实际说过、但转录遗漏的内容。保存后标为「手动原文」，并作为 AI 分析的依据。'} onClose={onClose} closeDisabled={busy}>
+  return <Modal title={line ? '修正这段发言' : '补录遗漏发言'} subtitle={line ? '修正后，相关的 AI 内容会重新整理。' : '仅补录会议中实际说过、但转录遗漏的内容。保存后标为「手动原文」，并作为 AI 分析的依据。'} onClose={onClose} closeDisabled={busy}>
     <form ref={formRef} onSubmit={submit}>
       <label>这段发言的说话人<input autoFocus={focusSpeaker} value={speakerId} onChange={event => setSpeaker(event.target.value)} list="speaker-ids" placeholder="不确定时保留 unknown" /><datalist id="speaker-ids">{Object.entries(meeting.speakerLabels || {}).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</datalist><small className="transcript-form-hint">选择已有说话人，或填写一个新标识，再通过「说话人」设置名称。不会修改其他未知发言。</small></label>
       <label>原文<textarea autoFocus={!focusSpeaker} value={text} onChange={event => setText(event.target.value)} placeholder="输入会议中实际说过的内容…" rows={7} required maxLength={12000} /></label><FormError error={error} /><div className="modal-footer"><Button type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" className="primary" busy={busy} disabled={!text.trim()}>{line ? '保存修正' : '保存发言'}</Button></div>
