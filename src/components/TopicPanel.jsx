@@ -1,3 +1,4 @@
+import { speakerName as participantName } from '../../shared/people.js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
 import { ChevronDown, ChevronRight, CircleHelp, GitBranch, ListTree, Map, Merge, Pencil, Plus, Quote, Scissors, Sparkles, Target, CheckCheck, UserRound, CalendarDays } from 'lucide-react';
@@ -93,21 +94,22 @@ function Outline({ topics, selected, setSelected, folded, toggleFold }) {
   return <nav className="outline-tree" aria-label="会议主题">{roots.map(topic => render(topic))}</nav>;
 }
 
-function DiscussionEntry({ entry, onEdit, onEvidence }) {
+function DiscussionEntry({ entry, meeting, onEdit, onEvidence }) {
   const author = entry.manualFields?.length || entry.author === 'host' ? '主持人修订' : entry.author === 'agent' ? 'Agent 写入' : null;
   const note = [author, entry.status === 'resolved' ? statusNames.resolved : null].filter(Boolean).join(' · ');
   return <article className="discussion-entry">
+    {entry.participantIds?.length > 0 && <div className="entry-speakers">{[...new Set(entry.participantIds.map(id => participantName(id, meeting)).filter(Boolean))].join('、')}</div>}
     <div className="entry-copy"><p>{entry.text}</p><IconButton title="修正条目" className="entry-edit" onClick={() => onEdit(entry)}><Pencil size={13} /></IconButton></div>
     {(entry.owner || entry.due) && <div className="entry-assignee">{entry.owner && <span><UserRound size={12} />{entry.owner}</span>}{entry.due && <span><CalendarDays size={12} />{entry.due}</span>}</div>}
     {(entry.evidenceIds?.length > 0 || note) && <div className="entry-footer"><Evidence ids={entry.evidenceIds} onSelect={onEvidence} />{note && <span className="entry-origin">{note}</span>}</div>}
   </article>;
 }
 
-function EntryGroups({ entries, onEdit, onEvidence }) {
+function EntryGroups({ entries, meeting, onEdit, onEvidence }) {
   return ['decision', 'action', 'question', 'viewpoint'].map(key => {
     const group = entries.filter(entry => entry.type === key);
     const { label } = kinds[key];
-    return group.length ? <section className={`entry-group ${key}`} key={key}><h4>{label}</h4>{group.map(entry => <DiscussionEntry key={entry.id} entry={entry} onEdit={onEdit} onEvidence={onEvidence} />)}</section> : null;
+    return group.length ? <section className={`entry-group ${key}`} key={key}><h4>{label}</h4>{group.map(entry => <DiscussionEntry key={entry.id} entry={entry} meeting={meeting} onEdit={onEdit} onEvidence={onEvidence} />)}</section> : null;
   });
 }
 
@@ -133,8 +135,8 @@ function TopicPanel({ meeting, selected, setSelected, onEvidence, mutate, onAskT
         <div className="topic-detail-heading"><span className="eyebrow">当前主题</span><div className="topic-detail-actions"><IconButton title="修正主题" onClick={() => setModal({ mode: 'edit', topic })}><Pencil size={14} /></IconButton><IconButton title="拆分主题" onClick={() => setModal({ mode: 'split', topic })} disabled={!entries.length}><Scissors size={14} /></IconButton><IconButton title="合并主题" onClick={() => setModal({ mode: 'merge', topic })} disabled={topics.length < 2}><Merge size={14} /></IconButton></div></div>
         <h3>{topic.title}</h3>{topic.summary && <p className="topic-summary">{topic.summary}</p>}{needsReview && <span className="stale-tag">原文有修改，相关内容待重新核对</span>}{topic.manualFields?.length > 0 && <span className="manual-badge">主持人已修订</span>}
         {topic.summaryEvidenceIds?.length > 0 && <details className="topic-summary-sources"><summary>查看概述依据</summary><Evidence ids={topic.summaryEvidenceIds} onSelect={onEvidence} /></details>}
-        <EntryGroups entries={readingEntries.visible} onEdit={editEntry} onEvidence={onEvidence} />
-        {readingEntries.more.length > 0 && <details className="topic-more"><summary>展开其余 {readingEntries.more.length} 条</summary><EntryGroups entries={readingEntries.more} onEdit={editEntry} onEvidence={onEvidence} /></details>}
+        <EntryGroups entries={readingEntries.visible} meeting={meeting} onEdit={editEntry} onEvidence={onEvidence} />
+        {readingEntries.more.length > 0 && <details className="topic-more"><summary>展开其余 {readingEntries.more.length} 条</summary><EntryGroups entries={readingEntries.more} meeting={meeting} onEdit={editEntry} onEvidence={onEvidence} /></details>}
         {!entries.length && <p className="topic-no-entries">主题已建立。相关发言定稿后，整理结果会出现在这里。</p>}
         <Button className="topic-ask text-button small" onClick={() => onAskTopic(topic.id)}><Sparkles size={14} />围绕这个主题提问</Button>
       </div>}

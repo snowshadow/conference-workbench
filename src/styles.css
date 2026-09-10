@@ -904,3 +904,4 @@ form > label { margin-bottom: 20px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition: none !important; }
 }
+.entry-speakers { color: var(--ink-muted); font-size: 12px; font-weight: 600; line-height: 1.5; margin-bottom: 6px; }

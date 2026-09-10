@@ -9,6 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { createWorkbench } from '../server/app.js';
 import { createAIService } from '../server/ai/service.js';
 import { createImportService } from '../server/import/service.js';
+import { PROMPT_VERSION } from '../server/ai/prompts.js';
 
 async function fixture(t,options={}) {
   const workbench=createWorkbench({dataDir:fs.mkdtempSync(path.join(os.tmpdir(),'meeting-api-test-')),...options,aiFactory:({store})=>createAIService({store,fetchImpl:async(url,opts)=>{
@@ -84,7 +85,7 @@ test('MCP performs create -> source read -> AI question -> artifact write and HT
   const minutesDone=await until(async()=>{const j=await call('get_ai_job',{jobId:minutesJob.id});return ['done','error'].includes(j.status)?j:false;});assert.equal(minutesDone.status,'done',minutesDone.error);
   const force=await call('organize_meeting',{meetingId:meeting.id,type:'organize',force:true});
   const forceDone=await until(async()=>{const j=await call('get_ai_job',{jobId:force.id});return ['done','error'].includes(j.status)?j:false;});
-  assert.equal(forceDone.status,'done',forceDone.error);assert.equal(forceDone.input.force,true);assert.match(forceDone.promptVersion,/^clarification-v4-/);assert.ok(forceDone.modelCalls.length>0);assert.equal(forceDone.sourceRevision,1);
+  assert.equal(forceDone.status,'done',forceDone.error);assert.equal(forceDone.input.force,true);assert.equal(forceDone.promptVersion,PROMPT_VERSION);assert.ok(forceDone.modelCalls.length>0);assert.equal(forceDone.sourceRevision,1);
   const generated=await call('get_artifact',{meetingId:meeting.id,type:'minutes'});assert.match(generated.markdown,/待验证/);assert.match(generated.markdown,/测试环境/);assert.match(generated.markdown,/Agent/);
   await call('save_artifact',{meetingId:meeting.id,type:'minutes',title:'交付决定',markdown:'# 交付决定\n\n决定周五交付。',sourceRevision:1});
   const artifact=await call('get_artifact',{meetingId:meeting.id,type:'minutes'});assert.equal(artifact.author,'agent');

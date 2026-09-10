@@ -1,4 +1,5 @@
 import { retrieve, terms } from './retrieval.js';
+import { isUnassignedUtterance, participantFor, speakerName } from '../../shared/people.js';
 
 const currentEntry = entry => entry.status !== 'superseded';
 const sourceCost = line => line.text.length + 180;
@@ -12,13 +13,13 @@ export function knownContext(meeting, sources) {
   const knownEntries = [];
   let size = 0;
   for (const entry of entries) {
-    const item = { id: entry.id, topicId: entry.topicId, type: entry.type, text: entry.text, status: entry.status, evidenceIds: entry.evidenceIds, manualFields: entry.manualFields, author: entry.author, stale: entry.stale };
+    const item = { id: entry.id, topicId: entry.topicId, type: entry.type, text: entry.text, status: entry.status, evidenceIds: entry.evidenceIds, participantIds: (entry.participantIds || []).filter(id => { const person = participantFor(id, meeting); return person && !isUnassignedUtterance(person); }), manualFields: entry.manualFields, author: entry.author, stale: entry.stale };
     const cost = JSON.stringify(item).length;
     if (size + cost > 18000) continue;
     knownEntries.push(item); size += cost;
   }
   const existingFollowups = (meeting.followups || []).filter(item => !item.mergedInto).slice(-80).map(({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, status, evidenceIds, resolution, stale, pendingReview, manualFields }) => ({ id, topicId, kind, question, shortQuestion, discussionValue, rationale, impact, status, evidenceIds, resolution, stale, pendingReview, manualFields }));
-  return { knownTopics, knownEntries, existingFollowups, focusFollowupId: meeting.focusFollowupId ?? null, omittedEntryCount: entries.length - knownEntries.length };
+  return { knownTopics, knownEntries, existingFollowups, participants: (meeting.participants || []).filter(person => !person.mergedInto && !isUnassignedUtterance(person)).map(person => ({ id: person.id, memberId: person.memberId || null, displayName: speakerName(person.id, meeting) })), focusFollowupId: meeting.focusFollowupId ?? null, omittedEntryCount: entries.length - knownEntries.length };
 }
 
 // Select whole utterances and nearby replies. A question's original citation alone

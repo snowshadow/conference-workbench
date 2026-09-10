@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { minutesDocumentMarkdown } from '../../shared/minutes-format.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 import { reduceOrganization } from './reducer.js';
+import { attributedPeople, groundedPeopleText, markPeopleFields, peopleRecordTarget, peopleReviewRecords, validPeopleReferences } from './people.js';
 import { knownContext, supplementEvidence, reviewEvidence } from './context.js';
 import { answerBatches, answerCandidates, answerScope, evidenceFor, retrieve, sourceLines, sourceView } from './retrieval.js';
-import { SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, ANSWER_SELECT, PROMPT_VERSION } from './prompts.js';
+import { SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, ANSWER_SELECT, REFRESH_PEOPLE, PROMPT_VERSION } from './prompts.js';
 
-const TYPES = new Set(['organize', 'followup', 'answer', 'minutes']);
+const TYPES = new Set(['organize', 'followup', 'answer', 'minutes', 'refresh_speakers']);
 const CLARIFICATION_QUERY = '当前选择 范围 下一步行动 概念含义 隐含前提 评价标准 分歧 取舍 待澄清';
 
 class StaleResult extends Error { constructor() { super('会议内容已修正，本次结果未写入；请重新生成。'); this.code = 'STALE_RESULT'; } }
@@ -26,7 +27,9 @@ function validateResult(result, purpose) {
   const objects = value => Array.isArray(value) && value.every(object);
   const citations = value => objects(value) && value.every(item => typeof item.id === 'string' && typeof item.quote === 'string');
   let valid;
-  if (purpose === 'answer_select') {
+  if (purpose === 'refresh_speakers') {
+    valid = objects(result.records) && result.records.every(item => typeof item.id === 'string' && typeof item.text === 'string' && citations(item.evidence) && (item.participantIds === undefined || Array.isArray(item.participantIds) && item.participantIds.every(id => typeof id === 'string')));
+  } else if (purpose === 'answer_select') {
     valid = Array.isArray(result.sourceIds) && result.sourceIds.length <= 24 && result.sourceIds.every(id => typeof id === 'string');
   } else if (purpose === 'answer') {
     valid = typeof result.answer === 'string' && citations(result.evidence)
@@ -41,7 +44,7 @@ function validateResult(result, purpose) {
       && (result.focusFollowupId === undefined || result.focusFollowupId === null || typeof result.focusFollowupId === 'string')
       && (result.keepFollowupIds === undefined || Array.isArray(result.keepFollowupIds) && result.keepFollowupIds.every(id => typeof id === 'string'));
   }
-  if (!valid) throw fail(`模型返回的${purpose === 'answer_select' ? '问答来源选择' : purpose === 'answer' ? '问答' : '会议整理'}结果格式无效，请重试。`, 502);
+  if (!valid) throw fail(`模型返回的${purpose === 'answer_select' ? '问答来源选择' : purpose === 'answer' ? '问答' : purpose === 'refresh_speakers' ? '发言人核对' : '会议整理'}结果格式无效，请重试。`, 502);
   return result;
 }
 
@@ -66,7 +69,7 @@ function snapshotMatches(store, snapshot, lines) {
   const currentLines = new Map(sourceLines(snapshot.id, store.allTranscript(snapshot.id)).map(line => [line.id, line]));
   return lines.every(line => {
     const currentLine = currentLines.get(line.id);
-    return currentLine && currentLine.revision === line.revision && currentLine.text === line.text && currentLine.speakerId === line.speakerId;
+    return currentLine && currentLine.revision === line.revision && currentLine.text === line.text && currentLine.speakerId === line.speakerId && currentLine.participantId === line.participantId;
   });
 }
 
@@ -200,7 +203,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         const response = await fetchImpl(url, {
           method: 'POST', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', ...(llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {}) },
-          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer_select' ? 'sourceIds 必须是本批原发言 ID 的数组，最多 24 条。' : purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
+          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer_select' ? 'sourceIds 必须是本批原发言 ID 的数组，最多 24 条。' : purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : purpose === 'refresh_speakers' ? 'records 必须是数组，每项包含输入的 id、完整 text 和原文 evidence。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
         });
         if (!response.ok) {
           const kind = await providerErrorKind(response);
@@ -251,7 +254,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       const limit = reviewWholeMeeting ? 0 : additionsRemaining;
       const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}${followupOnly ? `\n${FOLLOWUP}` : ''}`, {
         meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
-        ...knownContext(draft, sources), sources: sourceView(sources, snapshot.speakerLabels), followupLimit: limit,
+        ...knownContext(draft, sources), sources: sourceView(sources, snapshot), followupLimit: limit,
         mode: followupOnly ? 'followup' : 'organize', meetingStatus: snapshot.status, reanalysis: force, batch: { index: index + 1, total: batches.length },
       }, execution, followupOnly ? 'followup' : 'organize');
       if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
@@ -268,7 +271,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       const limit = Math.min(1, additionsRemaining);
       const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}`, {
         meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
-        ...knownContext(draft, sources), sources: sourceView(sources, snapshot.speakerLabels), followupLimit: limit,
+        ...knownContext(draft, sources), sources: sourceView(sources, snapshot), followupLimit: limit,
         mode: 'followup', meetingStatus: snapshot.status, reanalysis: force, batch: { index: 1, total: 1 },
       }, execution, 'followup');
       if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
@@ -298,7 +301,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     const snapshot = store.getMeeting(meetingId);
     const allLines = sourceLines(meetingId, store.allTranscript(meetingId));
     const scoped = answerScope(snapshot, allLines, input.topicId);
-    const batches = answerBatches(scoped.sources, undefined, snapshot.speakerLabels);
+    const batches = answerBatches(scoped.sources, undefined, snapshot);
     const coverage = {
       strategy: batches.length > 1 ? 'semantic_batches' : 'full_scope',
       scope: input.topicId ? 'topic' : 'meeting', topicId: input.topicId || null,
@@ -318,7 +321,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         while (!failure && nextBatch < batches.length) {
           const index = nextBatch++, batch = batches[index];
           try {
-            const data = { meetingId, question: input.question, topicId: input.topicId || null, sourceRevision: snapshot.transcriptRevision, sources: sourceView(batch, snapshot.speakerLabels), batch: { index: index + 1, total: batches.length } };
+            const data = { meetingId, question: input.question, topicId: input.topicId || null, sourceRevision: snapshot.transcriptRevision, sources: sourceView(batch, snapshot), batch: { index: index + 1, total: batches.length } };
             let raw = await complete(ANSWER_SELECT, data, execution, 'answer_select');
             const ids = new Set(batch.map(line => line.id));
             if (raw.sourceIds.some(id => !ids.has(id))) raw = await complete(`${ANSWER_SELECT}\n上次选择包含本批不存在的发言 ID。请重新核对 sources，只选择本批真实 ID。`, data, execution, 'answer_select');
@@ -336,7 +339,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       // after it has failed or the next per-meeting task has begun.
       await Promise.all([worker(), worker()]);
       if (failure) throw failure;
-      sources = answerCandidates(batches, selections, undefined, snapshot.speakerLabels);
+      sources = answerCandidates(batches, selections, undefined, snapshot);
       coverage.omittedCandidateLines = new Set(selections.flat()).size - sources.length;
     } else {
       if (batches.length) coverage.batches[0].selectedSourceIds = sources.map(line => line.id);
@@ -350,7 +353,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     if (sources.length) {
       const data = {
         meetingId, question: input.question, topicId: input.topicId || null, sourceRevision: snapshot.transcriptRevision,
-        ...knownContext(scoped.meeting, sources), sources: sourceView(sources, snapshot.speakerLabels),
+        ...knownContext(scoped.meeting, sources), sources: sourceView(sources, snapshot),
         totalTranscriptLines: allLines.length, retrievedLines: sources.length,
         coverage: { strategy: coverage.strategy, scope: coverage.scope, scopedLines: coverage.scopedLines, reviewedLines: batches.length === 1 ? scoped.sources.length : coverage.reviewedLines, selectedLines: coverage.selectedLines, omittedCandidateLines: coverage.omittedCandidateLines },
       };
@@ -364,7 +367,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         execution.modelCalls.at(-1).validation = failureReason || (raw.insufficient === true ? 'insufficient_evidence' : 'grounded');
         store.updateJob(execution.jobId, { modelCalls: execution.modelCalls });
         if (raw.answer.trim() && evidence && (evidence.length || raw.insufficient === true && !raw.inference?.trim())) {
-          result = { answer: raw.answer.trim().slice(0, 12000), inference: raw.inference?.trim().slice(0, 6000) || '', evidence, insufficient: raw.insufficient === true, reason: raw.insufficient === true ? 'insufficient_evidence' : null };
+          result = { answer: groundedPeopleText(raw.answer.trim().slice(0, 12000), evidence, byId, snapshot), inference: groundedPeopleText(raw.inference?.trim().slice(0, 6000) || '', evidence, byId, snapshot), evidence, insufficient: raw.insufficient === true, reason: raw.insufficient === true ? 'insufficient_evidence' : null };
           accepted = true; break;
         }
       }
@@ -372,7 +375,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     }
     if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
     const item = { id: `answer_${randomUUID()}`, question: input.question, topicId: input.topicId || null, ...result, coverage, evidenceIds: [...new Set(result.evidence.map(item => item.id))], sourceRevision: snapshot.transcriptRevision, sourceThroughMs: allLines.reduce((end,line)=>Math.max(end,line.endMs || line.startMs || 0),0), stale: false, author: 'ai', createdAt: date() };
-    store.mutateMeeting(meetingId, meeting => { meeting.questions ||= []; meeting.questions.push(item); });
+    store.mutateMeeting(meetingId, meeting => { meeting.questions ||= []; markPeopleFields(item, ['answer', 'inference']); meeting.questions.push(item); });
     return item;
   }
 
@@ -388,7 +391,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       store.updateJob(execution.jobId, { progress: { phase: 'clarify', completedBatches: offset / 6, totalBatches: Math.ceil(pending.length / 6) } });
       const payload = await complete(`${ORGANIZE}\n${ORGANIZE_CONTRACT}\n${FOLLOWUP}\n本次核对 reviewFollowupIds 中的问题是否已被后续发言回答、已有部分进展，或实际上属于同一个问题。sources 含按问题检索的上下文；没有找到答案不等于会上没有答案。未充分核对的问题保持待核对。此轮不新增问题。`, {
         meetingId, goal: snapshot.goal, sourceRevision: snapshot.transcriptRevision,
-        ...knownContext(draft, sources), sources: sourceView(sources, snapshot.speakerLabels),
+        ...knownContext(draft, sources), sources: sourceView(sources, snapshot),
         mode: 'review', meetingStatus: snapshot.status, reviewFollowupIds: group.map(item => item.id), followupLimit: 0,
       }, execution, 'followup');
       if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
@@ -420,7 +423,76 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
       while ((snapshot.artifacts || []).some(artifact => artifact.type === type && artifact.author !== 'ai')) type = `minutes-draft-${version++}`;
     }
     const artifact = store.saveArtifact(meetingId, type, { title: edited ? '会议纪要更新草稿' : '会议纪要', markdown: minutesMarkdown(snapshot, lines), author: 'ai', sourceRevision: snapshot.processedRevision });
+    const legacy = peopleReviewRecords(snapshot, lines, lines.map(line => line.id), 'labels').some(record => ['topics', 'followups'].includes(record.path[0]));
+    if (!legacy) {
+      markPeopleFields(artifact, ['markdown']);
+      store.mutateMeeting(meetingId, meeting => { const saved = meeting.artifacts.find(item => item.id === artifact.id); if (saved) saved.peopleFields = artifact.peopleFields; });
+    }
     return artifact;
+  }
+
+  async function refreshPeople(meetingId, input, execution) {
+    const snapshot = store.getMeeting(meetingId);
+    const allLines = sourceLines(meetingId, store.allTranscript(meetingId));
+    const byId = new Map(allLines.map(line => [line.id, line]));
+    const records = peopleReviewRecords(snapshot, allLines, input.sourceIds, input.kind);
+    if (!records.length) return { updatedFields: 0, skipped: 'no_identity_review_needed' };
+    // Share source lines within a batch; never cut a record or its cited speech.
+    const batches = [];
+    let group = [], ids = new Set(), chars = 0;
+    for (const record of records) {
+      const extra = record.evidenceIds.filter(id => !ids.has(id));
+      const cost = JSON.stringify(record).length + extra.reduce((sum, id) => sum + JSON.stringify(byId.get(id)).length, 0);
+      if (group.length && chars + cost > 36000) { batches.push(group); group = []; ids = new Set(); chars = 0; }
+      group.push(record);
+      for (const id of record.evidenceIds) if (!ids.has(id)) { ids.add(id); chars += JSON.stringify(byId.get(id)).length; }
+      chars += JSON.stringify(record).length;
+    }
+    if (group.length) batches.push(group);
+    const updates = [];
+    for (let index = 0; index < batches.length; index++) {
+      const batch = batches[index];
+      const sourceIds = new Set(batch.flatMap(record => record.evidenceIds));
+      store.updateJob(execution.jobId, { progress: { phase: 'refresh_speakers', completedBatches: index, totalBatches: batches.length } });
+      const result = await complete(REFRESH_PEOPLE, {
+        meetingId, sourceRevision: snapshot.transcriptRevision, mode: 'refresh_speakers', kind: input.kind,
+        records: batch.map(({ path, field, ...record }) => record),
+        sources: sourceView(allLines.filter(line => sourceIds.has(line.id)), snapshot),
+      }, execution, 'refresh_speakers');
+      if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
+      const returned = new Map(result.records.map(item => [item.id, item]));
+      if (returned.size !== batch.length || result.records.length !== batch.length) throw fail('AI 未能完整核对发言人，原内容已保留，请重试。', 502);
+      for (const record of batch) {
+        const result = returned.get(record.id);
+        const permitted = new Map(record.evidenceIds.map(id => [id, byId.get(id)]));
+        const evidence = result && evidenceFor(result, permitted);
+        if (!result?.text.trim() || !evidence || !validPeopleReferences(result.text, evidence, permitted, snapshot)) throw fail('发言人核对的原文依据不完整，原内容已保留，请重试。', 502);
+        if (record.field === 'markdown') {
+          const links = text => [...text.matchAll(/#transcript:([^\s)]+)/g)].map(match => match[1]).sort();
+          if (JSON.stringify(links(record.text)) !== JSON.stringify(links(result.text))) throw fail('纪要的原文引用发生变化，原内容已保留，请重试。', 502);
+        }
+        updates.push({ record, text: groundedPeopleText(result.text.trim(), evidence, permitted, snapshot), participantIds: attributedPeople(result, evidence, permitted, snapshot) });
+      }
+    }
+    if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
+    store.mutateMeeting(meetingId, meeting => {
+      for (const { record, text, participantIds } of updates) {
+        const target = peopleRecordTarget(meeting, record.path);
+        // The snapshot guard protects edits made while the provider was running.
+        if (!target || target.author && target.author !== 'ai' || target.manualFields?.includes(record.field)) continue;
+        if (target[record.field] !== text) {
+          target.history ||= [];
+          target.history.push({ [record.field]: target[record.field], evidenceIds: record.evidenceIds, changedAt: date(), identityCorrected: true });
+          target[record.field] = text;
+        }
+        markPeopleFields(target, [record.field]);
+        if (record.path.includes('entries') && record.field === 'text') target.participantIds = participantIds;
+        target.identityReview = false;
+        target.identityReviewedAt = date();
+        if (target.staleReason === 'identity_changed') { target.stale = false; delete target.staleReason; }
+      }
+    });
+    return { updatedFields: updates.length, sourceIds: input.sourceIds };
   }
 
   async function run(job) {
@@ -432,6 +504,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
         try {
           if (job.type === 'answer') result = await answer(job.meetingId, job.input, execution);
           else if (job.type === 'minutes') result = await minutes(job.meetingId, execution);
+          else if (job.type === 'refresh_speakers') result = await refreshPeople(job.meetingId, job.input, execution);
           else {
             result = await organize(job.meetingId, { followupOnly: job.type === 'followup', manual: job.type === 'followup', force: job.input?.force === true, execution });
             if (job.type === 'organize' && job.input?.force) await reviewOpenQuestions(job.meetingId, execution);
@@ -462,6 +535,14 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     if (meeting.archived) throw fail('请先恢复归档会议。');
     if (input.topicId && !(meeting.topics || []).some(topic => topic.id === input.topicId && !topic.mergedInto)) throw fail('主题不属于本次会议。');
     const normalized = {};
+    if (type === 'refresh_speakers') {
+      if (!Array.isArray(input.sourceIds) || input.sourceIds.some(id => typeof id !== 'string')) throw fail('请提供需要核对的原文。');
+      const allowed = new Set(store.allTranscript(meetingId).map(line => line.id));
+      normalized.sourceIds = [...new Set(input.sourceIds)].filter(id => allowed.has(id));
+      normalized.kind = input.kind === 'labels' ? 'labels' : 'attribution';
+      const queued = store.pendingJobs().find(job => job.meetingId === meetingId && job.type === type && job.status === 'queued');
+      if (queued) return store.updateJob(queued.id, { input: { sourceIds: [...new Set([...queued.input.sourceIds, ...normalized.sourceIds])], kind: queued.input.kind === 'labels' && normalized.kind === 'labels' ? 'labels' : 'attribution' } });
+    }
     if (type === 'answer') {
       if (typeof input.question !== 'string' || !input.question.trim() || input.question.length > 4000) throw fail('请输入 1–4000 字的问题。');
       normalized.question = input.question.trim(); if (input.topicId) normalized.topicId = input.topicId;
@@ -506,5 +587,12 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     await Promise.allSettled([...running.values()]);
   }
 
-  return { submit, start, stop };
+  function refreshSpeakers(meetingId, sourceIds, { kind = 'attribution' } = {}) {
+    const meeting = store.getMeeting(meetingId);
+    if (!Array.isArray(sourceIds)) throw fail('请提供需要核对的原文。');
+    if (!peopleReviewRecords(meeting, sourceLines(meetingId, store.allTranscript(meetingId)), sourceIds, kind).length) return null;
+    return submit(meetingId, 'refresh_speakers', { sourceIds, kind });
+  }
+
+  return { submit, refreshSpeakers, start, stop };
 }

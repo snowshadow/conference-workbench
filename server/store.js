@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import * as people from './people/store.js';
 
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
@@ -23,6 +24,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY,meeting_id TEXT NOT NULL REFERENCES meetings(id),data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commands (id TEXT PRIMARY KEY,meeting_id TEXT NOT NULL REFERENCES meetings(id),data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS recordings (id TEXT PRIMARY KEY,meeting_id TEXT NOT NULL REFERENCES meetings(id),data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS members (id TEXT PRIMARY KEY,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL);
     `);
     // A process restart cannot leave a physical microphone marked as running.
@@ -53,10 +55,10 @@ export class Store {
   getMeeting(meetingId) {
     const row = this.db.prepare('SELECT data FROM meetings WHERE id=?').get(meetingId);
     if (!row) throw fail('会议不存在', 404);
-    return JSON.parse(row.data);
+    return people.projectPeople(JSON.parse(row.data), this.rawTranscript(meetingId), this.listMembers());
   }
   listMeetings({ archived = false, includeArchived = false } = {}) {
-    return this.db.prepare('SELECT data FROM meetings').all().map(r => JSON.parse(r.data))
+    return this.db.prepare('SELECT id FROM meetings').all().map(r => this.getMeeting(r.id))
       .filter(m => includeArchived || Boolean(m.archived) === Boolean(archived))
       .sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
   }
@@ -65,7 +67,7 @@ export class Store {
     if (!title) throw fail('请填写会议名称');
     const meeting = { id: id(), title, goal: bounded(input.goal, 6000), status: 'planned', archived: false,
       createdAt: now(), updatedAt: now(), transcriptRevision: 0, transcriptEditRevision: 0, contentRevision: 0,
-      processedRevision: 0, processedThroughMs: 0, autoOrganize: true, topics: [], followups: [], questions: [], artifacts: [], speakerLabels: {},
+      processedRevision: 0, processedThroughMs: 0, autoOrganize: true, topics: [], followups: [], questions: [], artifacts: [], speakerLabels: {}, participants: [], identityRevision: 0,
       capture: { connected: false, state: 'idle', recordingId: null, asrState: 'stopped', error: null } };
     this.db.prepare('INSERT INTO meetings(id,data) VALUES(?,?)').run(meeting.id, JSON.stringify(meeting));
     return meeting;
@@ -87,10 +89,12 @@ export class Store {
     }
     if (Object.hasOwn(patch,'title')) { meeting.title = bounded(patch.title,200); if (!meeting.title) throw fail('会议名称不能为空'); }
     if (Object.hasOwn(patch,'goal')) meeting.goal = bounded(patch.goal,6000);
+    if (Object.hasOwn(patch, 'speakerLabels')) people.applyLegacySpeakerLabels(meeting, patch.speakerLabels);
     // Names label stable speaker IDs; only editTranscript changes who said a line.
     // Keep existing discussion and its watermark while contentRevision rejects AI
     // results still using the old names. Never clear earlier source corrections.
     if (contentChanged) meeting.contentRevision++;
+    if (labelsChanged) meeting.identityRevision = (meeting.identityRevision || 0) + 1;
     return this.persistMeeting(meeting);
   }
   mutateMeeting(meetingId, fn) {
@@ -100,10 +104,22 @@ export class Store {
     updated.contentRevision = meeting.contentRevision + 1;
     return this.persistMeeting(updated);
   }
-  allTranscript(meetingId) {
-    this.getMeeting(meetingId);
+  rawTranscript(meetingId) {
     return this.db.prepare('SELECT data FROM transcript WHERE meeting_id=? ORDER BY position').all(meetingId).map(r => JSON.parse(r.data));
   }
+  allTranscript(meetingId) {
+    const meeting = this.getMeeting(meetingId);
+    return this.rawTranscript(meetingId).map(line => ({ ...line, participantId: people.participantForLine(meeting, line)?.id || null }));
+  }
+  listMembers() { return people.listMembers(this); }
+  getMember(memberId) { return people.getMember(this, memberId); }
+  createMember(input) { return people.createMember(this, input); }
+  updateMember(memberId, input) { return people.updateMember(this, memberId, input); }
+  listParticipants(meetingId) { return this.getMeeting(meetingId).participants.filter(item => !item.mergedInto); }
+  createParticipant(meetingId, input) { return people.createParticipant(this, meetingId, input); }
+  updateParticipant(meetingId, participantId, input) { return people.updateParticipant(this, meetingId, participantId, input); }
+  mergeParticipants(meetingId, sourceId, targetId) { return people.mergeParticipants(this, meetingId, sourceId, targetId); }
+  assignTranscriptParticipant(meetingId, lineId, participantId, input) { return people.assignTranscriptParticipant(this, meetingId, lineId, participantId, input); }
   getTranscript(meetingId, {cursor=0,limit=100,q=''} = {}) {
     let lines = this.allTranscript(meetingId);
     if (q) lines = lines.filter(line => line.text.toLocaleLowerCase().includes(String(q).toLocaleLowerCase()));
@@ -119,7 +135,7 @@ export class Store {
       if (existing) {
         if (existing.meeting_id !== meetingId) throw fail('来源不属于本次会议');
         const old = JSON.parse(existing.data);
-        if (old.text === text && old.speakerId === (input.speakerId || '')) return old;
+        if (old.text === text && old.speakerId === (input.speakerId || '')) return this.allTranscript(meetingId).find(line => line.id === old.id);
         return this.editTranscript(meetingId,input.id,{...input,origin:input.origin || 'asr',text,speakerId:input.speakerId || ''});
       }
     }
@@ -130,14 +146,17 @@ export class Store {
       const line = { id: input.id || id(), meetingId, recordingId: input.recordingId || null, text, speakerId: bounded(input.speakerId,100),
         startSample: Number.isFinite(input.startSample) ? input.startSample : null, endSample: Number.isFinite(input.endSample) ? input.endSample : null,
         startMs: Number.isFinite(input.startMs) ? input.startMs : fallback, endMs: Number.isFinite(input.endMs) ? input.endMs : (input.startMs ?? fallback),
-        origin: input.origin || 'asr', ...(input.timing==='chunk'?{timing:'chunk'}:{}), revision: 1, createdAt: now() };
+        origin: input.origin || 'asr', ...(input.timing==='chunk'?{timing:'chunk'}:{}),
+        ...(input.recognitionSessionId ? { recognitionSessionId: bounded(input.recognitionSessionId,100), providerSpeakerId: bounded(input.providerSpeakerId,60) } : {}),
+        revision: 1, createdAt: now() };
+      const participant = people.ensureParticipant(meeting, line);
       this.db.prepare('INSERT INTO transcript(id,meeting_id,data) VALUES(?,?,?)').run(line.id,meetingId,JSON.stringify(line));
       meeting.transcriptRevision++;
       // Old answers remain visible with their explicit evidence cutoff; new speech is not a correction.
       for (const item of meeting.followups) if (item.status === 'active') item.pendingReview = true;
       for (const item of meeting.artifacts) item.stale = true;
       this.persistMeeting(meeting);
-      return line;
+      return { ...line, participantId: participant.id };
     });
   }
   editTranscript(meetingId, lineId, patch) {
@@ -146,16 +165,20 @@ export class Store {
       if (!row) throw fail('转录片段不存在',404);
       const line = JSON.parse(row.data);
       // A delayed ASR correction must not replace a host or Agent correction.
-      if (patch.origin === 'asr' && line.origin !== 'asr') return line;
+      if (patch.origin === 'asr' && line.origin !== 'asr') return this.allTranscript(meetingId).find(item => item.id === line.id);
       const old = {text:line.text,speakerId:line.speakerId,revision:line.revision,editedAt:now()};
       if (Object.hasOwn(patch,'text')) { line.text = bounded(patch.text,20000); if (!line.text) throw fail('转录内容不能为空'); }
-      if (Object.hasOwn(patch,'speakerId')) line.speakerId = bounded(patch.speakerId,100);
+      if (Object.hasOwn(patch,'speakerId')) {
+        line.speakerId = bounded(patch.speakerId,100);
+        if (patch.origin !== 'asr') { delete line.participantId; delete line.participantSource; }
+      }
       if (patch.origin==='asr' && line.origin==='asr') {
         for(const key of ['startSample','endSample','startMs','endMs']) if(Number.isFinite(patch[key])) line[key]=patch[key];
       } else line.origin=patch.origin==='agent'?'agent':'host';
       line.history = [...(line.history || []),old]; line.revision++; line.editedAt = now();
       this.db.prepare('UPDATE transcript SET data=? WHERE id=?').run(JSON.stringify(line),lineId);
       const meeting = this.getMeeting(meetingId);
+      const participant = people.ensureParticipant(meeting, line);
       meeting.transcriptRevision++; meeting.transcriptEditRevision = (meeting.transcriptEditRevision || 0)+1; meeting.contentRevision++;
       // Regenerate from the start after a correction so already processed evidence is reconsidered.
       meeting.processedRevision = 0; meeting.processedThroughMs = 0;
@@ -167,7 +190,7 @@ export class Store {
       for (const question of meeting.questions) if ((question.evidenceIds || []).includes(lineId)) question.stale = true;
       for (const artifact of meeting.artifacts) artifact.stale = true;
       this.persistMeeting(meeting);
-      return line;
+      return { ...line, participantId: participant.id };
     });
   }
   createRecord(table, meetingId, fields) {

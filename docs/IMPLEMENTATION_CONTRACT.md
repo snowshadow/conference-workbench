@@ -1,21 +1,31 @@
 # Data and service contract
 
-All data is scoped to a meeting. Server uses camelCase JSON. Credentials are stored separately from meeting data.
+Meeting content is scoped to a meeting. Team members and team voiceprint profiles are shared within the same local installation. Server uses camelCase JSON. Credentials are stored separately from meeting data.
 
 ## Data
 
-Meeting: id,title,goal,status(planned|active|ended),source(recording_import optional),importJobId(optional),archived,createdAt,updatedAt,transcriptRevision,transcriptEditRevision,contentRevision,processedRevision,processedThroughMs,autoOrganize,focusFollowupId(optional ID|null),focusSourceRevision(optional),topics,followups,questions,artifacts,speakerLabels.
+Meeting: id,title,goal,status(planned|active|ended),source(recording_import optional),importJobId(optional),archived,createdAt,updatedAt,transcriptRevision,transcriptEditRevision,contentRevision,processedRevision,processedThroughMs,autoOrganize,focusFollowupId(optional ID|null),focusSourceRevision(optional),topics,followups,questions,artifacts,speakerLabels,participants[],identityRevision.
 Topic: id,parentId(null for root),title,summary,summaryEvidenceIds[],sourceRevision,entries[],manualFields[],mergedInto(optional),history[]. Summary history stores {summary,evidenceIds[],sourceRevision,changedAt}. Omitting summary preserves the current version; accepted changes retain its previous text and sources.
-Entry: id,type(viewpoint|question|decision|action),text,speakerId(optional),evidenceIds[],status(active|open|resolved|superseded),owner(optional),due(optional),author(ai|host|agent),manualFields[],history[].
+Entry: id,type(viewpoint|question|decision|action),text,speakerId(optional),participantIds[](optional),evidenceIds[],status(active|open|resolved|superseded),owner(optional),due(optional),author(ai|host|agent),manualFields[],history[].
 Followup (clarification focus): id,topicId,kind(concept|assumption|criteria|other),question,shortQuestion(optional),discussionValue(optional),rationale,impact,evidenceIds[],status(active|ignored|recorded|resolved|merged),mergedInto(optional),mergedFrom(optional array of IDs),sourceRevision,presentationSourceRevision(optional),stale,pendingReview,author,manualFields[],history[]. Existing AI questions can evolve under the same ID. Merging preserves the source item and its history; merged items do not remain independent active questions. Legacy followups may omit kind/impact. Optional presentation fields do not replace the full question or its evidence.
 Resolution: followup.resolution = {outcome(recorded|clarified|needs_verification|difference_remains),text,complete(optional boolean for legacy/host records),evidenceIds[],evidence[],author(ai|host|agent),sourceRevision,updatedAt,stale,pendingReview}. New AI resolutions require complete: false keeps the question active with partial progress; true marks it resolved because the core question no longer needs current discussion. Outcome describes the nature of the progress, not completion or consensus. The default host recorded outcome preserves a note and leaves the question unresolved. Legacy state-only resolved items have no inferred resolution.
 QuestionAnswer: id,question,answer,inference,evidenceIds[],topicId(optional),sourceRevision,stale.
 Artifact: id,type,title,markdown,sourceRevision,author,updatedAt,stale.
-Transcript: id,meetingId,recordingId(optional),text,speakerId,startSample,endSample,startMs,endMs,revision,origin(asr|host|agent),timing(chunk optional),createdAt. startMs/endMs are meeting timeline coordinates; sample coordinates locate one recording. timing=chunk means approximate file-ASR chunk alignment, not sentence timing.
+Transcript: id,meetingId,recordingId(optional),text,speakerId,participantId,startSample,endSample,startMs,endMs,revision,origin(asr|host|agent),timing(chunk optional),createdAt. startMs/endMs are meeting timeline coordinates; sample coordinates locate one recording. timing=chunk means approximate file-ASR chunk alignment, not sentence timing.
 Recording: id,meetingId,sampleCount,sampleRate(16000),startedAt,endedAt,state(recording|paused|stopped|interrupted),gaps[],timelineStartMs.
 Capture public state: connected,state(idle|recording|paused|interrupted),recordingId,asrState(unconfigured|connecting|connected|reconnecting|error|stopped),error.
-Job: id,meetingId,type(import|organize|followup|answer|minutes),status(queued|running|done|error|cancelled),input,result,error,createdAt,updatedAt. AI jobs add promptVersion,model,sourceRevision,modelCalls[]. model=null and an empty calls list mean no actual call was attempted. Import jobs have progress{phase,completedChunks,totalChunks,processedSeconds,totalSeconds}.
+Job: id,meetingId,type(import|organize|followup|answer|minutes|refresh_speakers),status(queued|running|done|error|cancelled),input,result,error,createdAt,updatedAt. AI jobs add promptVersion,model,sourceRevision,modelCalls[]. model=null and an empty calls list mean no actual call was attempted. Import jobs have progress{phase,completedChunks,totalChunks,processedSeconds,totalSeconds}.
 Command: id,meetingId,action(start|pause|resume|stop|end),status(pending|needs_user_action|running|done|error),result,error.
+
+## 说话人身份与本地声纹
+
+`speakerId` 保留 ASR 的原始分组标识，不作为跨录音或跨会议身份。`participantId` 指向本场会议的稳定说话人；`memberId` 可关联同一本地安装中的团队成员。Participant 包含 `id,name,memberId,speakerIds[]`，合并时保留 `mergedInto`。同一成员可关联多个说话人分组，不会仅因名字相同就自动合并；没有团队关联的访客仅属于本场会议。
+
+AI 的来源视图提供 `participantId`、`displayName`，已关联成员时也提供 `memberId`。相同的非空 `memberId` 表示已确认是同一人。AI 正文通过精确标记 `[[person:participantId]]` 保存身份引用，展示和导出时解析为最新姓名；不对普通姓名、原文引句或人工正文做全局字符串替换。Entry 的 `participantIds` 表示有来源支持的观点归属，不能直接取全部引用发言人的合集。
+
+`refreshSpeakers(meetingId, sourceIds, {kind})` 返回 `refresh_speakers` 任务，或在无需核对时返回 `null`。`kind:'labels'` 仅迁移受影响的旧 AI 自由文本，已结构化的内容直接显示新姓名；`kind:'attribution'` 用于成员关联变化、说话人合并和发言归属修正，核对关联的主题、澄清、回答与产物。任务保留原 ID 和人工内容，全部通过来源与身份校验后才写回；失败保留原内容，已结束会议也可核对。
+
+声音样本及候选比对由独立本地任务处理。当前由主持人手动点击「看看像哪位参会者」发起比对，候选经确认后才修改身份，不做后台自动匹配或姓名绑定。团队样本作用于同一本地安装的不同会议，访客样本仅作用于登记会议。安装、样本要求和未校准边界见 [本地声纹说明](VOICEPRINT_RUNTIME.md)。
 
 ## HTTP API (JSON)
 
@@ -58,7 +68,7 @@ saveArtifact(meetingId,type,input),close(). All get methods throw status=404 whe
 
 ## AI service
 
-export createAIService({store}) from server/ai/service.js -> {submit(meetingId,type,input={}): Job, start(), stop()}. Uses store interface above; jobs serial per meeting; persists/restores queue; server-side timer schedules organize only for recording meetings with autoOrganize true and changed finalized transcript. Root sets meeting.capture state during capture updates. LLM via fetch OpenAI-compatible chat/completions with store.getSettings().llm. AI owns reducer, prompting, retrieval and focused tests.
+export createAIService({store}) from server/ai/service.js -> {submit(meetingId,type,input={}): Job, refreshSpeakers(meetingId,sourceIds,{kind='attribution'}={}): Job|null, start(), stop()}. Uses store interface above; jobs serial per meeting; persists/restores queue; server-side timer schedules organize only for recording meetings with autoOrganize true and changed finalized transcript. Root sets meeting.capture state during capture updates. LLM via fetch OpenAI-compatible chat/completions with store.getSettings().llm. AI owns reducer, prompting, retrieval and focused tests.
 
 Model JSON must match the operation's basic structure before applying results: organization has topics/followups arrays; answers have answer text and evidence array. Invalid objects (including echoed input) fail the job without advancing the source watermark. Empty arrays are valid. Citation and ownership validation remain separate from this structural check.
 

@@ -80,7 +80,7 @@ export function ImportDialog({ onClose, onImported, settings }) {
   </Modal>;
 }
 
-const jobKinds = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入' };
+const jobKinds = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入', refresh_speakers: '发言人核对' };
 const jobStatuses = { queued: '等待处理', running: '处理中', done: '已完成', error: '失败', cancelled: '已取消，结果未应用', stale: '来源已更新', superseded: '已由新任务替代' };
 
 export function ProcessingDialog({ meeting, onClose }) {

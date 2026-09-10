@@ -15,7 +15,7 @@ export function createASRSession({ config, onState, onTranscript, onGap }) {
 
   function connect() {
     if (closed || finishing || terminalError) return;
-    epoch = { startSample: null, sentThrough: lastSample };
+    epoch = { id: randomUUID(), startSample: null, sentThrough: lastSample };
     const current = epoch;
     notify(lastSample ? 'reconnecting' : 'connecting');
     try {
@@ -23,7 +23,7 @@ export function createASRSession({ config, onState, onTranscript, onGap }) {
       const policy = loadOutboundPolicy();
       assertOutboundUrl(url, policy, { protocols: ['wss:', 'ws:'], label: 'ASR 地址' });
       socket = new WebSocket(url, {
-        headers: buildAsrHeaders({ ...config, resourceId: config.resourceId || 'volc.seedasr.sauc.duration' }, randomUUID()),
+        headers: buildAsrHeaders({ ...config, resourceId: config.resourceId || 'volc.seedasr.sauc.duration' }, current.id),
         lookup: createSafeLookup(policy), maxPayload: 1_048_576, handshakeTimeout: 10_000,
       });
       const ws = socket;
@@ -63,7 +63,7 @@ export function createASRSession({ config, onState, onTranscript, onGap }) {
               lastFinalSample = Math.max(lastFinalSample, (current.startSample || 0) + Math.round(line.endTime * 16));
             }
           }
-          onTranscript({ ...result, epochStartSample: current.startSample || 0 });
+          onTranscript({ ...result, epochStartSample: current.startSample || 0, recognitionSessionId: current.id });
           if (final) {
             if (finishing) complete(true);
             else fail(current, '语音识别连接已结束，正在重新连接');

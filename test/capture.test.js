@@ -125,8 +125,11 @@ test('word-level ASR timestamps persist as transcript with playback and correct 
   const lines = f.store.allTranscript(f.meeting.id);
   assert.equal(lines.length, 2);
   assert.notEqual(lines[0].recordingId, lines[1].recordingId);
+  assert.notEqual(lines[0].speakerId, lines[1].speakerId, 'the same upstream number from a resumed connection is a new cluster');
+  assert.notEqual(lines[0].participantId, lines[1].participantId);
   for (const [index, line] of lines.entries()) {
-    assert.equal(line.text, '测试尾句'); assert.equal(line.origin, 'asr'); assert.equal(line.speakerId, 'speaker-0');
+    assert.equal(line.text, '测试尾句'); assert.equal(line.origin, 'asr'); assert.match(line.speakerId, /^live-[a-f0-9]+-speaker-0$/);
+    assert.equal(line.providerSpeakerId, '0'); assert.ok(line.recognitionSessionId);
     assert.equal(line.startSample, 640); assert.equal(line.endSample, 1520);
     assert.equal(line.startMs, index * 100 + 40); assert.equal(line.endMs, index * 100 + 95);
     assert.deepEqual(f.capture.readAudio(line.recordingId, line).subarray(44), Buffer.alloc(1760, 9));
@@ -159,10 +162,35 @@ test('ASR reconnect epoch maps utterances to saved samples and human corrections
   f.sessions[0].onTranscript({ epochStartSample: 32000, utterances: [{ text: '恢复后的第一句', startTime: 0, endTime: 500, definite: true, speaker: '2' }] });
   const line = f.store.allTranscript(f.meeting.id)[0];
   assert.equal(line.startSample, 32000); assert.equal(line.endSample, 40000); assert.equal(line.startMs, 2000);
-  assert.equal(line.speakerId, 'speaker-2');
+  assert.match(line.speakerId, /^live-[a-f0-9]+-speaker-2$/);
   f.store.editTranscript(f.meeting.id, line.id, { text: '主持人修正', speakerId: 'host' });
   f.sessions[0].onTranscript({ epochStartSample: 32000, utterances: [{ text: 'ASR迟到修正', startTime: 0, endTime: 700, definite: true, speaker: '2' }] });
   assert.equal(f.store.allTranscript(f.meeting.id)[0].text, '主持人修正');
+  await finish(f, ws, 'stop');
+});
+
+test('speaker clusters remain stable within an ASR connection and isolated after reconnect', async t => {
+  const f = await fixture(t), ws = await f.connect();
+  await begin(f, ws);
+  for (let i = 0; i < 3; i++) ws.send(Buffer.alloc(32000));
+  await until(() => f.store.listRecordings(f.meeting.id)[0].sampleCount === 48000);
+  const emit = (session, epochStartSample, startTime, text = '同一人的发言') => f.sessions[0].onTranscript({ recognitionSessionId: session, epochStartSample, utterances: [{ text, startTime, endTime: startTime + 200, definite: true, speaker: '2' }] });
+  emit('first-connection', 0, 0);
+  emit('first-connection', 0, 300);
+  emit('second-connection', 32000, 0);
+  const lines = f.store.allTranscript(f.meeting.id);
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0].speakerId, lines[1].speakerId);
+  assert.equal(lines[0].participantId, lines[1].participantId);
+  assert.notEqual(lines[0].speakerId, lines[2].speakerId);
+  assert.notEqual(lines[0].participantId, lines[2].participantId);
+  const { participant } = f.store.createParticipant(f.meeting.id, { name: '孙总' });
+  f.store.assignTranscriptParticipant(f.meeting.id, lines[0].id, participant.id);
+  emit('first-connection', 0, 0, '定稿修正后的发言');
+  const corrected = f.store.allTranscript(f.meeting.id)[0];
+  assert.equal(corrected.text, '定稿修正后的发言');
+  assert.equal(corrected.participantId, participant.id, 'a late ASR result can revise words but not a manual attribution');
+  assert.equal(corrected.speakerId, lines[0].speakerId);
   await finish(f, ws, 'stop');
 });
 

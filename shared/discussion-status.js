@@ -1,4 +1,4 @@
-const labels = { organize: '讨论分析', followup: '澄清检查', minutes: '讨论整理与纪要' };
+const labels = { organize: '讨论分析', followup: '澄清检查', minutes: '讨论整理与纪要', refresh_speakers: '发言人核对' };
 
 export function latestDiscussionJob(jobs = []) {
   const relevant = jobs.filter(job => labels[job.type]).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

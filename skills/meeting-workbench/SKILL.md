@@ -35,6 +35,16 @@ description: Operate the local meeting workbench through MCP to record or import
 - 区分参会者观点、建议、AI 推测和明确决定。隐含假设是待核对的解释；潜在分歧是待澄清的问题。未明确负责人或截止时间时不补造。
 - 更正转录用 `correct_transcript`；修改主题、讨论条目和追问状态使用相应工具。`add_meeting_note` 只补充用户提供的现场事实，不能将 AI 生成的内容写成参会者原话。
 
+## 说话人与声音样本
+
+用 `get_meeting_speakers` 读取本场参会者、团队成员和可回听的片段。`participantId` 是本场身份；`memberId` 关联跨会议的团队成员；ASR 的 `speakerId` 只是一次识别的分组编号，不能拿到另一场会议认人。
+
+按用户确认用 `label_meeting_speaker` 标记姓名或关联成员；外部参会者可只在本场命名。改名会同步到引用该身份的 AI 内容。纠正某段归属用 `assign_transcript_speaker`；同一个人被分成两组用 `merge_meeting_speakers`。归属或成员关联改变后，相关分析会重新核对，已有内容和人工记录保留。返回 `refreshJob` 时用 `get_ai_job` 查询，再回读会议验证。
+
+声纹是独立的本地任务。用 `get_voiceprint_status` 核对模型是否就绪。只有用户明确同意保存这位参会者的声音样本，并确认所选发言来自同一个人，才调用 `enroll_speaker_voiceprint`：选择 2–4 段可准确回听的清晰单人发言，每段至少 3 秒。团队成员用 `scope=team`，访客用 `scope=meeting`；长发言仅使用前 30 秒。单纯命名或关联成员不代表授权登记声纹。
+
+`suggest_speaker_identity` 将选定音频与已保存样本比较，用 `get_voiceprint_job` 回读。当前只给候选，不自动采用姓名；得到用户确认后再标记或合并。相似度不是身份正确率，没有可靠匹配时保留本场说话人编号。声纹库只在这套本地工作台内共享。
+
 ## 记录澄清进展
 
 `get_meeting_context` 的 `followups` 包含活跃澄清和已有 `resolution` 的进展，保留 `kind`、`impact`、`author`、`sourceRevision` 与 `stale`。`stale=true` 的问题或结果需要核对最新原文，不能直接当作当前结论。

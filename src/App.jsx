@@ -25,7 +25,7 @@ function layoutSize(value, fallback, min, max) { return Number.isFinite(value) ?
 const statusLabels = { planned: '未开始', active: '进行中', ended: '已结束' };
 const captureLabels = { idle: '未录音', recording: '正在录音', paused: '录音已暂停', interrupted: '录音中断' };
 const asrLabels = { unconfigured: '转录未配置', connecting: '转录连接中', connected: '转录已连接', reconnecting: '转录重连中', error: '转录异常', stopped: '转录已停止' };
-const jobLabels = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入' };
+const jobLabels = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入', refresh_speakers: '发言人核对' };
 
 function initialMeetingId() { const linked = new URLSearchParams(location.search).get('meeting'); if (linked) return linked; try { return localStorage.getItem('meeting-workbench:selected') || null; } catch { return null; } }
 
@@ -153,7 +153,7 @@ export default function App() {
       if (!current()) return;
       startTransition(() => setMeeting(previous => !current() || (previous && JSON.stringify(previous) === JSON.stringify(next)) ? previous : next)); setConnectionError('');
       const loaded = transcriptRef.current.loaded;
-      if (loaded?.id === selectedId && loaded.revision === next.transcriptRevision && loaded.windowSize === windowSize) return;
+      if (loaded?.id === selectedId && loaded.revision === next.transcriptRevision && loaded.identityRevision === (next.identityRevision || 0) && loaded.windowSize === windowSize) return;
       const head = await api(`${meetingPath(selectedId, '/transcript')}?limit=1`);
       if (!current()) return;
       const count = head.total || 0;
@@ -163,7 +163,7 @@ export default function App() {
       const results = await Promise.all(pages);
       if (!current()) return;
       const refreshedLines = results.flatMap(page => page.lines);
-      startTransition(() => { setTranscript(previous => current() ? { lines: refreshedLines, total: count, loaded: { id: selectedId, revision: next.transcriptRevision, windowSize } } : previous); setFocusedLine(previous => { if (!previous || !current()) return previous; const updated = refreshedLines.find(line => line.id === previous.id); return updated ? { ...updated, play: previous.play } : previous; }); }); setLoadingEarlier(false);
+      startTransition(() => { setTranscript(previous => current() ? { lines: refreshedLines, total: count, loaded: { id: selectedId, revision: next.transcriptRevision, identityRevision: next.identityRevision || 0, windowSize } } : previous); setFocusedLine(previous => { if (!previous || !current()) return previous; const updated = refreshedLines.find(line => line.id === previous.id); return updated ? { ...updated, play: previous.play } : previous; }); }); setLoadingEarlier(false);
     } catch (error) { if (current()) { setConnectionError(error.message); setLoadingEarlier(false); } }
     finally { if (activeRefresh.current === request) activeRefresh.current = null; }
   }, [selectedId, windowSize]);

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createASRSession } from './asr.js';
 
@@ -115,9 +116,14 @@ export function createCaptureService({ server, store, onEnded = () => {}, asrFac
       if (!line.text?.trim() || !Number.isFinite(line.startTime) || !Number.isFinite(line.endTime)) continue;
       const startSample = Math.max(0, Math.min(rec.sampleCount, result.epochStartSample + Math.round(line.startTime * 16)));
       const endSample = Math.max(startSample, Math.min(rec.sampleCount, result.epochStartSample + Math.round(line.endTime * 16)));
-      const speakerId = line.speaker === '' || line.speaker === undefined || line.speaker === null ? 'unknown' : `speaker-${line.speaker}`;
-      const input = { recordingId: rec.id, text: line.text.trim(), speakerId, startSample, endSample, startMs: rec.timelineStartMs + startSample / 16, endMs: rec.timelineStartMs + endSample / 16, origin: 'asr' };
-      const key = `${result.epochStartSample}:${line.startTime}`;
+      const recognitionSessionId = result.recognitionSessionId || `${rec.id}:${result.epochStartSample}`;
+      const providerSpeakerId = line.speaker === '' || line.speaker === undefined || line.speaker === null ? '' : String(line.speaker);
+      // Upstream diarization numbers only identify a cluster in one connection.
+      // Include the recording and ASR session, including after pause/reconnect.
+      const scope = createHash('sha256').update(`${rec.id}:${recognitionSessionId}`).digest('hex').slice(0, 20);
+      const speakerId = providerSpeakerId ? `live-${scope}-speaker-${providerSpeakerId.slice(0, 60)}` : 'unknown';
+      const input = { recordingId: rec.id, text: line.text.trim(), speakerId, recognitionSessionId, providerSpeakerId, startSample, endSample, startMs: rec.timelineStartMs + startSample / 16, endMs: rec.timelineStartMs + endSample / 16, origin: 'asr' };
+      const key = `${recognitionSessionId}:${line.startTime}`;
       const previous = host.lines.get(key);
       if (previous) {
         const current = store.allTranscript(host.meetingId).find(item => item.id === previous.id);

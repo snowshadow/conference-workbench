@@ -1,3 +1,6 @@
+import { isUnassignedUtterance, participantFor, speakerName } from '../../shared/people.js';
+import { sourceParticipantId } from './people.js';
+
 const SOURCE_ORIGINS = new Set(['asr', 'host', 'agent']);
 
 export function sourceLines(meetingId, lines) {
@@ -108,7 +111,7 @@ export function retrieve(meeting, allLines, question, topicId, maxChars = 16000)
     /标准|取舍|优先|分歧/.test(question) ? 'criteria' : '',
   ].filter(Boolean));
   const clarificationIds = new Set((meeting.followups || []).filter(item => item.status !== 'ignored' && (!topicId || scopedIds.has(item.evidenceIds?.[0])) && (requestedKinds.has(item.kind) || query.some(term => terms(`${item.question} ${item.impact || ''} ${item.resolution?.text || ''}`).includes(term)))).flatMap(item => [...(item.evidenceIds || []), ...(item.resolution?.evidenceIds || [])]));
-  const tokenized = lines.map(line => new Set(terms(`${line.text} ${typeof meeting.speakerLabels?.[line.speakerId] === 'string' ? meeting.speakerLabels[line.speakerId] : ''}`)));
+  const tokenized = lines.map(line => new Set(terms(`${line.text} ${speakerName(sourceParticipantId(line, meeting), meeting)} ${typeof meeting.speakerLabels?.[line.speakerId] === 'string' ? meeting.speakerLabels[line.speakerId] : ''}`)));
   const frequencies = new Map(query.map(term => [term, tokenized.filter(words => words.has(term)).length]));
   const decisionIds = new Set((meeting.topics || []).flatMap(t => t.entries || []).filter(e => ['decision', 'action', 'question'].includes(e.type) && !e.stale).flatMap(e => e.evidenceIds || []));
   const ranked = lines.map((line, index) => ({
@@ -143,6 +146,14 @@ export function evidenceFor(raw, linesById) {
   return result;
 }
 
-export function sourceView(lines, speakerLabels = {}) {
-  return lines.map(({ id, text, speakerId, startMs, revision, origin }) => ({ id, text, origin, speakerId: speakerId || '未知', speakerLabel: typeof speakerLabels[speakerId] === 'string' ? speakerLabels[speakerId].slice(0, 100) : '未知', startMs, revision }));
+export function sourceView(lines, meetingOrLabels = {}) {
+  const meeting = meetingOrLabels.participants || meetingOrLabels.speakerLabels ? meetingOrLabels : { speakerLabels: meetingOrLabels };
+  return lines.map(line => {
+    const { id, text, speakerId, startMs, revision, origin } = line;
+    const participantId = sourceParticipantId(line, meeting);
+    const legacyLabel = !isUnassignedUtterance(participantFor(line.participantId, meeting)) && typeof meeting.speakerLabels?.[speakerId] === 'string' ? meeting.speakerLabels[speakerId].slice(0, 100) : '';
+    const displayName = participantId ? speakerName(participantId, meeting) : legacyLabel || '未知说话人';
+    const memberId = participantId ? participantFor(participantId, meeting)?.memberId || null : null;
+    return { id, text, origin, speakerId: speakerId || '未知', participantId, ...(memberId ? { memberId } : {}), displayName, speakerLabel: participantId ? participantFor(participantId, meeting)?.name?.trim() || '未知' : legacyLabel || '未知', startMs, revision };
+  });
 }

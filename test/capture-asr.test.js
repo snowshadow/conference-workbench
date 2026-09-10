@@ -16,8 +16,9 @@ function response(utterances, final = false) {
 
 test('ASR reconnect carries a new PCM epoch, marks unfinished speech and drains final response', async t => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 }); await once(server, 'listening');
-  const sockets = [], received = [], results = [], gaps = [], states = [];
-  server.on('connection', ws => {
+  const sockets = [], received = [], results = [], gaps = [], states = [], connectionIds = [];
+  server.on('connection', (ws, request) => {
+    connectionIds.push(request.headers['x-api-connect-id']);
     sockets.push(ws); const frames = []; received.push(frames);
     ws.on('message', data => {
       const frame = Buffer.from(data); frames.push(frame);
@@ -39,6 +40,9 @@ test('ASR reconnect carries a new PCM epoch, marks unfinished speech and drains 
   const final = await session.finish();
   assert.equal(final.drained, true);
   assert.equal(results.at(-1).epochStartSample, 1600);
+  assert.equal(results[0].recognitionSessionId, connectionIds[0]);
+  assert.equal(results.at(-1).recognitionSessionId, connectionIds[1]);
+  assert.notEqual(results[0].recognitionSessionId, results.at(-1).recognitionSessionId);
   assert.equal(results.at(-1).utterances[0].definite, true);
   assert.equal(gaps[0].startSample, 800); assert.equal(gaps[0].endSample, 1600);
   assert.ok(states.some(s => s.asrState === 'reconnecting'));

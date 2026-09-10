@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { evidenceFor, normalize, similarQuestion, sourceLines } from './retrieval.js';
+import { attributedPeople, groundedPeopleText, markPeopleFields } from './people.js';
+import { resolvePeopleText } from '../../shared/people.js';
 
 const ENTRY_TYPES = new Set(['viewpoint', 'question', 'decision', 'action']);
 const STATUSES = new Set(['active', 'open', 'resolved', 'superseded']);
@@ -48,10 +50,10 @@ function hasNewEvidence(evidence, previous, byId) {
   return evidence.some(item => !known.has(`${item.id}:${item.revision}:${normalize(item.quote)}`) && ((byId.get(item.id)?.startMs ?? -1) >= latest || previous.some(old => old.id === item.id && old.revision !== item.revision)));
 }
 
-function groundedResolution(input, byId, sourceRevision) {
+function groundedResolution(input, byId, sourceRevision, meeting) {
   const evidence = evidenceFor(input, byId);
   const outcome = input?.resolution?.outcome;
-  const text = clean(input?.resolution?.text);
+  const text = clean(groundedPeopleText(input?.resolution?.text, evidence, byId, meeting));
   if (!evidence || !RESOLUTION_OUTCOMES.has(outcome) || !text) return null;
   // A speaker explaining their own meaning does not establish shared agreement.
   // Use full utterances so a model cannot crop “尚未达成共识” into “达成共识”.
@@ -64,7 +66,7 @@ function groundedResolution(input, byId, sourceRevision) {
   // specify it; a partial explanation remains an active question.
   const complete = input.resolution.complete === undefined ? true : input.resolution.complete;
   if (typeof complete !== 'boolean') return null;
-  return { outcome, text, complete, evidenceIds: [...new Set(evidence.map(item => item.id))], evidence, author: 'ai', sourceRevision, updatedAt: new Date().toISOString(), stale: false, pendingReview: false };
+  return { outcome, text, complete, evidenceIds: [...new Set(evidence.map(item => item.id))], evidence, author: 'ai', sourceRevision, updatedAt: new Date().toISOString(), stale: false, pendingReview: false, peopleFields: { text: 1 } };
 }
 
 function validParent(topics, topicId, parentId) {
@@ -93,10 +95,11 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
   const pendingParents = [];
   const validInputs = [];
   for (const input of allowStructure && Array.isArray(payload.topics) ? payload.topics.slice(0, 100) : []) {
-    const title = clean(input.title, 120);
-    if (!title) continue;
     const entryInputs = Array.isArray(input.entries) ? input.entries.slice(0, 100) : [];
     const grounded = entryInputs.map(entry => ({ entry, evidence: evidenceFor(entry, byId) })).filter(item => item.evidence && clean(item.entry.text));
+    const summaryEvidence = input.summaryEvidence === undefined ? grounded.flatMap(item => item.evidence) : evidenceFor({ evidence: input.summaryEvidence }, byId);
+    const title = clean(groundedPeopleText(input.title, summaryEvidence || grounded.flatMap(item => item.evidence), byId, next), 120);
+    if (!title) continue;
     let topic = next.topics.find(t => t.id === input.id);
     if (topic?.mergedInto) topic = next.topics.find(t => t.id === topic.mergedInto);
     if (!topic) topic = next.topics.find(t => !t.mergedInto && normalize(t.title) === normalize(title));
@@ -107,10 +110,11 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     }
     if (input.id) aliases.set(input.id, topic.id);
     keepManual(topic, 'title', title);
-    const summary = clean(input.summary, 1500);
-    const summaryEvidence = input.summaryEvidence === undefined ? grounded.flatMap(item => item.evidence) : evidenceFor({ evidence: input.summaryEvidence }, byId);
+    markPeopleFields(topic, ['title']);
+    const summary = clean(groundedPeopleText(input.summary, summaryEvidence, byId, next), 1500);
     if (summary && summaryEvidence?.length && !(topic.manualFields || []).includes('summary') && sourceRevision >= (topic.sourceRevision || 0)) {
       writeSummary(topic, summary, summaryEvidence.map(item => item.id), sourceRevision);
+      markPeopleFields(topic, ['summary']);
     }
     pendingParents.push({ topic, parentId: input.parentId });
     validInputs.push({ topic, grounded });
@@ -124,7 +128,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     for (const { entry: input, evidence } of grounded) {
       let type = ENTRY_TYPES.has(input.type) ? input.type : 'viewpoint';
       if (type === 'decision' && !(input.explicitDecision === true && evidence.some(e => explicitDecision(byId.get(e.id).text, e.quote)))) type = 'viewpoint';
-      const text = clean(input.text);
+      const text = clean(groundedPeopleText(input.text, evidence, byId, next));
       const allEntries = next.topics.flatMap(t => t.entries || []);
       let entry = allEntries.find(e => e.id === input.id);
       if (!entry) entry = topic.entries.find(e => e.type === type && normalize(e.text) === normalize(text));
@@ -146,20 +150,22 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       }
       const manual = (entry.manualFields || []).length > 0;
       keepManual(entry, 'text', text);
+      markPeopleFields(entry, ['text']);
       keepManual(entry, 'type', type);
       if (!manual) {
         entry.evidenceIds = [...new Set(evidence.map(item => item.id))];
         entry.evidence = evidence;
         entry.sourceRevision = sourceRevision;
         entry.stale = false;
+        entry.participantIds = attributedPeople(input, evidence, byId, next);
       }
       // A model cannot silently retract a host-confirmed conclusion.
       if (STATUSES.has(input.status) && input.status !== 'superseded') keepManual(entry, 'status', input.status);
       if (type === 'action') {
         const sourceText = evidence.map(item => byId.get(item.id).text).join(' ');
         for (const field of ['owner', 'due']) {
-          const value = clean(input[field], 200);
-          if (value && normalize(sourceText).includes(normalize(value))) keepManual(entry, field, value);
+          const value = clean(groundedPeopleText(input[field], evidence, byId, next), 200);
+          if (value && normalize(sourceText).includes(normalize(resolvePeopleText(value, next)))) { keepManual(entry, field, value); markPeopleFields(entry, [field]); }
           else if (!manual) delete entry[field];
         }
       }
@@ -195,7 +201,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     writeSummary(topic, current.map(entry=>entry.text).join('；').slice(0,1500), current.flatMap(entry=>entry.evidenceIds || []), sourceRevision, !current.length && (topic.entries || []).some(entry=>entry.stale));
   }
   const keep = new Set(Array.isArray(payload.keepFollowupIds) ? payload.keepFollowupIds : []);
-  const resolve = new Map((Array.isArray(payload.resolvedFollowups) ? payload.resolvedFollowups : []).map(item => [item?.id, groundedResolution(item, byId, sourceRevision)]).filter(([, resolution]) => resolution));
+  const resolve = new Map((Array.isArray(payload.resolvedFollowups) ? payload.resolvedFollowups : []).map(item => [item?.id, groundedResolution(item, byId, sourceRevision, next)]).filter(([, resolution]) => resolution));
   for (const followup of next.followups) {
     if (!['active', 'resolved'].includes(followup.status) || followup.mergedInto || followup.author && followup.author !== 'ai' || sourceRevision < (followup.sourceRevision || 0)) continue;
     if ((followup.resolution && followup.resolution.author !== 'ai') || followup.manualFields?.includes('resolution') || followup.manualFields?.includes('status')) continue;
@@ -219,12 +225,13 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
   const followupAliases = new Map(next.followups.map(item => [item.id, item.id]));
   for (const input of Array.isArray(payload.followups) ? payload.followups : []) {
     const evidence = evidenceFor(input, byId);
-    const question = clean(input.question, 500), rationale = clean(input.rationale, 800), impact = clean(input.impact, 800);
+    const groundedText = (value, max) => clean(groundedPeopleText(value, evidence, byId, next), max);
+    const question = groundedText(input.question, 500), rationale = groundedText(input.rationale, 800), impact = groundedText(input.impact, 800);
     if (!evidence) continue;
     const exact = next.followups.find(f => f.id === input.id);
     const existing = exact || next.followups.find(f => question && similarQuestion(f.question, question));
     // Dropping an overlong display summary is safer than cutting off a condition or option.
-    const shortQuestion = presentationText(input.shortQuestion, 200), discussionValue = presentationText(input.discussionValue, 800);
+    const shortQuestion = presentationText(groundedPeopleText(input.shortQuestion, evidence, byId, next), 200), discussionValue = presentationText(groundedPeopleText(input.discussionValue, evidence, byId, next), 800);
     if (existing) {
       if (input.id) followupAliases.set(input.id, existing.id);
       // Similarity prevents duplicates; only an explicit stable ID authorizes
@@ -256,6 +263,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       if (Object.keys(patch).some(key => JSON.stringify(patch[key]) !== JSON.stringify(existing[key]))) {
         followupHistory(existing);
         Object.assign(existing, patch, { updatedAt: new Date().toISOString() });
+        markPeopleFields(existing, Object.keys(patch));
         if (patch.shortQuestion || patch.discussionValue) existing.presentationSourceRevision = sourceRevision;
       }
       continue;
@@ -266,6 +274,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     const id = makeId('followup');
     if (input.id) followupAliases.set(input.id, id);
     next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), evidenceIds: [...new Set(evidence.map(e => e.id))], evidence, status: 'active', sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
+    markPeopleFields(next.followups.at(-1), ['question', 'shortQuestion', 'rationale', 'impact', 'discussionValue']);
     added++;
   }
   const resolveAlias = id => {
