@@ -12,13 +12,14 @@ import { minutesDocumentMarkdown } from '../shared/minutes-format.js';
 import { resolutionOutcomes } from '../shared/resolution-copy.js';
 import { presentMeetingPeople, presentPeopleValue, speakerName } from '../shared/people.js';
 import { createVoiceprintService } from './voiceprints/service.js';
+import { createAutomaticSpeakerService } from './voiceprints/automatic.js';
 import { registerPeopleRoutes } from './people-routes.js';
 import { ensureParticipant, resolveParticipant } from './people/store.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const asyncRoute=fn=>(req,res,next)=>Promise.resolve().then(()=>fn(req,res)).catch(next);
 const jsonObject=(req,res,next)=>{if(req.body && (Array.isArray(req.body) || typeof req.body!=='object')) return next(fail('请求内容必须为对象'));next();};
-export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.join(root,'data'),distDir=path.join(root,'dist'),aiFactory=createAIService,captureFactory=createCaptureService,importFactory=createImportService,voiceprintFactory=createVoiceprintService}={}) {
+export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.join(root,'data'),distDir=path.join(root,'dist'),aiFactory=createAIService,captureFactory=createCaptureService,importFactory=createImportService,voiceprintFactory=createVoiceprintService,automaticFactory=createAutomaticSpeakerService}={}) {
   const store=new Store(dataDir),app=express(),server=http.createServer(app);
   app.disable('x-powered-by');
   app.use((req,res,next)=>{
@@ -38,13 +39,15 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
   app.use(express.json({limit:'2mb'}),jsonObject);
   const ai=aiFactory({store});
   const voiceprints=voiceprintFactory({store});
-  const imports=importFactory({store,ai});
-  const capture=captureFactory({server,store,onEnded:meetingId=>{
+  const automatic=automaticFactory({store,voiceprints,ai});
+  const onTranscript=meetingId=>automatic.notify(meetingId);
+  const imports=importFactory({store,ai,onTranscript});
+  const capture=captureFactory({server,store,onTranscript,onEnded:meetingId=>{
     store.updateMeeting(meetingId,{status:'ended',endedAt:new Date().toISOString()});
     if(store.allTranscript(meetingId).length) ai.submit(meetingId,'minutes');
   }});
   const detail=meetingId=>{const meeting=store.getMeeting(meetingId);return {...presentMeetingPeople(meeting),capture:capture.getState(meetingId),recordings:store.listRecordings(meetingId),jobs:store.listJobs(meetingId).slice(0,30).map(job=>presentPeopleValue(job,meeting)),commands:store.listCommands(meetingId).slice(0,10)};};
-  const {refresh:refreshSpeakers}=registerPeopleRoutes({app,store,ai,voiceprints,detail});
+  const {refresh:refreshSpeakers}=registerPeopleRoutes({app,store,ai,voiceprints,automatic,detail});
   app.get('/api/health',(req,res)=>res.json({ok:true,name:'conference-workbench',version:'0.1.2'}));
   app.get('/api/settings',(req,res)=>res.json(store.publicSettings()));
   app.put('/api/settings',(req,res)=>res.json(store.saveSettings(req.body)));
@@ -150,7 +153,8 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
     res.status(status).json({error:status>=500?'处理失败，请查看本地服务日志':error.message});
   });
   ai.start();
+  automatic.start();
   imports.start();
-  return {app,server,store,ai,capture,imports,voiceprints,close:async()=>{await voiceprints.stop();await imports.stop();await ai.stop();await capture.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections?.();});store.close();}};
+  return {app,server,store,ai,capture,imports,voiceprints,automatic,close:async()=>{await automatic.stop();await voiceprints.stop();await imports.stop();await ai.stop();await capture.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections?.();});store.close();}};
 }
 function formatTime(ms=0) {const s=Math.floor(ms/1000);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}

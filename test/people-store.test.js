@@ -51,6 +51,62 @@ test('naming a participant preserves source data, current discussion and analysi
   assert.equal(participant.identitySource, 'manual'); assert.equal(participant.needsConfirmation, false);
 });
 
+test('automatic recognition progress persists separately from analysis versions and respects a manual lock', t => {
+  const { store, meeting } = setup(t);
+  const line = store.appendTranscript(meeting.id, { text: '讨论工作的安排', speakerId: 'live-a-speaker-3' });
+  const member = store.createMember({ name: '陈工' });
+  const before = store.getMeeting(meeting.id);
+  store.setParticipantRecognition(meeting.id, line.participantId, { status: 'running', attempts: 1, jobId: 'job-1' });
+  const pending = store.getMeeting(meeting.id);
+  assert.equal(pending.identityRevision, before.identityRevision);
+  assert.equal(pending.contentRevision, before.contentRevision);
+  assert.equal(pending.participants[0].recognition.jobId, 'job-1');
+  const ignored = store.applyRecognizedParticipant(meeting.id, line.participantId, { id: 'p', scope: 'team', memberId: member.id }, { expectedJobId: 'other-job' });
+  assert.equal(ignored.applied, false);
+  store.updateParticipant(meeting.id, line.participantId, { name: '主持人确认的来宾' });
+  const late = store.applyRecognizedParticipant(meeting.id, line.participantId, { id: 'p', scope: 'team', memberId: member.id }, { expectedJobId: 'job-1' });
+  assert.equal(late.applied, false);
+  store.setParticipantRecognition(meeting.id, line.participantId, { status: 'error', error: 'late worker' });
+  assert.equal(store.listParticipants(meeting.id)[0].recognition.status, 'confirmed');
+  assert.equal(store.listParticipants(meeting.id)[0].name, '主持人确认的来宾');
+});
+
+test('automatic names remain distinct from host confirmation and apply only to unassigned real clusters', t => {
+  const { store, meeting } = setup(t);
+  const line = store.appendTranscript(meeting.id, { text: '讨论工作的安排', speakerId: 'live-a-speaker-3' });
+  const member = store.createMember({ name: '陈工' });
+  const candidate = { id: 'profile', scope: 'team', memberId: member.id, score: 0.96 };
+  const raw = store.rawTranscript(meeting.id);
+  const result = store.applyRecognizedParticipant(meeting.id, line.participantId, candidate);
+  assert.equal(result.applied, true);
+  assert.equal(result.meeting.participants[0].identitySource, 'voiceprint');
+  assert.equal(result.meeting.participants[0].recognition.status, 'matched');
+  assert.deepEqual(store.rawTranscript(meeting.id), raw);
+  store.updateMember(member.id, { name: '陈老师' });
+  assert.equal(store.listParticipants(meeting.id)[0].name, '陈老师');
+  assert.equal(store.listParticipants(meeting.id)[0].identitySource, 'voiceprint');
+  const unknownLine = store.appendTranscript(meeting.id, { text: '临时没有分组', speakerId: 'unknown' });
+  assert.equal(store.applyRecognizedParticipant(meeting.id, unknownLine.participantId, candidate).applied, false);
+});
+
+test('restart makes interrupted recognition readable without changing names or analysis revisions', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'meeting-recognition-restart-'));
+  let store = new Store(directory);
+  const meeting = store.createMeeting({ title: '恢复测试' });
+  const line = store.appendTranscript(meeting.id, { text: '尚未完成的识别', speakerId: 'live-speaker' });
+  store.setParticipantRecognition(meeting.id, line.participantId, { status: 'running', jobId: 'voice-job', attempts: 1, triedSourceIds: [line.id] });
+  const before = store.getMeeting(meeting.id);
+  store.close(); store = new Store(directory); t.after(() => store.close());
+  const after = store.getMeeting(meeting.id);
+  assert.equal(after.participants[0].recognition.status, 'error');
+  assert.match(after.participants[0].recognition.error, /重启/);
+  assert.equal(after.participants[0].recognition.jobId, 'voice-job');
+  assert.equal(after.participants[0].recognition.attempts, 1);
+  assert.equal(after.participants[0].name, '');
+  assert.equal(after.identityRevision, before.identityRevision);
+  assert.equal(after.contentRevision, before.contentRevision);
+});
+
 test('late ASR clustering replaces provisional unknown groups but preserves a confirmed name', t => {
   const { store, meeting } = setup(t);
   const known = store.appendTranscript(meeting.id, { text: '先识别的一句', speakerId: 'live-a-speaker-1' });

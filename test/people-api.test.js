@@ -7,13 +7,14 @@ import { once } from 'node:events';
 import { createWorkbench } from '../server/app.js';
 
 async function fixture(t) {
-  const refreshes = [], voiceCalls = [];
+  const refreshes = [], voiceCalls = [], profiles = [];
   const voiceJob = { id: 'voice-job', type: 'match', status: 'done', result: { candidates: [], calibrated: false } };
   const workbench = createWorkbench({ dataDir: mkdtempSync(path.join(os.tmpdir(), 'meeting-people-api-')), aiFactory: () => ({
     start() {}, async stop() {}, submit() { throw new Error('没有配置 AI'); },
     refreshSpeakers(meetingId, sourceIds, options) { refreshes.push({ meetingId, sourceIds, ...options }); return { id: 'refresh-job', status: 'queued' }; },
   }), voiceprintFactory: () => ({
-    status: () => ({ available: true, calibrated: false }), listProfiles: () => [], async stop() {},
+    status: () => ({ available: true, calibrated: false }), listProfiles: () => structuredClone(profiles), async stop() {},
+    listJobs: () => [], setProfileEnabled(id, enabled) { const profile = profiles.find(item => item.id === id); profile.enabled = enabled; profile.available = enabled; return structuredClone(profile); },
     submit(type, input) { voiceCalls.push({ type, input }); return voiceJob; }, getJob: () => voiceJob, cancelJob: () => ({ ...voiceJob, status: 'cancelled' }),
   }) });
   workbench.server.listen(0, '127.0.0.1'); await once(workbench.server, 'listening');
@@ -23,7 +24,7 @@ async function fixture(t) {
     const response = await fetch(base + resource, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, data: await response.json() };
   }
-  return { workbench, request, base, refreshes, voiceCalls };
+  return { workbench, request, base, refreshes, voiceCalls, profiles };
 }
 
 test('HTTP member naming propagates into AI views and export across meetings without rewriting host content', async t => {
@@ -87,8 +88,10 @@ test('speaker samples and voiceprint HTTP jobs use bounded audio ranges and sepa
   const recording = store.createRecording(meeting.id, { sampleCount: 16000 * 70, sampleRate: 16000 });
   const line = store.appendTranscript(meeting.id, { text: '一段较长的发言。', speakerId: 'one', origin: 'asr', recordingId: recording.id, startSample: 0, endSample: 16000 * 60 });
   const second = store.appendTranscript(meeting.id, { text: '另一段清晰发言。', speakerId: 'one', origin: 'asr', recordingId: recording.id, startSample: 16000 * 60, endSample: 16000 * 65 });
+  const short = store.appendTranscript(meeting.id, { text: '嗯，好。', speakerId: 'one', origin: 'asr', recordingId: recording.id, startSample: 16000 * 65, endSample: 16000 * 69 });
   const people = (await request(`/api/meetings/${meeting.id}/people`)).data;
   assert.equal(people.participants[0].samples[0].endSample, 16000 * 30);
+  assert.ok(people.participants[0].samples.every(sample => sample.id !== short.id), 'short utterances cannot be offered as voice samples');
   const person = people.participants[0];
   const endpoint = `/api/meetings/${meeting.id}/participants/${person.id}/voiceprints/match`;
   for (const sourceIds of [[], [line.id], [line.id, line.id], [line.id, ''], ['1','2','3','4','5']]) {
@@ -101,6 +104,31 @@ test('speaker samples and voiceprint HTTP jobs use bounded audio ranges and sepa
   assert.equal((await request('/api/voiceprint-jobs/voice-job')).data.job.status, 'done');
   assert.equal((await request('/api/voiceprints/status')).data.available, true);
   assert.equal((await request(`/api/meetings/${meeting.id}/participants/${person.id}/voiceprints/enroll`, 'POST', { sourceIds: [line.id, second.id], scope: 'global' })).status, 400);
+  const automaticSelection = await request(endpoint, 'POST', {});
+  assert.equal(automaticSelection.status, 202);
+  assert.equal(voiceCalls.at(-1).input.sourceIds, undefined);
+});
+
+test('HTTP keeps speaker recognition state across reads and exposes reversible team sample management', async t => {
+  const { workbench: { store }, request, profiles } = await fixture(t);
+  const meeting = store.createMeeting({ title: '会议声音资料' });
+  const line = store.appendTranscript(meeting.id, { text: '需要更多发言', speakerId: 'session-speaker-1' });
+  const retry = `/api/meetings/${meeting.id}/participants/${line.participantId}/recognition/retry`;
+  assert.equal((await request(retry, 'POST', {})).status, 202);
+  const people = (await request(`/api/meetings/${meeting.id}/people`)).data;
+  assert.ok(people.participants[0].recognition);
+  store.updateParticipant(meeting.id, line.participantId, { name: '主持人确认的姓名' });
+  assert.equal((await request(retry, 'POST', {})).status, 409);
+  assert.equal((await request(`/api/meetings/${meeting.id}/participants/missing/recognition/retry`, 'POST', {})).status, 404);
+  profiles.push({ id: 'sample', scope: 'team', name: '成员', meetingId: meeting.id, enabled: true, available: true, segments: [{ recordingId: 'recording', startSample: 0, endSample: 64000 }] });
+  let result = await request('/api/voiceprints/profiles');
+  assert.equal(result.data.profiles[0].meetingTitle, meeting.title);
+  assert.equal((await request('/api/voiceprints/profiles/sample', 'PATCH', { enabled: 'false' })).status, 400);
+  assert.equal((await request('/api/voiceprints/profiles/sample', 'PATCH', { enabled: false })).data.profile.enabled, false);
+  result = await request('/api/voiceprints/profiles');
+  assert.equal(result.data.profiles.length, 1, 'disabled samples remain visible for recovery');
+  assert.equal(result.data.profiles[0].available, false);
+  assert.equal((await request('/api/voiceprints/profiles/sample', 'PATCH', { enabled: true })).data.profile.available, true);
 });
 
 test('participant membership changes recheck attribution while renames and unchanged links only refresh labels', async t => {

@@ -34,5 +34,10 @@ test('MCP confirms a member, assigns an utterance and reads the same identity th
   assert.equal(response.participants.find(item => item.id === person.id).name, '陈老师');
   assert.equal(workbench.store.allTranscript(meeting.id)[0].text, line.text);
   const status = await call('get_voiceprint_status', {});
-  assert.equal(status.mode, 'suggestions_only');
+  assert.equal(status.mode, 'automatic_with_review');
+  const profiles = await call('list_voiceprint_profiles', {});
+  assert.deepEqual(profiles.profiles, []);
+  const tools = await client.listTools();
+  assert.ok(tools.tools.some(tool => tool.name === 'retry_speaker_recognition'));
+  assert.ok(tools.tools.some(tool => tool.name === 'set_voiceprint_enabled'));
 });

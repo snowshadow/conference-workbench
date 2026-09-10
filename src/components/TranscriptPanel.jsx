@@ -8,6 +8,13 @@ import '../transcript-tools.css';
 
 export function speakerName(id, meeting) { return participantFor(id, meeting) ? participantName(id, meeting) : meeting.speakerLabels?.[id] || '未知说话人'; }
 
+function speakerButtonTitle(line, meeting) {
+  const person = participantFor(line.participantId, meeting);
+  if (!person || isUnassignedUtterance(person)) return '标记这段发言是谁说的';
+  const name = speakerName(person.id, meeting);
+  return person.identitySource === 'voiceprint' ? `声音自动识别为${name}，点击确认或纠正` : `查看或修改${name}的说话人设置`;
+}
+
 function TranscriptForm({ meeting, line, focusSpeaker = false, onClose, mutate }) {
   const formRef = useRef(null);
   const [text, setText] = useState(line?.text || '');
@@ -25,11 +32,11 @@ function TranscriptForm({ meeting, line, focusSpeaker = false, onClose, mutate }
     if (target && target !== line?.participantId) await mutate(`/transcript/${savedLine.id}/participant`, 'PATCH', { participantId: target });
     onClose();
   });
-  return <Modal title={line ? '修正这段发言' : '补录遗漏发言'} subtitle={line ? '修正后，相关的 AI 内容会重新整理。' : '仅补录会议中实际说过、但转录遗漏的内容。保存后标为「手动原文」，并作为 AI 分析的依据。'} onClose={onClose} closeDisabled={busy}>
+  return <Modal title={focusSpeaker ? '这段发言是谁说的？' : line ? '修正这段发言' : '补录遗漏发言'} subtitle={focusSpeaker ? undefined : line ? '修正后，相关的 AI 内容会重新整理。' : '仅补录会议中实际说过、但转录遗漏的内容。保存后标为「手动原文」，并作为 AI 分析的依据。'} onClose={onClose} closeDisabled={busy}>
     <form ref={formRef} onSubmit={submit}>
       <label>这段发言是谁说的？<select autoFocus={focusSpeaker} value={participantId} onChange={event => setParticipant(event.target.value)}>{(!line?.participantId || isUnassignedUtterance(participantFor(line?.participantId, meeting))) && <option value="">不确定，暂不标记</option>}{(meeting.participants || []).filter(person => !person.mergedInto && !isUnassignedUtterance(person)).map(person => <option key={person.id} value={person.id}>{participantName(person.id, meeting)}</option>)}<option value="new">新增一位说话人</option></select></label>
       {participantId === 'new' && <label>姓名<input value={newName} onChange={event => setNewName(event.target.value)} maxLength={100} placeholder="填写这位参会者的姓名" required /></label>}
-      <label>原文<textarea autoFocus={!focusSpeaker} value={text} onChange={event => setText(event.target.value)} placeholder="输入会议中实际说过的内容…" rows={7} required maxLength={12000} /></label><FormError error={error} /><div className="modal-footer"><Button type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" className="primary" busy={busy} disabled={!text.trim() || participantId === 'new' && !newName.trim()}>{line ? '保存修正' : '保存发言'}</Button></div>
+      <label>原文<textarea autoFocus={!focusSpeaker} value={text} onChange={event => setText(event.target.value)} placeholder="输入会议中实际说过的内容…" rows={focusSpeaker ? 3 : 7} required maxLength={12000} /></label><FormError error={error} /><div className="modal-footer"><Button type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" className="primary" busy={busy} disabled={!text.trim() || participantId === 'new' && !newName.trim() || focusSpeaker && !participantId}>{focusSpeaker ? '保存说话人' : line ? '保存修正' : '保存发言'}</Button></div>
     </form>
   </Modal>;
 }
@@ -177,7 +184,7 @@ function TranscriptPanel({ meeting, lines, total, onLoadEarlier, loadingEarlier,
     <div className="transcript-scroll" ref={scrollRef} onScroll={event => { const element = event.currentTarget; setFollowing(element.scrollHeight - element.scrollTop - element.clientHeight < 55); }}>
       {!query && total > lines.length && <button className="load-earlier" disabled={loadingEarlier} onClick={loadEarlier}>{loadingEarlier ? <LoaderCircle size={14} className="spin" /> : null}查看更早的原文（还有 {total - lines.length} 段）</button>}
       {!rows.length && !partial?.text ? <EmptyState compact icon={query ? Search : AudioLines} title={query ? (searching ? '正在查找原文' : '没有找到匹配内容') : '原话是讨论的起点'}>{query ? '换一个词试试，搜索只覆盖本次会议。' : meeting.jobs?.some(job => job.type === 'import') ? '导入录音的定稿转录会显示在这里。也可以补充已经核对的会议原文。' : '开始录音后，定稿转录会按时间出现在这里。也可以补充已经核对的会议原文。'}</EmptyState> : rows.map(line => <div className={`transcript-line ${focusedLine?.id === line.id ? 'highlighted' : ''}`} key={line.id} data-line-id={line.id}>
-        <button className="line-time" title={line.recordingId ? line.timing === 'chunk' ? '按录音段定位并回听' : '定位并回听这段原文' : '定位这段原文'} onClick={() => selectLine(line)}>{line.recordingId && <Play size={10} />}{formatTime(line.startMs)}</button><button className="line-speaker line-speaker-button" title={`标记这段发言的说话人：${speakerName(line.participantId || line.speakerId, meeting)}`} onClick={() => setModal(line.participantId && !isUnassignedUtterance(participantFor(line.participantId, meeting)) ? { mode: 'speakers', participantId: line.participantId } : { mode: 'edit', line, focusSpeaker: true })}>{speakerName(line.participantId || line.speakerId, meeting)}</button><div className="line-text"><p>{line.text}</p>{line.timing === 'chunk' && <span className="source-badge chunk-timing-note"><Headphones size={10} />按录音段定位</span>}{!['asr', 'file-asr', 'import'].includes(line.origin) && <span className="source-badge"><FilePenLine size={10} />{line.origin === 'agent' ? 'Agent 原文' : '手动原文'}</span>}</div><IconButton title="修正原文" className="line-edit" onClick={() => setModal({ mode: 'edit', line })}><Pencil size={12} /></IconButton>
+        <button className="line-time" title={line.recordingId ? line.timing === 'chunk' ? '按录音段定位并回听' : '定位并回听这段原文' : '定位这段原文'} onClick={() => selectLine(line)}>{line.recordingId && <Play size={10} />}{formatTime(line.startMs)}</button><button className="line-speaker line-speaker-button" title={speakerButtonTitle(line, meeting)} onClick={() => setModal(line.participantId && !isUnassignedUtterance(participantFor(line.participantId, meeting)) ? { mode: 'speakers', participantId: line.participantId } : { mode: 'edit', line, focusSpeaker: true })}>{speakerName(line.participantId || line.speakerId, meeting)}</button><div className="line-text"><p>{line.text}</p>{line.timing === 'chunk' && <span className="source-badge chunk-timing-note"><Headphones size={10} />按录音段定位</span>}{!['asr', 'file-asr', 'import'].includes(line.origin) && <span className="source-badge"><FilePenLine size={10} />{line.origin === 'agent' ? 'Agent 原文' : '手动原文'}</span>}</div><IconButton title="修正原文" className="line-edit" onClick={() => setModal({ mode: 'edit', line })}><Pencil size={12} /></IconButton>
       </div>)}
       {query && result?.nextCursor != null && <button className="load-earlier" disabled={searching} onClick={loadMoreMatches}>加载更多匹配</button>}
       {!query && partial?.text && <div className="transcript-line partial-line"><span className="line-time"><span className="live-dot" /></span><span className="line-speaker">正在识别</span><div className="line-text"><p>{partial.text}<span className="typing-cursor" /></p></div></div>}

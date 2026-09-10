@@ -29,6 +29,12 @@ export class Store {
     `);
     // A process restart cannot leave a physical microphone marked as running.
     for (const meeting of this.listMeetings({ includeArchived: true })) {
+      let recognitionInterrupted = false;
+      for (const participant of meeting.participants || []) if (['queued', 'running'].includes(participant.recognition?.status)) {
+        participant.recognition = { ...participant.recognition, status: 'error', error: '服务已重启', message: '等新的清晰发言后再试', nextAttemptAt: null, updatedAt: now() };
+        recognitionInterrupted = true;
+      }
+      if (recognitionInterrupted) this.persistMeeting(meeting);
       if (['recording', 'paused'].includes(meeting.capture?.state)) this.updateMeeting(meeting.id, { capture: { ...meeting.capture, connected: false, state: 'interrupted', asrState: 'stopped', error: '服务重启，录音已中断' } });
     }
     for (const row of this.db.prepare('SELECT data FROM recordings').all()) {
@@ -118,6 +124,8 @@ export class Store {
   listParticipants(meetingId) { return this.getMeeting(meetingId).participants.filter(item => !item.mergedInto); }
   createParticipant(meetingId, input) { return people.createParticipant(this, meetingId, input); }
   updateParticipant(meetingId, participantId, input) { return people.updateParticipant(this, meetingId, participantId, input); }
+  setParticipantRecognition(meetingId, participantId, input) { return people.setParticipantRecognition(this, meetingId, participantId, input); }
+  applyRecognizedParticipant(meetingId, participantId, candidate, input) { return people.applyRecognizedParticipant(this, meetingId, participantId, candidate, input); }
   mergeParticipants(meetingId, sourceId, targetId) { return people.mergeParticipants(this, meetingId, sourceId, targetId); }
   assignTranscriptParticipant(meetingId, lineId, participantId, input) { return people.assignTranscriptParticipant(this, meetingId, lineId, participantId, input); }
   getTranscript(meetingId, {cursor=0,limit=100,q=''} = {}) {

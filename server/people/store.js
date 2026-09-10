@@ -142,6 +142,7 @@ function applyIdentity(store, participant, patch) {
   if (participant.memberId) participant.name = getMember(store, participant.memberId).name;
   if (!participant.name?.trim()) throw problem('请填写姓名或选择团队成员');
   participant.identitySource = 'manual'; participant.needsConfirmation = false; participant.updatedAt = now();
+  if (participant.recognition) participant.recognition = { ...participant.recognition, status: 'confirmed', candidates: [], candidate: null, error: null, message: '已人工确认', updatedAt: now() };
 }
 export function createParticipant(store, meetingId, patch = {}) {
   return store.transaction(() => {
@@ -162,6 +163,52 @@ export function updateParticipant(store, meetingId, participantId, patch = {}) {
     const affectedSourceIds = store.rawTranscript(meetingId).filter(line => participantForLine(meeting, line)?.id === participant.id).map(line => line.id);
     if (JSON.stringify(participant) !== before) identityChanged(meeting);
     return { meeting: store.persistMeeting(syncSpeakerLabels(meeting)), affectedSourceIds };
+  });
+}
+
+export function canRecognizeParticipant(participant) {
+  return Boolean(participant && !participant.mergedInto && !participant.name?.trim() && !participant.memberId &&
+    participant.identitySource !== 'manual' && participant.identitySource !== 'voiceprint' &&
+    participant.speakerIds?.some(speakerId => !unknown(speakerId) && !/^unk$/i.test(speakerId)));
+}
+
+// Recognition progress is operational state. It must not invalidate an AI task
+// just because another few seconds of audio are being compared in the background.
+export function setParticipantRecognition(store, meetingId, participantId, patch = {}) {
+  return store.transaction(() => {
+    const meeting = store.getMeeting(meetingId);
+    const participant = meeting.participants.find(item => item.id === participantId);
+    if (!participant) throw problem('参会者不存在或不属于本次会议', 404);
+    const refreshOnly = participant.identitySource === 'voiceprint' && Object.keys(patch).every(key => ['analysisStatus', 'analysisJobId', 'analysisError'].includes(key));
+    if (!canRecognizeParticipant(participant) && !refreshOnly) return participant;
+    const next = { ...(participant.recognition || {}), ...structuredClone(patch) };
+    if (JSON.stringify(next) === JSON.stringify(participant.recognition)) return participant;
+    participant.recognition = { ...next, updatedAt: now() };
+    store.persistMeeting(meeting);
+    return structuredClone(participant);
+  });
+}
+
+// This is intentionally separate from manual naming: a delayed match must never
+// claim that the host confirmed someone, or overwrite a correction made in flight.
+export function applyRecognizedParticipant(store, meetingId, participantId, candidate, { recognition = {}, expectedJobId } = {}) {
+  return store.transaction(() => {
+    const meeting = store.getMeeting(meetingId);
+    const participant = meeting.participants.find(item => item.id === participantId);
+    if (!participant) throw problem('参会者不存在或不属于本次会议', 404);
+    if (meeting.archived || !canRecognizeParticipant(participant) ||
+      expectedJobId && participant.recognition?.jobId !== expectedJobId) return { meeting, affectedSourceIds: [], applied: false };
+    // Guests remain suggestions until the host explicitly merges the groups.
+    // A team member ID is a stable identity without that irreversible UI merge.
+    if (candidate?.scope !== 'team' || !candidate.memberId) return { meeting, affectedSourceIds: [], applied: false };
+    const member = getMember(store, candidate.memberId);
+    if (!member.name?.trim() || member.archived || member.deleted) throw problem('团队成员不可用，请重新确认');
+    const affectedSourceIds = store.rawTranscript(meetingId).filter(line => participantForLine(meeting, line)?.id === participant.id).map(line => line.id);
+    participant.name = member.name; participant.memberId = member.id;
+    participant.identitySource = 'voiceprint'; participant.needsConfirmation = false; participant.updatedAt = now();
+    participant.recognition = { ...(participant.recognition || {}), ...structuredClone(recognition), status: 'matched', candidate: structuredClone(candidate), candidates: [], error: null, message: '已根据声音识别', updatedAt: now() };
+    identityChanged(meeting); markIdentitySourcesForReview(meeting, affectedSourceIds);
+    return { meeting: store.persistMeeting(syncSpeakerLabels(meeting)), affectedSourceIds, applied: true };
   });
 }
 

@@ -226,3 +226,16 @@ test('oversized ASR responses stop reading at the byte limit and preserve a retr
   assert.equal(failed.input.completedChunks, 0);
   assert.equal(f.store.getRecording(failed.input.recordingId).sampleCount, 16000);
 });
+
+test('import publishes newly persisted text to recognition without letting recognition failure stop import', async t => {
+  const notifications = [];
+  const f = await fixture(t, { decode: fakeDecode(2), chunkSeconds: 1, onTranscript: id => { notifications.push(id); throw new Error('optional recognition is unavailable'); } });
+  const result = await f.upload();
+  const job = await f.finished(result.job.id);
+  assert.equal(job.status, 'done');
+  assert.deepEqual(notifications, [result.meeting.id, result.meeting.id]);
+  assert.equal(f.store.allTranscript(result.meeting.id).length, 2);
+  f.service.retry(result.meeting.id);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(notifications.length, 2, 'a completed import cannot retrigger all historical speakers');
+});

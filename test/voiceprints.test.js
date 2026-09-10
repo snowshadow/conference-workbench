@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createVoiceprintService } from '../server/voiceprints/service.js';
@@ -238,6 +238,125 @@ test('a new service reloads profiles and filters embeddings from a different mod
   await f.service.stop();
   const runtime = { ...f.runtime, status: () => ({ available: true, model: { ...MODEL, revision: 'test-2' } }) };
   const next = createVoiceprintService({ store: f.store, runtime }); t.after(() => next.stop());
-  assert.equal(next.listProfiles({ meetingId: 'second' }).length, 1);
+  assert.equal(next.listProfiles({ meetingId: 'second' }).length, 0);
+  assert.equal(next.listProfiles({ meetingId: 'second', includeUnavailable: true })[0].unavailableReason, 'model_changed');
   assert.equal((await complete(next, next.submit('match', query.input))).result.status, 'unknown');
+});
+
+test('automatic sample selection skips short text, partials, unknown clusters and overlapping excerpts', t => {
+  const f = fixture(t), p = f.speaker('meeting', 'query', { manual: false });
+  assert.deepEqual(f.service.selectSamples('meeting', 'query'), p.input.sourceIds);
+  assert.deepEqual(f.service.selectSamples('meeting', 'query', { excludeSourceIds: [p.lines[0].id] }), []);
+  for (const patch of [{ text: '好好好！' }, { final: false }, { timing: 'chunk' }, { speakerId: 'unknown' }, { endSample: 16000 }]) {
+    const original = { ...p.lines[0] }; Object.assign(p.lines[0], patch);
+    assert.deepEqual(f.service.selectSamples('meeting', 'query'), []);
+    for (const key of Object.keys(p.lines[0])) delete p.lines[0][key]; Object.assign(p.lines[0], original);
+  }
+  f.meetings.get('meeting').lines.push({ ...p.lines[0], id: 'other-speaker', participantId: 'someone-else', startSample: 16000 });
+  assert.deepEqual(f.service.selectSamples('meeting', 'query'), []);
+  f.meetings.get('meeting').lines.pop();
+  p.lines[1].startSample = 16000; p.lines[1].endSample = 4 * 16000;
+  assert.deepEqual(f.service.selectSamples('meeting', 'query'), []);
+});
+
+test('automatic match chooses its own qualifying samples and returns per-segment evidence without binding anyone', async t => {
+  const f = fixture(t), known = f.speaker('first', 'known', { memberId: 'alice' }), query = f.speaker('second', 'query', { manual: false });
+  await complete(f.service, f.service.submit('enroll', { ...known.input, scope: 'team' }));
+  const matched = await complete(f.service, f.service.submit('match', { meetingId: 'second', participantId: 'query', automatic: true }));
+  assert.equal(matched.automatic, true);
+  assert.deepEqual(matched.input.sourceIds, query.input.sourceIds);
+  assert.equal(matched.result.autoAccept.memberId, 'alice');
+  assert.equal(matched.result.autoAccept.calibrated, false);
+  assert.equal(matched.result.segmentMatches.length, 2);
+  for (const segment of matched.result.segmentMatches) { assert.equal(segment.candidates[0].memberId, 'alice'); assert.equal(segment.marginBasis, 'neutral_cosine'); }
+  assert.equal(query.participant.memberId, null);
+});
+
+test('an excellent aggregate cannot hide one weak utterance during automatic identification', async t => {
+  const f = fixture(t), known = f.speaker('first', 'known', { memberId: 'alice' }), query = f.speaker('second', 'query', { manual: false });
+  await complete(f.service, f.service.submit('enroll', { ...known.input, scope: 'team' }));
+  f.runtime.extract = async () => [[1, 0, 0], [0.79, 0.61, 0]];
+  const matched = await complete(f.service, f.service.submit('match', { ...query.input, automatic: true }));
+  assert.ok(matched.result.candidates[0].score > 0.9);
+  assert.ok(matched.result.segmentMatches[1].candidates[0].score < 0.8);
+  assert.equal(matched.result.autoAccept, null);
+});
+
+test('sample manager exposes playback metadata and unavailable reasons without exposing vectors or paths', async t => {
+  const f = fixture(t), known = f.speaker('first', 'known', { memberId: 'alice' });
+  const enrolled = await complete(f.service, f.service.submit('enroll', { ...known.input, scope: 'team' }));
+  const id = enrolled.result.profile.id;
+  let profiles = f.service.listProfiles({ includeUnavailable: true });
+  assert.equal(profiles[0].available, true);
+  assert.deepEqual(profiles[0].segments.map(segment => segment.sourceId), known.input.sourceIds);
+  assert.doesNotMatch(JSON.stringify(profiles), /embedding|vectors|\/tmp\//);
+  assert.equal(f.service.status().availableTeamProfileCount, 1);
+  assert.equal(f.service.setProfileEnabled(id, false).unavailableReason, 'disabled');
+  assert.equal(f.service.listProfiles().length, 0);
+  assert.equal(f.service.status().availableTeamProfileCount, 0);
+  assert.equal(f.service.setProfileEnabled(id, true).available, true);
+  known.lines[0].participantId = 'corrected-person';
+  assert.equal(f.service.listProfiles().length, 0);
+  assert.equal(f.service.listProfiles({ includeUnavailable: true })[0].unavailableReason, 'source_changed');
+  assert.equal(f.service.setProfileEnabled(id, true).available, false);
+});
+
+test('embedding reuse avoids repeated CPU work while source revisions invalidate only changed excerpts', async t => {
+  const calls = [];
+  const f = fixture(t, { extract: async paths => { calls.push(paths.length); return paths.map(() => [1, 0, 0]); } });
+  const known = f.speaker('first', 'known', { memberId: 'alice' }), query = f.speaker('second', 'query', { manual: false });
+  await complete(f.service, f.service.submit('enroll', { ...known.input, scope: 'team' }));
+  await complete(f.service, f.service.submit('match', query.input));
+  const repeated = await complete(f.service, f.service.submit('match', query.input));
+  assert.deepEqual(calls, [2, 2]);
+  assert.equal(repeated.result.cacheHits, 2);
+  query.lines[0].revision++;
+  await complete(f.service, f.service.submit('match', query.input));
+  assert.deepEqual(calls, [2, 2, 1]);
+  assert.equal(readdirSync(path.join(f.dataDir, 'voiceprints', 'samples')).length, 1);
+  assert.ok(readdirSync(path.join(f.dataDir, 'voiceprints', 'samples', 'work')).length <= 4);
+  await f.service.stop();
+  const next = createVoiceprintService({ store: f.store, runtime: f.runtime }); t.after(() => next.stop());
+  const resumed = await complete(next, next.submit('match', query.input));
+  assert.equal(resumed.result.cacheHits, 2);
+  assert.deepEqual(calls, [2, 2, 1]);
+});
+
+test('disabling a voiceprint during extraction prevents a late automatic suggestion from accepting it', async t => {
+  const f = fixture(t), known = f.speaker('first', 'known', { memberId: 'alice' }), query = f.speaker('second', 'query', { manual: false });
+  const enrolled = await complete(f.service, f.service.submit('enroll', { ...known.input, scope: 'team' }));
+  f.runtime.extract = async paths => { f.service.setProfileEnabled(enrolled.result.profile.id, false); return paths.map(() => [1, 0, 0]); };
+  const result = await complete(f.service, f.service.submit('match', { ...query.input, automatic: true }));
+  assert.equal(result.result.reason, 'no_profiles');
+  assert.equal(result.result.autoAccept, null);
+});
+
+test('job history is scoped and copied, and shutdown waits for a cancelled worker to unwind', async t => {
+  let started = false, unwound = false;
+  const f = fixture(t, { extract: (paths, { signal }) => new Promise((resolve, reject) => {
+    started = true;
+    signal.addEventListener('abort', () => setTimeout(() => { unwound = true; reject(new Error('worker stopped')); }, 20), { once: true });
+  }) });
+  const first = f.speaker('first', 'a'), second = f.speaker('second', 'b');
+  const firstJob = f.service.submit('match', first.input), secondJob = f.service.submit('match', second.input);
+  const history = f.service.listJobs({ meetingId: 'first' });
+  assert.equal(history.length, 1); assert.equal(history[0].id, firstJob.id);
+  history[0].status = 'done'; assert.equal(f.service.getJob(firstJob.id).status, 'queued');
+  assert.equal(f.service.listJobs({ limit: 1 })[0].id, secondJob.id);
+  while (!started) await pause();
+  await f.service.stop();
+  assert.equal(unwound, true);
+  assert.equal(f.service.getJob(firstJob.id).status, 'cancelled');
+  assert.equal(f.service.getJob(secondJob.id).status, 'cancelled');
+  assert.equal(f.service.listProfiles().length, 0);
+});
+
+test('listing team samples reads each enrollment meeting once even with several profiles', async t => {
+  const f = fixture(t), a = f.speaker('first', 'a', { memberId: 'a' }), b = f.speaker('first', 'b', { memberId: 'b' });
+  await complete(f.service, f.service.submit('enroll', { ...a.input, scope: 'team' }));
+  await complete(f.service, f.service.submit('enroll', { ...b.input, scope: 'team' }));
+  let reads = 0; const read = f.store.allTranscript;
+  f.store.allTranscript = (...args) => { reads++; return read(...args); };
+  assert.equal(f.service.listProfiles().length, 2);
+  assert.equal(reads, 1);
 });

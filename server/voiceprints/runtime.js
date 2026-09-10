@@ -12,7 +12,7 @@ export function createVoiceprintRuntime({ dataDir, runtimeDir = process.env.WORK
     let manifest;
     try { manifest = JSON.parse(readFileSync(path.join(runtimeDir, 'manifest.json'), 'utf8')); } catch { /* An optional runtime may not be installed. */ }
     const available = Boolean(existsSync(python) && existsSync(path.join(runtimeDir, 'campplus_cn_common.bin')) && manifest?.verifiedAt && manifest?.model?.sha256 === MODEL.sha256 && manifest?.model?.revision === MODEL.revision);
-    return { available, model: MODEL, device: 'cpu', runtimeDir, verifiedAt: manifest?.verifiedAt || null, message: available ? '本地声纹运行时已就绪；匹配仅提供候选。' : '尚未安装本地声纹运行时，仍可手动标记说话人。' };
+    return { available, model: MODEL, device: 'cpu', threads: 2, runtimeDir, verifiedAt: manifest?.verifiedAt || null, message: available ? '本地声纹运行时已就绪。' : '尚未安装本地声纹运行时，仍可手动标记说话人。' };
   }
   async function extract(paths, { signal } = {}) {
     if (!status().available) throw new Error('本地声纹运行时尚未安装或验证，请运行 scripts/setup-voiceprints.py。');

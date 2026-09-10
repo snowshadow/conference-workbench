@@ -124,7 +124,7 @@ function providerLines(response, chunkIndex, startSample, endSample, recordingId
 }
 
 /** File import uses its own persistent queue; a completed upload is never live capture. */
-export function createImportService({ store, ai, fetchImpl = globalThis.fetch, decode = decodeAudio, chunkSeconds = 60, maxUploadBytes = 512 * 1024 ** 2, requestTimeoutMs = 300000, ...decodeOptions }) {
+export function createImportService({ store, ai, onTranscript = () => {}, fetchImpl = globalThis.fetch, decode = decodeAudio, chunkSeconds = 60, maxUploadBytes = 512 * 1024 ** 2, requestTimeoutMs = 300000, ...decodeOptions }) {
   const importsDir = path.join(store.dataDir, 'imports'), audioDir = path.join(store.dataDir, 'audio');
   fs.mkdirSync(importsDir, { recursive: true, mode: 0o700 });
   fs.mkdirSync(audioDir, { recursive: true, mode: 0o700 });
@@ -231,7 +231,9 @@ export function createImportService({ store, ai, fetchImpl = globalThis.fetch, d
             fs.writeFileSync(temporary, JSON.stringify({ lines }), { mode: 0o600, flag: 'wx', flush: true });
             fs.renameSync(temporary, checkpointPath);
           }
-          for (const line of lines) if (!knownIds.has(line.id)) { store.appendTranscript(job.meetingId, line); knownIds.add(line.id); }
+          let changed = false;
+          for (const line of lines) if (!knownIds.has(line.id)) { store.appendTranscript(job.meetingId, line); knownIds.add(line.id); changed = true; }
+          if (changed) Promise.resolve().then(() => onTranscript(job.meetingId)).catch(() => {});
           if (!lines.length) {
             const rec = store.getRecording(recording.id), oldGaps = (rec.gaps || []).filter(gap => gap.importKind !== 'pending');
             if (!oldGaps.some(gap => gap.importKind === 'no_speech' && gap.startSample === startSample)) oldGaps.push({ startSample, endSample, reason: '此区间未识别出文字，请回听核对。', importKind: 'no_speech' });

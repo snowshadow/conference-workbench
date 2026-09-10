@@ -12,7 +12,7 @@ const importedMeeting = meeting => meeting.source === 'recording_import' || Bool
 const inactiveCapture = () => ({ connected: false, state: 'idle', recordingId: null, asrState: 'stopped', error: null, asrError: null });
 const stoppedAsrState = capture => capture.asrError ? 'error' : capture.asrState === 'unconfigured' ? 'unconfigured' : 'stopped';
 
-export function createCaptureService({ server, store, onEnded = () => {}, asrFactory = createASRSession }) {
+export function createCaptureService({ server, store, onEnded = () => {}, onTranscript = () => {}, asrFactory = createASRSession }) {
   const hosts = new Map();
   const audioDir = path.join(store.dataDir, 'audio');
   fs.mkdirSync(audioDir, { recursive: true });
@@ -110,6 +110,7 @@ export function createCaptureService({ server, store, onEnded = () => {}, asrFac
   function transcript(host, result) {
     if (!host.recording) return;
     const rec = host.recording;
+    let changed = false;
     let partial = result.utterances?.length ? '' : result.text || '';
     for (const line of result.utterances || []) {
       if (!line.definite) { partial += line.text || ''; continue; }
@@ -130,10 +131,12 @@ export function createCaptureService({ server, store, onEnded = () => {}, asrFac
         if (current?.origin === 'asr' && (current.text !== input.text || current.speakerId !== speakerId || current.endSample !== endSample)) {
           const next = store.editTranscript(host.meetingId, previous.id, { ...input, origin: 'asr' });
           host.lines.set(key, next);
+          changed = true;
         }
-      } else host.lines.set(key, store.appendTranscript(host.meetingId, input));
+      } else { host.lines.set(key, store.appendTranscript(host.meetingId, input)); changed = true; }
     }
     send(host, { type: 'partial', text: partial });
+    if (changed) Promise.resolve().then(() => onTranscript(host.meetingId)).catch(() => {});
   }
   function begin(host, commandId) {
     const meeting = store.getMeeting(host.meetingId);

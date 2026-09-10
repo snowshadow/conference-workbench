@@ -1,9 +1,15 @@
 import { fail } from './store.js';
 import { resolveParticipant } from './people/store.js';
+import { isVoiceprintTextEligible } from '../shared/voiceprint-policy.js';
 
 const route = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res)).catch(next);
 
-export function registerPeopleRoutes({ app, store, ai, voiceprints, detail }) {
+export function registerPeopleRoutes({ app, store, ai, voiceprints, automatic, detail }) {
+  function withMeetingTitle(profile) {
+    let meetingTitle = '';
+    try { meetingTitle = store.getMeeting(profile.meetingId).title; } catch { /* The source may be unavailable. */ }
+    return { ...profile, meetingTitle };
+  }
   function refresh(meetingId, sourceIds, kind = 'attribution') {
     if (!sourceIds?.length) return null;
     try {
@@ -30,15 +36,15 @@ export function registerPeopleRoutes({ app, store, ai, voiceprints, detail }) {
   app.get('/api/meetings/:id/people', route(async (req, res) => {
     const participants = store.listParticipants(req.params.id);
     const lines = store.allTranscript(req.params.id);
-    const profiles = await voiceprints.listProfiles({ meetingId: req.params.id });
+    const profiles = (await voiceprints.listProfiles({ meetingId: req.params.id, includeUnavailable: true })).map(withMeetingTitle);
     res.json({ participants: participants.filter(person => !person.mergedInto).map(person => {
       const sources = lines.filter(line => line.participantId === person.id);
-      const samples = sources.filter(line => line.recordingId && line.timing !== 'chunk' && Number.isSafeInteger(line.startSample) && Number.isSafeInteger(line.endSample) && line.endSample - line.startSample >= 48000)
+      const samples = sources.filter(line => isVoiceprintTextEligible(line.text) && line.recordingId && line.timing !== 'chunk' && Number.isSafeInteger(line.startSample) && Number.isSafeInteger(line.endSample) && line.endSample - line.startSample >= 48000)
         .sort((a, b) => (b.endSample - b.startSample) - (a.endSample - a.startSample)).slice(0, 8)
         .sort((a, b) => a.startMs - b.startMs)
         .map(({ id, text, recordingId, startSample, endSample, startMs }) => ({ id, text, recordingId, startSample, endSample: Math.min(endSample, startSample + 480000), startMs }));
       return { ...person, lineCount: sources.length, samples };
-    }).filter(person => person.lineCount > 0 || person.name || person.identitySource === 'manual'), members: store.listMembers(), profiles });
+    }).filter(person => person.lineCount > 0 || person.name || person.identitySource === 'manual'), members: store.listMembers(), profiles, voiceprintJobs: voiceprints.listJobs?.({ meetingId: req.params.id, limit: 50 }) || [] });
   }));
   app.post('/api/meetings/:id/participants', (req, res) => res.status(201).json(store.createParticipant(req.params.id, req.body).participant));
   app.patch('/api/meetings/:id/participants/:participantId', (req, res) => {
@@ -56,8 +62,17 @@ export function registerPeopleRoutes({ app, store, ai, voiceprints, detail }) {
     res.json(identityResult(req.params.id, store.assignTranscriptParticipant(req.params.id, req.params.lineId, req.body.participantId, { author: req.body.author === 'agent' ? 'agent' : 'host' })));
   });
   app.get('/api/voiceprints/status', route(async (req, res) => res.json(await voiceprints.status())));
+  app.get('/api/voiceprints/profiles', route(async (req, res) => res.json({ profiles: (await voiceprints.listProfiles({ includeUnavailable: true })).filter(profile => profile.scope === 'team').map(withMeetingTitle) })));
+  app.patch('/api/voiceprints/profiles/:profileId', route(async (req, res) => {
+    if (typeof req.body.enabled !== 'boolean') throw fail('请选择启用或停用声音样本');
+    res.json({ profile: withMeetingTitle(await voiceprints.setProfileEnabled(req.params.profileId, req.body.enabled)) });
+  }));
+  app.post('/api/meetings/:id/participants/:participantId/recognition/retry', route(async (req, res) => {
+    const recognition = await automatic.retry(req.params.id, req.params.participantId);
+    res.status(202).json({ recognition });
+  }));
   for (const type of ['enroll', 'match']) app.post(`/api/meetings/:id/participants/:participantId/voiceprints/${type}`, route(async (req, res) => {
-    if (!Array.isArray(req.body.sourceIds) || req.body.sourceIds.length < 2 || req.body.sourceIds.length > 4 || new Set(req.body.sourceIds).size !== req.body.sourceIds.length || req.body.sourceIds.some(id => typeof id !== 'string' || !id.trim())) throw fail('请选择 2–4 段不同的发言片段');
+    if ((type === 'enroll' || req.body.sourceIds !== undefined) && (!Array.isArray(req.body.sourceIds) || req.body.sourceIds.length < 2 || req.body.sourceIds.length > 4 || new Set(req.body.sourceIds).size !== req.body.sourceIds.length || req.body.sourceIds.some(id => typeof id !== 'string' || !id.trim()))) throw fail('请选择 2–4 段不同的发言片段');
     if (type === 'enroll' && !['meeting', 'team'].includes(req.body.scope)) throw fail('请选择仅用于本场会议或跨会议识别');
     const job = await voiceprints.submit(type, { meetingId: req.params.id, participantId: req.params.participantId, sourceIds: req.body.sourceIds, scope: req.body.scope });
     res.status(202).json({ job });

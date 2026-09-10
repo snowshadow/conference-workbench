@@ -17,11 +17,11 @@ async function until(predicate) {
   while (Date.now() < deadline) { const value = predicate(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 10)); }
   throw new Error('Timed out waiting for capture state');
 }
-async function fixture(t, factory) {
+async function fixture(t, factory, onTranscript = () => {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-capture-test-'));
   const store = new Store(dir), server = http.createServer();
   const sessions = [];
-  const capture = createCaptureService({ server, store, onEnded: id => store.updateMeeting(id, { status: 'ended' }), asrFactory: options => {
+  const capture = createCaptureService({ server, store, onTranscript, onEnded: id => store.updateMeeting(id, { status: 'ended' }), asrFactory: options => {
     sessions.push(options);
     return factory ? factory(options) : { push() {}, finish: async () => { options.onState({ asrState: 'stopped' }); }, close() {} };
   } });
@@ -36,6 +36,29 @@ async function fixture(t, factory) {
   }
   return { capture, store, meeting, sessions, connect, port };
 }
+
+test('new finalized ASR text notifies recognition once, and failed recognition cannot interrupt capture', async t => {
+  const notified = [];
+  const f = await fixture(t, undefined, meetingId => { notified.push(meetingId); throw new Error('optional recognition unavailable'); });
+  const ws = await f.connect(), cmd = await begin(f, ws);
+  ws.send(Buffer.alloc(32000)); await until(() => f.store.getCommand(cmd.id).status === 'done');
+  const result = { epochStartSample: 0, recognitionSessionId: 'session-one', utterances: [{ text: '先讨论接口', startTime: 0, endTime: 800, definite: false, speaker: 1 }] };
+  f.sessions[0].onTranscript(result);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(notified.length, 0);
+  result.utterances[0].definite = true;
+  f.sessions[0].onTranscript(result);
+  await until(() => notified.length === 1);
+  f.sessions[0].onTranscript(result);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(notified.length, 1, 'identical provider replay must not repeat recognition notification');
+  result.utterances[0].text = '先讨论接口边界';
+  f.sessions[0].onTranscript(result);
+  await until(() => notified.length === 2);
+  await finish(f, ws);
+  assert.equal(f.store.allTranscript(f.meeting.id)[0].text, '先讨论接口边界');
+  assert.equal(f.capture.readAudio(f.store.listRecordings(f.meeting.id)[0].id).length, 32044);
+});
 async function begin(f, ws, action = 'start') {
   const cmd = f.capture.request(f.meeting.id, action);
   assert.equal(cmd.status, 'needs_user_action');

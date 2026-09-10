@@ -41,9 +41,11 @@ description: Operate the local meeting workbench through MCP to record or import
 
 按用户确认用 `label_meeting_speaker` 标记姓名或关联成员；外部参会者可只在本场命名。改名会同步到引用该身份的 AI 内容。纠正某段归属用 `assign_transcript_speaker`；同一个人被分成两组用 `merge_meeting_speakers`。归属或成员关联改变后，相关分析会重新核对，已有内容和人工记录保留。返回 `refreshJob` 时用 `get_ai_job` 查询，再回读会议验证。
 
-声纹是独立的本地任务。用 `get_voiceprint_status` 核对模型是否就绪。只有用户明确同意保存这位参会者的声音样本，并确认所选发言来自同一个人，才调用 `enroll_speaker_voiceprint`：选择 2–4 段可准确回听的清晰单人发言，每段至少 3 秒。团队成员用 `scope=team`，访客用 `scope=meeting`；长发言仅使用前 30 秒。单纯命名或关联成员不代表授权登记声纹。
+声纹是独立的本地任务。用 `get_voiceprint_status` 核对模型是否就绪。只有用户明确同意保存这位参会者的声音样本，并确认所选发言来自同一个人，才调用 `enroll_speaker_voiceprint`：选择 2–4 段可准确回听的清晰单人发言，每段至少 3 秒、转录至少 4 个字。团队成员用 `scope=team`，访客用 `scope=meeting`；长发言仅使用前 30 秒。单纯命名或关联成员不代表授权登记声纹。
 
-`suggest_speaker_identity` 将选定音频与已保存样本比较，用 `get_voiceprint_job` 回读。当前只给候选，不自动采用姓名；得到用户确认后再标记或合并。相似度不是身份正确率，没有可靠匹配时保留本场说话人编号。声纹库只在这套本地工作台内共享。
+新转录中的未命名 ASR 说话人会在后台自动识别：累积至少两段合格发言，多段结果足够一致时采用团队姓名；不确定时保留编号与候选，等更多发言或主持人确认。识别后复用身份，不逐句重复计算；人工标记优先。重连的新分组单独核对，本会访客候选仍由主持人确认。自动识别不会登记新样本。
+
+用 `get_meeting_speakers` 读取 `recognition` 的实际状态；用户要求重试某位未命名说话人时使用 `retry_speaker_recognition`，无需先选片段。`suggest_speaker_identity` 只比较并返回候选，省略 `sourceIds` 时自动选段，用 `get_voiceprint_job` 回读；未经主持人确认，不把弱候选写成姓名。`list_voiceprint_profiles` 查看已登记的团队样本、来源和可用状态；按用户要求用 `set_voiceprint_enabled` 停用或恢复样本。相似度不是身份正确率，声纹库只在这套本地工作台内共享。
 
 ## 记录澄清进展
 
