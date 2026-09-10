@@ -38,6 +38,8 @@ function validateResult(result, purpose) {
   } else {
     valid = objects(result.topics) && objects(result.followups)
       && result.followups.every(item => ['shortQuestion','discussionValue'].every(key => item[key] === undefined || typeof item[key] === 'string'))
+      && result.followups.every(item => item.priority === undefined || object(item.priority)
+        && ['high', 'medium', 'low'].includes(item.priority.level) && typeof item.priority.reason === 'string' && item.priority.reason.trim().length > 0 && item.priority.reason.trim().length <= 600)
       && result.followups.every(item => item.clarification === undefined || object(item.clarification)
         && typeof item.clarification.explanation === 'string' && citations(item.clarification.evidence)
         && (item.clarification.distinctions === undefined || objects(item.clarification.distinctions)
@@ -185,6 +187,8 @@ const providerErrorMessages = {
   format: '大模型不支持当前的输出格式，请检查模型和 API 的兼容性。',
 };
 
+const followupContent = items => JSON.stringify(items.map(({ priority, ...item }) => item));
+
 /** Persistent jobs, one in flight per meeting; injectable request/timing seams support deterministic tests. */
 export function createAIService({ store, fetchImpl = globalThis.fetch, intervalMs = 30000, requestTimeoutMs = 300000 }) {
   let started = false, timer = null;
@@ -293,7 +297,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     const current = store.getMeeting(meetingId);
     const fresh = current.transcriptRevision === snapshot.transcriptRevision;
     store.mutateMeeting(meetingId, meeting => {
-      const changed = JSON.stringify(meeting.topics) !== JSON.stringify(draft.topics) || JSON.stringify(meeting.followups) !== JSON.stringify(draft.followups);
+      const changed = JSON.stringify(meeting.topics) !== JSON.stringify(draft.topics) || followupContent(meeting.followups) !== followupContent(draft.followups);
       if (changed) for (const artifact of meeting.artifacts || []) { artifact.stale = true; artifact.staleReason = 'content_changed'; }
       meeting.topics = draft.topics;
       if (Object.hasOwn(draft, 'focusFollowupId')) { meeting.focusFollowupId = draft.focusFollowupId; meeting.focusSourceRevision = draft.focusSourceRevision; }
@@ -410,7 +414,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     if (!snapshotMatches(store, snapshot, allLines)) throw new StaleResult();
     const fresh = store.getMeeting(meetingId).transcriptRevision === snapshot.transcriptRevision;
     store.mutateMeeting(meetingId, meeting => {
-      if (JSON.stringify(meeting.followups) !== JSON.stringify(draft.followups)) for (const artifact of meeting.artifacts || []) { artifact.stale = true; artifact.staleReason = 'content_changed'; }
+      if (followupContent(meeting.followups) !== followupContent(draft.followups)) for (const artifact of meeting.artifacts || []) { artifact.stale = true; artifact.staleReason = 'content_changed'; }
       meeting.followups = draft.followups.map(item => !fresh && (item.status === 'active' || item.resolution?.author === 'ai' && item.resolution.sourceRevision === snapshot.transcriptRevision) ? { ...item, pendingReview: true, ...(item.resolution?.author === 'ai' ? { resolution: { ...item.resolution, pendingReview: true } } : {}) } : item);
       if (Object.hasOwn(draft, 'focusFollowupId')) { meeting.focusFollowupId = draft.focusFollowupId; meeting.focusSourceRevision = draft.focusSourceRevision; }
     });

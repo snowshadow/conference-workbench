@@ -24,7 +24,7 @@ test('MCP returns current nested clarification content and citations without his
   workbench.store.mutateMeeting(meeting.id, current => {
     current.focusFollowupId = 'active';
     current.followups = [
-      { id: 'active', status: 'active', author: 'ai', question: '画像的哪部分固定？', evidenceIds: sources.slice(0, 2).map(item => item.id), clarification: structuredClone(explanation), history: old },
+      { id: 'active', status: 'active', author: 'ai', question: '画像的哪部分固定？', evidenceIds: sources.slice(0, 2).map(item => item.id), clarification: structuredClone(explanation), priority: { level: 'high', reason: '会影响当前更新范围。', evidence: [ref(0)], evidenceIds: [sources[0].id], author: 'ai', history: old }, history: old },
       { id: 'retired', status: 'active', author: 'ai', question: '栏目会不会变？', evidenceIds: sources.map(item => item.id), clarification: structuredClone(explanation), history: old,
         attention: { needed: false, reason: '本次范围不涉及栏目变化。', evidence: [ref(2)], evidenceIds: [sources[2].id], author: 'ai', stale: false, history: old },
         resolution: { text: '用户内容可以变化，更新规则仍需讨论。', outcome: 'clarified', complete: false, evidence: [ref(1)], evidenceIds: [sources[1].id], author: 'ai', stale: false, history: old } },
@@ -39,6 +39,9 @@ test('MCP returns current nested clarification content and citations without his
   const context = JSON.parse(result.content[0].text);
   assert.equal(context.focusFollowupId, 'active');
   assert.equal(context.followups.length, 2);
+  assert.equal(context.followups[0].priority.level, 'high');
+  assert.equal(context.followups[0].priority.reason, '会影响当前更新范围。');
+  assert.deepEqual(context.followups[0].priority.evidence, [ref(0)]);
   assert.doesNotMatch(JSON.stringify(context.followups), /"history"|旧姓名与旧解释/);
   for (const item of context.followups) {
     assert.equal(item.clarification.explanation, explanation.explanation);

@@ -112,6 +112,7 @@ export function peopleReviewRecords(meeting, lines, sourceIds, kind = 'attributi
         if (part.id) add(part, ['followups', item.id, 'clarification', 'distinctions', part.id], ['title', 'text', 'example'], refs(part));
       }
     }
+    if (!human(item) && !item.manualFields?.includes('priority')) add(item.priority, ['followups', item.id, 'priority'], ['reason'], refs(item.priority || {}));
     if (!human(item) && !item.manualFields?.includes('attention')) add(item.attention, ['followups', item.id, 'attention'], ['reason'], refs(item.attention || {}));
   }
   for (const item of meeting.questions || []) add(item, ['questions', item.id], ['answer', 'inference'], refs(item), { question: item.question });

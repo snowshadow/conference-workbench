@@ -1,9 +1,8 @@
-import { memo, useEffect, useId, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { api, formatTime, meetingPath } from '../lib/api.js';
-import { isActiveFocus, readingFocusId, recommendedFocusId, returnFocusId } from '../../shared/discussion-view.js';
+import { isActiveFocus, orderedFocuses, browseFocusIds, focusPriority, readingFocusId, recommendedFocusId, returnFocusId } from '../../shared/discussion-view.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 import { clarificationRecordReview } from '../../shared/clarification-record-state.js';
 
@@ -28,7 +27,7 @@ function questionSources(item) {
     const text = textValue(quote);
     if (text && !sources.get(id).quotes.includes(text)) sources.get(id).quotes.push(text);
   }
-  for (const group of [item, clarification, ...(clarification?.distinctions || []).filter(part => !part.stale), item.resolution]) {
+  for (const group of [item, clarification, ...(clarification?.distinctions || []).filter(part => !part.stale), item.resolution, item.priority?.stale ? null : item.priority]) {
     for (const id of group?.evidenceIds || []) add(id);
     for (const source of group?.evidence || []) add(source.id || source.lineId, source.quote);
   }
@@ -174,7 +173,81 @@ function ClarificationReading({ item }) {
   </>;
 }
 
-function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopic, mutate, job, analysisStatus, onRequestQuestion, questionRequestBusy = false, pauseFollowing = false, toolbarTarget, visible = true }) {
+function PrioritySignal({ item, compact = false }) {
+  const priority = focusPriority(item);
+  return <span className={`focus-priority-signal ${priority.level}${compact ? ' compact' : ''}`}>
+    <span className="focus-priority-bars" aria-hidden="true">{[1, 2, 3].map(value => <i key={value} className={value <= priority.rank ? 'filled' : ''} />)}</span>
+    <span>{priority.label}</span>
+  </span>;
+}
+
+function FocusNavigator({ items, availableCount, current, readingId, recommendedId, returnTarget, disabled, onMove, onSelect, onOpenList, onReturn, onSources, requestQuestion }) {
+  const [open, setOpen] = useState(null);
+  const navigation = useRef(null), popover = useRef(null), listTrigger = useRef(null), priorityTrigger = useRef(null);
+  const popoverId = useId(), titleId = useId();
+  const index = items.findIndex(item => item.id === readingId);
+  const count = index < 0 ? availableCount : items.length;
+  const priority = focusPriority(current);
+  const hasPriority = priority.level !== 'unrated';
+  const reason = textValue(priority.reason);
+  const returnFocus = () => (open === 'priority' ? priorityTrigger.current : listTrigger.current)?.focus({ preventScroll: true });
+  const close = (restore = false) => { if (restore) returnFocus(); setOpen(null); };
+  function toggle(kind) {
+    if (open === kind) { close(true); return; }
+    if (kind === 'list') onOpenList();
+    setOpen(kind);
+  }
+  useLayoutEffect(() => {
+    const element = popover.current;
+    if (!element || !open) return;
+    function position() {
+      const bounds = navigation.current.getBoundingClientRect();
+      const width = Math.min(open === 'list' ? 560 : 390, innerWidth - 32);
+      const left = open === 'list' ? bounds.left : bounds.right - width;
+      const top = Math.min(bounds.bottom + 8, innerHeight - 160);
+      Object.assign(element.style, { width: `${width}px`, left: `${Math.max(16, Math.min(left, innerWidth - width - 16))}px`, top: `${Math.max(16, top)}px`, maxHeight: `${innerHeight - Math.max(16, top) - 16}px` });
+    }
+    position(); element.showPopover();
+    const target = element.querySelector('[aria-current="true"]') || element.querySelector('button') || element;
+    target.focus({ preventScroll: true });
+    if (open === 'list' && target !== element) element.scrollTop = Math.max(0, target.getBoundingClientRect().top - element.getBoundingClientRect().top - (element.clientHeight - target.offsetHeight) / 2);
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => { window.removeEventListener('resize', position); window.removeEventListener('scroll', position, true); if (element.matches(':popover-open')) element.hidePopover(); };
+  }, [open]);
+  useEffect(() => { if (disabled) setOpen(null); }, [disabled]);
+  return <div className="focus-navigation-shell">
+    <nav className="focus-navigation" aria-label="焦点问题导航" ref={navigation}>
+      <div className="focus-navigation-steps">
+        <button type="button" className="focus-step" aria-label="上一题" disabled={disabled || index <= 0} onClick={() => onMove(-1)}><ChevronLeft size={16} aria-hidden="true" /><span>上一题</span></button>
+        <button type="button" className="focus-position" ref={listTrigger} aria-label={`全部待讨论问题，${index < 0 ? `共 ${count} 题` : `第 ${index + 1} 题，共 ${count} 题`}`} aria-haspopup="dialog" aria-expanded={open === 'list'} aria-controls={open === 'list' ? popoverId : undefined} disabled={disabled || !availableCount} onClick={() => toggle('list')}>
+          <span>{index < 0 ? `待讨论 · ${count}` : `${index + 1} / ${count}`}</span><ChevronDown size={13} aria-hidden="true" />
+        </button>
+        <button type="button" className="focus-step" aria-label="下一题" disabled={disabled || index < 0 || index >= items.length - 1} onClick={() => onMove(1)}><span>下一题</span><ChevronRight size={16} aria-hidden="true" /></button>
+      </div>
+      <div className="focus-navigation-context">
+        <div className="focus-priority-slot">{current && <button type="button" className="focus-priority-trigger" ref={priorityTrigger} aria-label={`${priority.label}，查看排序说明`} aria-haspopup="dialog" aria-expanded={open === 'priority'} aria-controls={open === 'priority' ? popoverId : undefined} disabled={disabled} onClick={() => toggle('priority')}><PrioritySignal item={current} /></button>}</div>
+        <div className="focus-return-slot">{returnTarget && <button type="button" className="focus-navigation-return" aria-label="回到推荐问题" disabled={disabled} onClick={() => { close(); onReturn(); }}><ArrowLeft size={13} aria-hidden="true" /><span>回到推荐</span></button>}</div>
+      </div>
+    </nav>
+    {open && <div id={popoverId} ref={popover} popover="auto" tabIndex={-1} role="dialog" aria-labelledby={titleId} className={`focus-navigation-popover ${open === 'list' ? 'focus-list-popover' : 'focus-priority-popover'}`} onToggle={event => { if (event.newState === 'closed') setOpen(null); }} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); close(true); } }}>
+      {open === 'list' ? <>
+        <div className="focus-list-heading"><h4 id={titleId}>待讨论的问题</h4><span>{items.length} 个</span></div>
+        <div className="focus-list-items">{items.map(item => <button type="button" className="focus-list-item" key={item.id} aria-current={item.id === readingId ? 'true' : undefined} onClick={() => { close(); onSelect(item.id); }}>
+          <span className="focus-list-copy"><span className="focus-list-question">{questionFor(item)}</span>{(item.id === readingId || item.id === recommendedId) && <span className="focus-list-markers">{item.id === readingId && <span>正在查看</span>}{item.id === recommendedId && <span>AI 推荐</span>}</span>}</span><PrioritySignal item={item} compact />
+        </button>)}</div>
+        {requestQuestion && <div className="focus-list-footer" onClick={() => close(true)}>{requestQuestion}</div>}
+      </> : <>
+        <h4 id={titleId}>{hasPriority ? '为什么这样排序' : '还没有排序建议'}</h4>
+        <p>{hasPriority ? reason || 'AI 根据问题对当前讨论的影响，大致建议先后顺序。' : '这条问题尚未给出优先级，之后分析时会一并判断。'}</p>
+        {hasPriority && <span className="focus-priority-note">AI 对讨论先后的建议</span>}
+        <button type="button" className="focus-priority-source" onClick={() => { close(); onSources(); }}>核对这题的原话<ArrowUpRight size={13} aria-hidden="true" /></button>
+      </>}
+    </div>}
+  </div>;
+}
+
+function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopic, mutate, job, analysisStatus, onRequestQuestion, questionRequestBusy = false, pauseFollowing = false, visible = true }) {
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState('');
   const [editingItem, setEditingItem] = useState(null);
@@ -182,33 +255,70 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   const focusHeading = useRef(null);
   const readingScroll = useRef(null);
   const [following, setFollowing] = useState(true);
-  const active = (meeting.followups || []).filter(isActiveFocus);
+  const [orderIds, setOrderIds] = useState(null);
+  const active = orderedFocuses(meeting);
+  const orderedIds = browseFocusIds(meeting, orderIds);
+  const navigationItems = orderedIds.map(id => active.find(item => item.id === id)).filter(Boolean);
+  const recommendedId = recommendedFocusId(meeting);
   const readingId = readingFocusId(meeting, selected, following, Boolean(editingItem) || pauseFollowing);
   const returnTarget = returnFocusId(meeting, readingId);
   const selectedItem = (meeting.followups || []).find(item => item.id === readingId);
   const current = isActiveFocus(selectedItem) ? selectedItem : null;
-  const otherItems = active.filter(item => item.id !== current?.id);
+
   useEffect(() => {
     if (selected !== readingId) setSelected(readingId);
   }, [readingId, selected, setSelected]);
-  function holdReading() { setSelected(readingId); setFollowing(false); }
+  useLayoutEffect(() => {
+    // Automatic advancement can reach a question added after manual browsing
+    // began. Bring that new recommendation into the navigation order as well.
+    if (following && !editingItem && !pauseFollowing && current && orderIds !== null && !orderedIds.includes(readingId)) {
+      setOrderIds(active.map(item => item.id));
+    }
+  }, [following, editingItem, pauseFollowing, current, orderIds, orderedIds, readingId, active]);
+  function freezeOrder() { if (orderIds === null) setOrderIds(active.map(item => item.id)); }
+  function holdReading() { freezeOrder(); setSelected(readingId); setFollowing(false); }
+  function toReadingTop() {
+    requestAnimationFrame(() => {
+      readingScroll.current?.scrollTo({ top: 0, behavior: 'instant' });
+      focusHeading.current?.focus({ preventScroll: true });
+    });
+  }
+  function selectQuestion(id) { freezeOrder(); setFollowing(id === recommendedId); setSelected(id); toReadingTop(); }
+  function moveQuestion(direction) {
+    const index = orderedIds.indexOf(readingId);
+    const id = index < 0 ? null : orderedIds[index + direction];
+    if (id) selectQuestion(id);
+  }
+  function openSources() {
+    holdReading();
+    const detail = readingScroll.current?.querySelector('.focus-evidence');
+    if (detail) {
+      detail.open = true;
+      requestAnimationFrame(() => {
+        const viewport = readingScroll.current;
+        if (viewport) viewport.scrollTo({ top: viewport.scrollTop + detail.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 12, behavior: 'instant' });
+        detail.querySelector('summary')?.focus({ preventScroll: true });
+      });
+    }
+  }
+  useEffect(() => { readingScroll.current?.scrollTo({ top: 0, behavior: 'instant' }); }, [readingId]);
   function showEvidence(id) { holdReading(); onEvidence(id); }
   function editResult(item) { setSelected(readingId); setEditingItem(item); }
   function returnToRecommended() {
     if (!returnTarget) return;
     setFollowing(true);
+    setOrderIds(null);
     setSelected(returnTarget);
-    requestAnimationFrame(() => {
-      readingScroll.current?.scrollTo({ top: 0, behavior: 'instant' });
-      focusHeading.current?.focus({ preventScroll: true });
-    });
+    toReadingTop();
   }
   async function ignore(id) {
     setUpdating(id); setError('');
     try {
       const updated = await mutate(`/followups/${id}`, 'PATCH', { status: 'ignored' });
       setSelected(recommendedFocusId(updated));
+      setOrderIds(null);
       setFollowing(true);
+      toReadingTop();
     } catch (failure) { setError(failure.message); } finally { setUpdating(''); }
   }
   const selectedResult = selectedItem?.resolution && (['resolved', 'recorded'].includes(selectedItem.status) || selectedItem.attention?.needed === false);
@@ -232,7 +342,7 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   const closeEditor = () => { setEditingItem(null); requestAnimationFrame(() => (recordTrigger.current || focusHeading.current)?.focus({ preventScroll: true })); };
   const readingState = current ? 'active' : selectedResult ? (staleResult ? 'saved-stale' : 'saved') : selectedItem ? 'previous' : 'empty';
   return <div className="clarification-content reading-focus">
-    {visible && toolbarTarget && returnTarget && createPortal(<Button className="focus-return-button" onClick={returnToRecommended} disabled={Boolean(editingItem) || pauseFollowing || Boolean(updating)} aria-label="回到推荐问题" title="回到推荐问题"><ArrowLeft size={15} aria-hidden="true" /><span>回到推荐问题</span></Button>, toolbarTarget)}
+    {visible && <FocusNavigator items={navigationItems} availableCount={active.length} current={current} readingId={readingId} recommendedId={recommendedId} returnTarget={returnTarget} disabled={Boolean(editingItem) || pauseFollowing || Boolean(updating)} onMove={moveQuestion} onSelect={selectQuestion} onOpenList={() => setOrderIds(active.map(item => item.id))} onReturn={returnToRecommended} onSources={openSources} requestQuestion={requestQuestion} />}
     <FormError error={error} />
     <div className="clarification-scroll" ref={readingScroll}>
       <div className="focus-reading-view" key={`${readingId || 'none'}:${readingState}`}>
@@ -245,7 +355,7 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
       </article> : selectedResult ? <article className={`focus-saved${staleResult ? ' is-stale' : ''}`}><p className="focus-origin" role="status">{staleResult ? '此前的问题' : selectedItem.attention?.needed === false ? '已退出当前提示，讨论记录已保留' : '已保存到讨论进展'}</p><h3 ref={focusHeading} tabIndex={-1}>{questionFor(selectedItem)}</h3><ResolutionSummary item={selectedItem} onEvidence={showEvidence} onEdit={editingItem ? undefined : () => editResult(selectedItem)} /></article> : selectedItem && (selectedItem.stale || selectedItem.status !== 'active' || selectedItem.attention?.needed === false) ? <div className="clarification-transition"><h3>{selectedItem.stale ? '刚才的问题需要重新核对' : selectedItem.status === 'ignored' ? '这条问题已先放下' : selectedItem.attention?.needed === false ? '这条问题暂时不需要继续提示' : '刚才的问题已处理'}</h3><p>{selectedItem.stale ? '原文已修正，更新后再查看。' : selectedItem.attention?.needed === false ? textValue(selectedItem.attention.reason) || '可以回到当前讨论。' : '可以回到当前讨论。'}</p></div> : <EmptyState title={emptyState.title} action={!active.length && !importing && !analyzing && meeting.processedRevision ? requestQuestion : null}>{emptyState.text}</EmptyState>}
       </div>
       {editingItem && <ResolutionEditor key={editingItem.id} inline item={(meeting.followups || []).find(item => item.id === editingItem.id) || editingItem} meeting={meeting} mutate={mutate} onClose={closeEditor} />}
-      {otherItems.length > 0 && <details className="focus-queue"><summary>其他问题 · {otherItems.length}<ChevronDown size={13} aria-hidden="true" /></summary><div>{otherItems.map(item => <button className="focus-queue-item" key={item.id} disabled={Boolean(editingItem)} onClick={() => { setFollowing(false); setSelected(item.id); }}><span>{questionFor(item)}</span><ChevronRight size={15} aria-hidden="true" /></button>)}{requestQuestion}</div></details>}
+
     </div>
     {job && <div className="working-line"><LoaderCircle size={13} className="spin" />正在寻找新的问题…</div>}
   </div>;

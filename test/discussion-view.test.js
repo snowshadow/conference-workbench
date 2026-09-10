@@ -1,23 +1,65 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isActiveFocus, readingFocusId, recommendedFocusId, resolveFocus, returnFocusId, topicReadingEntries } from '../shared/discussion-view.js';
+import { browseFocusIds, focusPriority, isActiveFocus, nextFocusId, orderedFocuses, readingFocusId, recommendedFocusId, resolveFocus, returnFocusId, topicReadingEntries } from '../shared/discussion-view.js';
 
 const question = (id, extra = {}) => ({ id, status: 'active', ...extra });
 
-test('explicit quiet focus never fills the screen from an old question queue', () => {
+test('explicit quiet focus never opens an old question but preserves an active reading position', () => {
   const meeting = { focusFollowupId: null, followups: [question('old')] };
   assert.equal(recommendedFocusId(meeting), null);
-  assert.equal(readingFocusId(meeting, 'old'), null);
+  assert.equal(readingFocusId(meeting, null), null);
+  assert.equal(readingFocusId(meeting, 'old'), 'old');
   assert.equal(recommendedFocusId({ followups: meeting.followups }), 'old');
 });
 
-test('default following advances after completion, ignoring, and recommendation changes', () => {
+test('following advances after completion or ignoring, while recommendation changes keep the active reading', () => {
   const followups = [question('old', { status: 'resolved' }), question('next')];
   assert.equal(readingFocusId({ focusFollowupId: 'next', followups }, 'old'), 'next');
   followups[0].status = 'ignored';
   assert.equal(readingFocusId({ focusFollowupId: 'next', followups }, 'old'), 'next');
   followups[0].status = 'active';
-  assert.equal(readingFocusId({ focusFollowupId: 'next', followups }, 'old'), 'next');
+  assert.equal(readingFocusId({ focusFollowupId: 'next', followups }, 'old'), 'old');
+});
+
+test('three priority groups order active questions stably without counting transcript fragments', () => {
+  const meeting = { followups: [question('legacy', { evidenceIds: Array(50).fill('source') }), question('medium', { priority: { level: 'medium' } }), question('high-a', { priority: { level: 'high' } }), question('low', { priority: { level: 'low' } }), question('high-b', { priority: { level: 'high' } }), question('old', { status: 'resolved', priority: { level: 'high' } }), question('retired', { attention: { needed: false }, priority: { level: 'high' } })] };
+  const before = structuredClone(meeting);
+  assert.deepEqual(orderedFocuses(meeting).map(item => item.id), ['high-a', 'high-b', 'medium', 'low', 'legacy']);
+  assert.deepEqual(meeting, before);
+  assert.equal(focusPriority(meeting.followups[0]).label, '待排序');
+  assert.equal(focusPriority({ priority: { level: 'high', stale: true } }).rank, 0);
+  for (const level of [99, 'critical', '__proto__', 'constructor', null]) assert.equal(focusPriority({ priority: { level } }).level, 'unrated');
+  assert.equal(focusPriority({ priority: { level: 'high', reason: '  会影响当前范围。 ' } }).reason, '会影响当前范围。');
+});
+
+test('priority steers recommendations and automatic progression while same-level context is preserved', () => {
+  const meeting = { focusFollowupId: 'read', followups: [question('read', { topicId: 'a', priority: { level: 'medium' } }), question('near', { topicId: 'a', priority: { level: 'low' } }), question('important', { topicId: 'b', priority: { level: 'high' } })] };
+  assert.equal(recommendedFocusId(meeting), 'important');
+  assert.equal(readingFocusId(meeting, 'read'), 'read');
+  assert.equal(returnFocusId(meeting, 'read'), 'important');
+  meeting.followups[0].status = 'resolved';
+  assert.equal(nextFocusId(meeting, 'read'), 'important');
+  assert.equal(readingFocusId(meeting, 'read'), 'important');
+  meeting.followups[1].priority.level = 'high';
+  assert.equal(nextFocusId(meeting, 'read'), 'near');
+  meeting.focusFollowupId = null;
+  assert.equal(recommendedFocusId(meeting), null);
+});
+
+test('a frozen browsing queue ignores new priorities and additions until refreshed', () => {
+  const meeting = { followups: [question('a', { priority: { level: 'high' } }), question('b', { priority: { level: 'medium' } }), question('c', { priority: { level: 'low' } })] };
+  const frozen = browseFocusIds(meeting);
+  meeting.followups[2].priority.level = 'high';
+  meeting.followups[0].priority.level = 'low';
+  meeting.followups.push(question('new', { priority: { level: 'high' } }));
+  assert.deepEqual(browseFocusIds(meeting, frozen), ['a', 'b', 'c']);
+  assert.deepEqual(browseFocusIds(meeting), ['c', 'new', 'b', 'a']);
+  meeting.followups[0].status = 'ignored';
+  meeting.followups[1].mergedInto = 'c';
+  assert.deepEqual(browseFocusIds(meeting, frozen), ['c']);
+  assert.deepEqual(browseFocusIds(meeting, []), []);
+  assert.deepEqual(browseFocusIds({ followups: [] }), []);
+  assert.deepEqual(frozen, ['a', 'b', 'c']);
 });
 
 test('a missing or stale recommended item stays quiet instead of selecting the oldest', () => {

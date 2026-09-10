@@ -7,6 +7,7 @@ import { isActiveFocus, nextFocusId } from '../../shared/discussion-view.js';
 const ENTRY_TYPES = new Set(['viewpoint', 'question', 'decision', 'action']);
 const STATUSES = new Set(['active', 'open', 'resolved', 'superseded']);
 const CLARIFICATION_KINDS = new Set(['concept', 'assumption', 'criteria', 'other']);
+const PRIORITY_LEVELS = new Set(['high', 'medium', 'low']);
 const RESOLUTION_OUTCOMES = new Set(['clarified', 'needs_verification', 'difference_remains']);
 const clean = (value, max = 3000) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const presentationText = (value, max) => typeof value === 'string' && value.trim().length <= max ? value.trim() : '';
@@ -58,7 +59,7 @@ const evidenceIds = evidence => [...new Set(evidence.map(item => item.id))];
 const human = item => item?.author && item.author !== 'ai';
 const protectedClarification = item => item && (human(item) || item.manualFields?.length || item.distinctions?.some(part => human(part) || part.manualFields?.length));
 const explanationMeaning = item => item && ({ explanation: item.explanation, distinctions: (item.distinctions || []).map(({ title, text, example }) => ({ title, text, example })) });
-const REVIEW_METADATA = new Set(['sourceRevision', 'presentationSourceRevision', 'updatedAt', 'createdAt', 'pendingReview', 'stale', 'peopleFields', 'identityReview', 'identityReviewedAt', 'history']);
+const REVIEW_METADATA = new Set(['sourceRevision', 'presentationSourceRevision', 'updatedAt', 'createdAt', 'pendingReview', 'stale', 'peopleFields', 'identityReview', 'identityReviewedAt', 'history', 'priority']);
 const substantiveValue = value => {
   if (Array.isArray(value)) return value.map(substantiveValue);
   if (!value || typeof value !== 'object') return value;
@@ -92,6 +93,16 @@ function groundedClarification(input, byId, sourceRevision, meeting, previous) {
   }
   const result = { explanation: groundedPeopleText(explanation, evidence, byId, meeting), distinctions, evidence, evidenceIds: evidenceIds(mergeEvidence(evidence, ...distinctions.map(part => part.evidence))), author: 'ai', sourceRevision, stale: false, ...(previous?.history ? { history: structuredClone(previous.history) } : {}) };
   markPeopleFields(result, ['explanation'], meeting);
+  return result;
+}
+
+// Priority is a reading suggestion, independent of the factual record. Reuse
+// the followup's validated citations without rewriting its question or history.
+function groundedPriority(input, evidence, byId, sourceRevision, meeting) {
+  const reason = presentationText(input?.reason, 600);
+  if (!input || !PRIORITY_LEVELS.has(input.level) || !reason) return null;
+  const result = { level: input.level, reason: groundedPeopleText(reason, evidence, byId, meeting), evidence, evidenceIds: evidenceIds(evidence), sourceRevision, author: 'ai', stale: false };
+  markPeopleFields(result, ['reason'], meeting);
   return result;
 }
 
@@ -280,6 +291,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     const clarification = groundedClarification(input.clarification, byId, sourceRevision, next, existing?.clarification);
     if (input.clarification !== undefined && !clarification) continue;
     const incomingEvidence = mergeEvidence(evidence, clarificationEvidence(clarification));
+    const priority = groundedPriority(input.priority, evidence, byId, sourceRevision, next);
     // Dropping an overlong display summary is safer than cutting off a condition or option.
     const shortQuestion = presentationText(groundedPeopleText(input.shortQuestion, evidence, byId, next), 200), discussionValue = presentationText(groundedPeopleText(input.discussionValue, evidence, byId, next), 800);
     if (existing) {
@@ -287,6 +299,11 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       // Similarity prevents duplicates; only an explicit stable ID authorizes
       // evolving the substance of an existing question.
       if (!exact || existing.status !== 'active' || existing.mergedInto || existing.author !== 'ai' || existing.manualFields?.some(key => ['status', 'resolution'].includes(key)) || sourceRevision < Math.max(existing.sourceRevision || 0, existing.clarification?.sourceRevision || 0, existing.attention?.sourceRevision || 0) || existing.resolution && existing.resolution.author !== 'ai') continue;
+      // A fresh rank may reuse the same utterance; a stale job must not replace
+      // a newer rank, and metadata alone cannot bring a retired issue back.
+      const mayRank = priority && !existing.manualFields?.length && !human(existing.priority) && !existing.priority?.manualFields?.length && !protectedClarification(existing.clarification) && sourceRevision >= (existing.priority?.sourceRevision || 0);
+      const updatePriority = () => { if (mayRank && isActiveFocus(existing)) existing.priority = priority; };
+      updatePriority();
       const original = meeting.followups?.find(item => item.id === existing.id) || existing;
       const previousEvidence = mergeEvidence(followupEvidence(original), original.resolution?.evidence || []);
       const newEvidence = hasNewEvidence(incomingEvidence, previousEvidence, byId);
@@ -337,6 +354,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
         markPeopleFields(existing, Object.keys(patch), next);
         if (patch.shortQuestion || patch.discussionValue) existing.presentationSourceRevision = sourceRevision;
       }
+      updatePriority();
       continue;
     }
     if (added >= followupLimit || !question || !rationale || !impact || input.affectsDecision === false || !CLARIFICATION_KINDS.has(input.kind)) continue;
@@ -344,7 +362,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     if (input.topicId && !topicId) continue;
     const id = makeId('followup');
     if (input.id) followupAliases.set(input.id, id);
-    next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), ...(clarification ? { clarification } : {}), evidenceIds: evidenceIds(incomingEvidence), evidence, status: 'active', sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
+    next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), ...(clarification ? { clarification } : {}), ...(priority ? { priority } : {}), evidenceIds: evidenceIds(incomingEvidence), evidence, status: 'active', sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
     markPeopleFields(next.followups.at(-1), ['question', 'shortQuestion', 'rationale', 'impact', 'discussionValue'], next);
     added++;
   }

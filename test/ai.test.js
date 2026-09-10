@@ -44,6 +44,29 @@ async function finish(store, job, maxMs = 5000) {
   assert.fail(`Job ${job.id} did not complete: ${JSON.stringify(store.getJob(job.id))}`);
 }
 
+test('priority-only analysis updates navigation metadata without making saved minutes stale', async t => {
+  const { store, ai } = fixture(t, data => response({ topics: [], followups: [{
+    id: data.existingFollowups[0].id, evidence: data.sources.map(source => ({ id: source.id, quote: source.text })),
+    priority: { level: 'high', reason: '这个前提会改变当前上线范围。' },
+  }] }));
+  const m = store.createMeeting({ title: '排序不改纪要' });
+  const source = store.appendTranscript(m.id, { text: '十个家庭同时在线是否足够，还要验证，今天先确定上线范围。' });
+  store.mutateMeeting(m.id, current => {
+    const next = reduceOrganization(current, { followups: [clarification(source)] }, store.allTranscript(m.id));
+    current.followups = next.followups;
+  });
+  const artifact = store.saveArtifact(m.id, 'minutes', { title: '已有纪要', markdown: '# 会议纪要\n\n上线范围尚待确定。', author: 'ai' });
+  const before = store.getMeeting(m.id).followups[0];
+  assert.equal((await finish(store, ai.submit(m.id, 'followup'))).status, 'done');
+  const after = store.getMeeting(m.id);
+  assert.equal(after.followups[0].priority.level, 'high');
+  const { priority, ...content } = after.followups[0];
+  assert.deepEqual(content, before);
+  assert.equal(after.artifacts.find(item => item.id === artifact.id).stale, false);
+  store.editTranscript(m.id, source.id, { text: '十个家庭同时在线已经验证，仍要确定上线范围。' });
+  assert.equal(store.getMeeting(m.id).followups[0].priority.stale, true);
+});
+
 test('source-only citations reject fabricated IDs, unrelated quotes, generated text and another meeting', () => {
   const valid = line('s1', '我们建议考虑方案 A。');
   const foreign = line('foreign', '决定采用方案 B。', 1, 'meeting2');

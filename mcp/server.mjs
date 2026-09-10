@@ -17,6 +17,7 @@ function currentFollowup(value) {
   const item = withoutHistory(value);
   if (item.resolution) item.resolution = withoutHistory(item.resolution);
   if (item.attention) item.attention = withoutHistory(item.attention);
+  if (item.priority) item.priority = withoutHistory(item.priority);
   if (item.clarification) {
     item.clarification = withoutHistory(item.clarification);
     if (Array.isArray(item.clarification.distinctions)) item.clarification.distinctions = item.clarification.distinctions.map(withoutHistory);

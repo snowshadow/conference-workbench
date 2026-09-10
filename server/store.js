@@ -196,6 +196,7 @@ export class Store {
         if ((followup.clarification?.evidenceIds || []).includes(lineId)) followup.clarification.stale = true;
         for (const part of followup.clarification?.distinctions || []) if ((part.evidenceIds || []).includes(lineId)) part.stale = true;
         if ((followup.attention?.evidenceIds || []).includes(lineId)) followup.attention.stale = true;
+        if ((followup.priority?.evidenceIds || []).includes(lineId)) followup.priority.stale = true;
         if ((followup.resolution?.evidenceIds || []).includes(lineId)) {followup.resolution.stale=true;followup.stale=true;}
       }
       for (const question of meeting.questions) if ((question.evidenceIds || []).includes(lineId)) question.stale = true;

@@ -44,7 +44,7 @@ export function presentPeopleValue(value, meeting) {
     if (SKIP.has(key) || human && key === 'history' || key === 'question' && Object.hasOwn(value, 'answer')) continue;
     if (TEXT_FIELDS.has(key) && typeof child === 'string') {
       if (!human && !value.manualFields?.includes(key)) copy[key] = resolvePeopleText(child, meeting);
-    } else if (child && typeof child === 'object' && !value.manualFields?.includes(key) && !(human && ['clarification', 'attention', 'distinctions'].includes(key))) copy[key] = presentPeopleValue(child, meeting);
+    } else if (child && typeof child === 'object' && !value.manualFields?.includes(key) && !(human && ['clarification', 'attention', 'distinctions', 'priority'].includes(key))) copy[key] = presentPeopleValue(child, meeting);
   }
   return copy;
 }
