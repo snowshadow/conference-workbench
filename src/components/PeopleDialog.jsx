@@ -285,6 +285,9 @@ export default function PeopleDialog({ meeting, initialParticipantId, onClose, o
   const latestPeople = new Map((data?.participants || []).map(person => [person.id, person]));
   const knownIds = new Set((meeting.participants || []).map(person => person.id));
   const personMeeting = { ...meeting, participants: [...(meeting.participants || []).map(person => latestPeople.get(person.id) || person), ...(data?.participants || []).filter(person => !knownIds.has(person.id))] };
+  const hasRegisteredName = person => Boolean(person.memberId || person.name?.trim() || person.speakerIds?.some(id => personMeeting.speakerLabels?.[id]?.trim()));
+  const mergeTargets = (data?.participants || []).filter(person => person.id !== selectedId)
+    .sort((a, b) => Number(hasRegisteredName(b)) - Number(hasRegisteredName(a)));
   const processing = pending(job) || recognitionPending(selected);
   const registered = profiles.filter(usableProfile).flatMap(profileSegments).length;
   const selectedStatus = recognitionText(selected);
@@ -325,7 +328,7 @@ export default function PeopleDialog({ meeting, initialParticipantId, onClose, o
               <div className="people-voice-actions"><Button onClick={enroll} disabled={!runtimeReady || sourceIds.length < 2 || !manualIdentity(selected) || selected.needsConfirmation || busy || processing}>{selected.memberId ? '保存团队声音样本' : '保存本场声音样本'}</Button>{sourceIds.length > 0 && <span className="people-muted">已选 {sourceIds.length} 段</span>}</div>
             </div>
           </details>
-          {data.participants.length > 1 && <details className="people-merge"><summary>同一个人被分成了两组？<ChevronDown size={15} aria-hidden="true" /></summary><div className="people-merge-content"><label>合并到<select value={mergeTarget} onChange={event => setMergeTarget(event.target.value)}><option value="">选择另一组说话人</option>{data.participants.filter(person => person.id !== selected.id).map(person => <option key={person.id} value={person.id}>{speakerName(person.id, personMeeting)}</option>)}</select></label><Button disabled={!mergeTarget || busy || processing} onClick={() => change(() => api(meetingPath(meeting.id, `/participants/${encodeURIComponent(selected.id)}/merge`), { method: 'POST', body: { targetId: mergeTarget } }), '已合并为同一个人。')}>合并为同一人</Button></div></details>}
+          {data.participants.length > 1 && <details className="people-merge"><summary>同一个人被分成了两组？<ChevronDown size={15} aria-hidden="true" /></summary><div className="people-merge-content"><label>合并到<select value={mergeTarget} onChange={event => setMergeTarget(event.target.value)}><option value="">选择另一组说话人</option>{mergeTargets.map(person => <option key={person.id} value={person.id}>{speakerName(person.id, personMeeting)}</option>)}</select></label><Button disabled={!mergeTarget || busy || processing} onClick={() => change(() => api(meetingPath(meeting.id, `/participants/${encodeURIComponent(selected.id)}/merge`), { method: 'POST', body: { targetId: mergeTarget } }), '已合并为同一个人。')}>合并为同一人</Button></div></details>}
         </section>}
       </div>}
     </div>
