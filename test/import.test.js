@@ -17,12 +17,20 @@ async function until(predicate, timeout = 7000) {
 }
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const fakeDecode = seconds => async ({ outputPath }) => fs.writeFileSync(outputPath, Buffer.alloc(Math.round(seconds * 32000)), { mode: 0o600 });
+const volcResponse = (segments, durationMs) => new Response(JSON.stringify({
+  audio_info: { duration: durationMs },
+  result: {
+    text: segments.map(segment => segment.text).join(' '),
+    utterances: segments.map(segment => ({ text: segment.text, start_time: segment.start * 1000,
+      end_time: segment.end * 1000, additions: { speaker_id: segment.speaker } })),
+  },
+}), { headers: { 'X-Api-Status-Code': '20000000', 'Content-Type': 'application/json' } });
 
 async function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-import-test-'));
   const store = new Store(dir), submissions = [];
   // Tests never send meeting content or credentials to a real provider.
-  store.saveSettings({ fileAsr: { baseUrl: 'http://127.0.0.1:8000/v1', model: 'fixture-asr', apiKey: 'fixture-secret' }, llm: { baseUrl: 'https://example.invalid', model: 'fixture-llm' } });
+  store.saveSettings({ fileAsr: { baseUrl: 'http://127.0.0.1:8000/v1', model: 'fixture-asr', apiKey: 'fixture-secret', language: 'zh' }, llm: { baseUrl: 'https://example.invalid', model: 'fixture-llm' } });
   const ai = { submit(meetingId, type) { submissions.push({ meetingId, type }); return store.createJob(meetingId, type); } };
   const service = createImportService({ store, ai, decode: fakeDecode(1), fetchImpl: async () => json({ text: '模拟会议发言' }), ...options });
   const server = http.createServer(async (req, res) => {
@@ -104,6 +112,250 @@ test('Volcengine file ASR reuses speech credentials and preserves chunk timing, 
   f.service.retry(meeting.id); assert.equal(calls, 3, 'a finished import is not transcribed again');
 });
 
+test('default Volcengine import keeps recurring speakers in the same participant beyond minute boundaries', async t => {
+  const expected = [
+    { text: '第一位介绍讨论目标。', start: 0.1, end: 4.2, speaker: 1 },
+    { text: '第二位补充自己的判断。', start: 30.5, end: 34.75, speaker: 2 },
+    { text: '第一位在一分钟后继续回应。', start: 61.25, end: 67.5, speaker: 1 },
+    { text: '第二位在录音结尾补充。', start: 121.75, end: 125, speaker: 2 },
+  ];
+  let calls = 0;
+  const f = await fixture(t, { decode: fakeDecode(125), fetchImpl: async (_url, request) => {
+    calls++;
+    const body = JSON.parse(request.body), bytes = Buffer.from(body.audio.data, 'base64');
+    assert.equal(body.request.enable_speaker_info, true);
+    assert.equal((bytes.length - 44) / 32000, 125, 'the provider receives the complete meeting');
+    return volcResponse(expected, 125000);
+  } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  const { meeting, job } = await f.upload();
+  const done = await f.finished(job.id);
+  assert.equal(done.status, 'done', done.error); assert.equal(calls, 1);
+  assert.equal(done.progress.totalChunks, 1);
+  const lines = f.store.allTranscript(meeting.id);
+  assert.deepEqual(lines.map(line => ({ text: line.text, start: line.startMs / 1000, end: line.endMs / 1000 })),
+    expected.map(({ text, start, end }) => ({ text, start, end })));
+  assert.equal(lines[0].participantId, lines[2].participantId);
+  assert.equal(lines[1].participantId, lines[3].participantId);
+  assert.notEqual(lines[0].participantId, lines[1].participantId);
+  assert.equal(f.store.listParticipants(meeting.id).length, 2);
+  assert.ok(lines.every(line => line.timing !== 'chunk'));
+  assert.equal(lines.at(-1).endSample, 125 * 16000);
+  assert.deepEqual(f.store.getRecording(done.result.recordingId).gaps, []);
+});
+
+test('long Volcengine results preserve more than 1000 sentences and 20000 characters without losing speakers or timings', async t => {
+  const expected = Array.from({ length: 1001 }, (_, index) => ({
+    text: `第${index}段会议发言，需要完整保留这句话及其发言人，不能退化成整段文字。`,
+    start: index / 10, end: (index * 100 + 80) / 1000, speaker: index % 3,
+  }));
+  assert.ok(expected.map(line => line.text).join('').length > 20000);
+  let calls = 0;
+  const f = await fixture(t, { decode: fakeDecode(100.1), fetchImpl: async () => {
+    calls++; return volcResponse(expected, 100100);
+  } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  const { meeting, job } = await f.upload();
+  const done = await until(() => { const current = f.store.getJob(job.id); return ['done', 'error'].includes(current.status) && current; }, 30000);
+  assert.equal(done.status, 'done', done.error); assert.equal(calls, 1);
+  const lines = f.store.allTranscript(meeting.id);
+  assert.equal(done.result.transcriptCount, expected.length);
+  assert.deepEqual(lines.map(line => line.text), expected.map(line => line.text));
+  assert.deepEqual(lines.map(line => [line.startSample, line.endSample]),
+    expected.map(line => [Math.round(line.start * 16000), Math.round(line.end * 16000)]));
+  assert.ok(lines.every(line => line.timing !== 'chunk' && line.speakerId !== 'unknown'));
+  assert.equal(new Set(lines.map(line => line.participantId)).size, 3);
+  assert.equal(new Set(lines.map(line => line.id)).size, expected.length);
+});
+
+test('the per-sentence storage limit never silently truncates an oversized ASR result', async t => {
+  for (const [label, characters, timestamps, expectedStatus] of [
+    ['a sentence exactly at the limit is retained', 20000, true, 'done'],
+    ['an oversized timestamped sentence is rejected', 20001, true, 'error'],
+    ['oversized text without sentence boundaries is rejected', 20001, false, 'error'],
+  ]) await t.test(label, async t => {
+    const text = '文'.repeat(characters);
+    const f = await fixture(t, { fetchImpl: async () => timestamps
+      ? volcResponse([{ text, start: 0, end: 0.9, speaker: 1 }], 1000)
+      : new Response(JSON.stringify({ audio_info: { duration: 1000 }, result: { text } }), { headers: { 'X-Api-Status-Code': '20000000' } }) });
+    f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+    const { meeting, job } = await f.upload(); const finished = await f.finished(job.id);
+    assert.equal(finished.status, expectedStatus, finished.error);
+    const lines = f.store.allTranscript(meeting.id);
+    if (expectedStatus === 'done') {
+      assert.equal(lines.length, 1); assert.equal(lines[0].text, text);
+      assert.equal(lines[0].endSample, 14400); assert.notEqual(lines[0].speakerId, 'unknown');
+    } else {
+      assert.equal(lines.length, 0, 'no truncated substitute may be persisted as a successful transcript');
+      assert.ok(finished.error);
+    }
+    const recording = f.store.getRecording(finished.input.recordingId);
+    assert.equal(recording.sampleCount, 16000);
+    assert.equal(fs.statSync(path.join(f.dir, 'audio', `${recording.id}.pcm`)).size, 32000);
+    assert.ok(fs.existsSync(path.join(f.dir, 'imports', finished.input.uploadId, finished.input.storedFilename)));
+  });
+});
+
+test('Volcengine import plans fit the actual WAV byte limit at the last sample and split only beyond it', async t => {
+  // PCM is 16 kHz / 16-bit mono; the request limit includes the 44-byte WAV header.
+  const lastFittingSample = 49_999_978;
+  for (const [label, sampleCount, expectedChunks, chunkSeconds] of [
+    ['one sample below the limit', lastFittingSample - 1, 1, undefined],
+    ['exactly at the limit', lastFittingSample, 1, undefined],
+    ['one sample above the limit', lastFittingSample + 1, 2, undefined],
+    ['an explicit two-hour override still respects the byte limit', 2 * 3600 * 16000, 3, 7200],
+  ]) await t.test(label, async t => {
+    let calls = 0, interruptedAfterPlanning = false;
+    const f = await fixture(t, { chunkSeconds, decode: async ({ outputPath }) => {
+      // Sparse files let us inspect real persisted plans without allocating huge request bodies.
+      const fd = fs.openSync(outputPath, 'wx', 0o600);
+      try { fs.ftruncateSync(fd, sampleCount * 2); } finally { fs.closeSync(fd); }
+    }, fetchImpl: async () => { calls++; throw new Error('planning-only fixture must not submit audio'); } });
+    f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+    const updateJob = f.store.updateJob.bind(f.store);
+    f.store.updateJob = (id, patch) => {
+      const saved = updateJob(id, patch);
+      if (!interruptedAfterPlanning && patch.input?.decoded && patch.progress?.phase === 'transcribing') {
+        interruptedAfterPlanning = true;
+        throw new Error('simulated interruption after the decoded plan was saved');
+      }
+      return saved;
+    };
+    const { job } = await f.upload(); const stopped = await f.finished(job.id);
+    assert.equal(interruptedAfterPlanning, true); assert.equal(calls, 0);
+    assert.equal(stopped.input.chunkSamples, lastFittingSample);
+    assert.equal(stopped.progress.totalChunks, expectedChunks);
+    assert.equal(f.store.getRecording(stopped.input.recordingId).sampleCount, sampleCount);
+    assert.ok(stopped.input.chunkSamples * 2 + 44 <= 100_000_000);
+    assert.ok(stopped.input.chunkSamples <= 2 * 3600 * 16000);
+  });
+});
+
+test('persisted Volcengine plan survives provider changes and restart while resuming exact offsets and host edits', async t => {
+  let calls = 0;
+  const f = await fixture(t, { chunkSeconds: 2, decode: fakeDecode(4.25), fetchImpl: async (_url, request) => {
+    if (++calls === 1) return volcResponse([{ text: '第一段原始发言', start: 0.1, end: 1.9, speaker: 1 }], 2000);
+    return new Promise((_resolve, reject) => request.signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }));
+  } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-original-key' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
+  const { meeting, job } = await f.upload(); await until(() => calls === 2);
+  await f.service.stop();
+  const saved = f.store.getJob(job.id), first = f.store.allTranscript(meeting.id)[0];
+  assert.equal(saved.status, 'queued'); assert.equal(saved.input.completedChunks, 1);
+  assert.equal(saved.input.chunkSamples, 32000);
+  assert.deepEqual(saved.input.asrPlan, { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' });
+  assert.doesNotMatch(JSON.stringify(saved.input), /volc-original-key|fixture-secret/);
+  f.store.editTranscript(meeting.id, first.id, { text: '主持人已确认的发言' });
+  f.store.updateParticipant(meeting.id, first.participantId, { name: '已确认成员' });
+  f.store.saveSettings({ asr: { apiKey: 'volc-rotated-key' }, fileAsr: { provider: 'openai', baseUrl: 'http://127.0.0.1:8888/v1', model: 'other-model', resourceId: 'other-resource' } });
+
+  const restored = new Store(f.dir), lengths = [];
+  const resumed = createImportService({ store: restored, ai: f.ai, chunkSeconds: 0.5, fetchImpl: async (url, request) => {
+    assert.equal(url, 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash');
+    const headers = new Headers(request.headers);
+    assert.equal(headers.get('X-Api-Key'), 'volc-rotated-key', 'credentials may be corrected without changing the saved provider');
+    assert.equal(headers.get('X-Api-Resource-Id'), 'volc.bigasr.auc_turbo');
+    const audio = Buffer.from(JSON.parse(request.body).audio.data, 'base64'), seconds = (audio.length - 44) / 32000;
+    lengths.push(seconds);
+    return volcResponse([{ text: `恢复后的第${lengths.length}段`, start: 0, end: seconds, speaker: 1 }], seconds * 1000);
+  } });
+  try {
+    resumed.start();
+    const done = await until(() => { const current = restored.getJob(job.id); return ['done', 'error'].includes(current.status) && current; });
+    assert.equal(done.status, 'done', done.error);
+    assert.deepEqual(lengths, [2, 0.25]);
+    assert.deepEqual(done.input.asrPlan, saved.input.asrPlan); assert.equal(done.input.chunkSamples, 32000);
+    const lines = restored.allTranscript(meeting.id);
+    assert.equal(lines.length, 3); assert.equal(lines[0].id, first.id); assert.equal(lines[0].text, '主持人已确认的发言');
+    assert.equal(restored.listParticipants(meeting.id).find(person => person.id === first.participantId).name, '已确认成员');
+    assert.deepEqual(lines.slice(1).map(line => [line.startSample, line.endSample]), [[32000, 64000], [64000, 68000]]);
+    assert.notEqual(lines[1].participantId, lines[2].participantId, 'independent long requests still have independent speaker identities');
+    assert.equal(done.progress.processedSeconds, 4.25); assert.deepEqual(restored.getRecording(done.result.recordingId).gaps, []);
+  } finally { await resumed.stop(); restored.close(); }
+});
+
+test('legacy imports without a saved plan resume their original minute checkpoints instead of adopting long requests', async t => {
+  let calls = 0;
+  const f = await fixture(t, { chunkSeconds: 60, decode: fakeDecode(120.25), fetchImpl: async (_url, request) => {
+    if (++calls === 1) return volcResponse([{ text: '旧版已保存的第一分钟', start: 0, end: 60, speaker: 1 }], 60000);
+    return new Promise((_resolve, reject) => request.signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }));
+  } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  const { meeting, job } = await f.upload(); await until(() => calls === 2); await f.service.stop();
+  const input = { ...f.store.getJob(job.id).input }; delete input.chunkSamples; delete input.asrPlan;
+  f.store.updateJob(job.id, { input });
+  const first = f.store.allTranscript(meeting.id)[0];
+  f.store.editTranscript(meeting.id, first.id, { text: '旧版人工更正仍需保留' });
+  const restored = new Store(f.dir), lengths = [];
+  const resumed = createImportService({ store: restored, ai: f.ai, chunkSeconds: 1, fetchImpl: async (_url, request) => {
+    const bytes = Buffer.from(JSON.parse(request.body).audio.data, 'base64'), seconds = (bytes.length - 44) / 32000;
+    lengths.push(seconds);
+    return volcResponse([{ text: `旧任务恢复${lengths.length}`, start: 0, end: seconds, speaker: 1 }], seconds * 1000);
+  } });
+  try {
+    resumed.start();
+    const done = await until(() => { const current = restored.getJob(job.id); return ['done', 'error'].includes(current.status) && current; });
+    assert.equal(done.status, 'done', done.error); assert.deepEqual(lengths, [60, 0.25]);
+    assert.equal(done.input.chunkSamples, 60 * 16000);
+    const lines = restored.allTranscript(meeting.id);
+    assert.equal(lines.length, 3); assert.equal(lines[0].id, first.id); assert.equal(lines[0].text, '旧版人工更正仍需保留');
+    assert.deepEqual(lines.map(line => [line.startSample, line.endSample]), [[0, 960000], [960000, 1920000], [1920000, 1924000]]);
+    assert.deepEqual(lines.map(line => line.speakerId), ['import-0-speaker-1', 'import-1-speaker-1', 'import-2-speaker-1']);
+    assert.deepEqual(restored.getRecording(done.result.recordingId).gaps, []);
+  } finally { await resumed.stop(); restored.close(); }
+});
+
+test('an explicit retry can correct an endpoint or model but cannot silently switch an existing import to another provider', async t => {
+  let corrected = false, successfulCalls = 0;
+  const f = await fixture(t, { chunkSeconds: 1, decode: fakeDecode(2.25), fetchImpl: async (url, request) => {
+    if (!corrected) return json({ error: 'wrong fixture endpoint or model' }, 404);
+    assert.equal(url, 'http://127.0.0.1:8888/v1/audio/transcriptions');
+    assert.equal(request.body.get('model'), 'corrected-model');
+    const bytes = Buffer.from(await request.body.get('file').arrayBuffer()), end = (bytes.length - 44) / 32000;
+    successfulCalls++;
+    return json({ text: `修正后第${successfulCalls}段`, segments: [{ text: `修正后第${successfulCalls}段`, start: 0, end, speaker: 1 }] });
+  } });
+  const { meeting, job } = await f.upload(); const failed = await f.finished(job.id);
+  assert.equal(failed.status, 'error'); assert.equal(failed.input.chunkSamples, 16000);
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  assert.throws(() => f.service.retry(meeting.id), /服务|提供|切回/);
+  assert.equal(f.store.getJob(job.id).status, 'error');
+  f.store.saveSettings({ fileAsr: { provider: 'openai', baseUrl: 'http://127.0.0.1:8888/v1', model: 'corrected-model', language: 'en' } });
+  corrected = true; f.service.retry(meeting.id);
+  const done = await f.finished(job.id); assert.equal(done.status, 'done', done.error);
+  assert.equal(successfulCalls, 3); assert.equal(done.input.chunkSamples, failed.input.chunkSamples);
+  assert.deepEqual(done.input.asrPlan, { provider: 'openai', baseUrl: 'http://127.0.0.1:8888/v1', model: 'corrected-model', language: 'en' });
+  assert.deepEqual(f.store.allTranscript(meeting.id).map(line => [line.startMs, line.endMs]), [[0, 1000], [1000, 2000], [2000, 2250]]);
+});
+
+test('a long response can stop during sentence persistence and resume its checkpoint without duplicate ASR or lost edits', async t => {
+  const expected = Array.from({ length: 120 }, (_, index) => ({ text: `第${index}句连续讨论。`, start: index, end: index + 0.8, speaker: index % 2 }));
+  let calls = 0, appends = 0, stopping;
+  const f = await fixture(t, { decode: fakeDecode(120), fetchImpl: async () => { calls++; return volcResponse(expected, 120000); } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  const append = f.store.appendTranscript.bind(f.store);
+  f.store.appendTranscript = (...args) => {
+    const saved = append(...args);
+    if (++appends === 25) stopping = f.service.stop();
+    return saved;
+  };
+  const { meeting, job } = await f.upload();
+  await until(() => appends >= 25 && f.store.getJob(job.id).status === 'queued'); await stopping;
+  const partial = f.store.allTranscript(meeting.id);
+  assert.ok(partial.length > 0 && partial.length < expected.length, 'shutdown must not finish committing every remaining sentence');
+  assert.equal(f.store.getJob(job.id).input.completedChunks, 0, 'partially committed chunks remain resumable');
+  f.store.editTranscript(meeting.id, partial[0].id, { text: '中断期间主持人修正' });
+  f.store.appendTranscript = append;
+  f.service.start(); const done = await f.finished(job.id);
+  assert.equal(done.status, 'done', done.error); assert.equal(calls, 1);
+  const lines = f.store.allTranscript(meeting.id);
+  assert.equal(lines.length, expected.length); assert.equal(new Set(lines.map(line => line.id)).size, expected.length);
+  assert.equal(lines[0].text, '中断期间主持人修正'); assert.equal(lines[0].id, partial[0].id);
+  assert.deepEqual(lines.slice(1).map(line => line.text), expected.slice(1).map(line => line.text));
+  assert.deepEqual(lines.map(line => [line.startSample, line.endSample]), expected.map(line => [Math.round(line.start * 16000), Math.round(line.end * 16000)]));
+  assert.equal(new Set(lines.map(line => line.participantId)).size, 2);
+});
+
 test('failed ASR retries only unfinished chunks and preserves host corrections with approximate timing', async t => {
   let calls = 0;
   const f = await fixture(t, { decode: fakeDecode(2.1), chunkSeconds: 1, fetchImpl: async () => {
@@ -142,7 +394,7 @@ test('durable chunk response resumes a partially committed chunk without repeat 
   assert.equal(f.store.allTranscript(meeting.id)[0].text, '人工保留');
 });
 
-test('stop aborts active ASR and a new service resumes the persisted checkpoint', async t => {
+test('stop aborts active ASR and restart keeps the OpenAI endpoint, model and checkpoint despite changed settings', async t => {
   let calls = 0, wasAborted = false;
   const f = await fixture(t, { chunkSeconds: 1, decode: fakeDecode(2), fetchImpl: async (_url, request) => {
     if (++calls === 1) return json({ text: '重启前已保存' });
@@ -151,9 +403,17 @@ test('stop aborts active ASR and a new service resumes the persisted checkpoint'
   const { meeting, job } = await f.upload(); await until(() => calls === 2);
   await f.service.stop(); assert.equal(wasAborted, true); assert.equal(f.store.getJob(job.id).status, 'queued');
   assert.equal(f.store.getJob(job.id).input.completedChunks, 1);
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', baseUrl: 'http://127.0.0.1:9998/v1', model: 'changed-model', language: 'en' } });
   let resumedCalls = 0;
   const restored = new Store(f.dir);
-  const resumed = createImportService({ store: restored, ai: f.ai, chunkSeconds: 1, fetchImpl: async () => { resumedCalls++; return json({ text: '重启后继续' }); } });
+  const resumed = createImportService({ store: restored, ai: f.ai, chunkSeconds: 0.5, fetchImpl: async (url, request) => {
+    assert.equal(url, 'http://127.0.0.1:8000/v1/audio/transcriptions');
+    assert.equal(request.body.get('model'), 'fixture-asr');
+    assert.equal(request.body.get('language'), 'zh');
+    const bytes = Buffer.from(await request.body.get('file').arrayBuffer());
+    assert.equal((bytes.length - 44) / 32000, 1);
+    resumedCalls++; return json({ text: '重启后继续' });
+  } });
   resumed.start();
   const done = await until(() => restored.getJob(job.id).status === 'done' && restored.getJob(job.id));
   assert.equal(done.result.transcriptCount, 2); assert.equal(resumedCalls, 1);

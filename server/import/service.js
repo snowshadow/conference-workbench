@@ -2,12 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { setImmediate as yieldToEvents } from 'node:timers/promises';
 import Busboy from 'busboy';
 import { wav } from '../capture/service.js';
 import { assertOutboundUrl, loadOutboundPolicy } from '../capture/outbound-url.js';
-import { transcribeVolcAudio } from './volcengine.js';
+import { transcribeVolcAudio, VOLC_FILE_LIMITS } from './volcengine.js';
 
 const RATE = 16000;
+const LEGACY_CHUNK_SAMPLES = 60 * RATE;
+const VOLC_CHUNK_SAMPLES = Math.min(VOLC_FILE_LIMITS.maxDurationSeconds * RATE, Math.floor((VOLC_FILE_LIMITS.maxAudioBytes - 44) / 2));
+const MAX_LINE_CHARACTERS = 20000;
 const FORMATS = 'wav,mp3,mov,matroska,webm,flac,ogg,aac,aiff,au,amr';
 const EXTENSIONS = new Set(['.wav', '.mp3', '.m4a', '.mp4', '.flac', '.ogg', '.oga', '.webm', '.mkv', '.mov', '.aac', '.aif', '.aiff', '.au', '.amr']);
 const problem = (message, status = 400) => Object.assign(new Error(message), { status, publicMessage: message });
@@ -110,10 +114,14 @@ function providerLines(response, chunkIndex, startSample, endSample, recordingId
   if (typeof response.text !== 'string' && !Array.isArray(response.segments)) throw problem('文件转录服务未返回转录文本，请检查模型配置后重试。', 502);
   const seconds = (endSample - startSample) / RATE;
   const segmentText = segments.map(item => typeof item?.text === 'string' ? item.text.trim() : '').filter(Boolean).join(' ');
-  const valid = segments.length > 0 && segments.length <= 1000 && (!fullText || fullText.replace(/\s/g, '') === segmentText.replace(/\s/g, '')) && segments.every(item => item && typeof item.text === 'string' && item.text.trim() && Number.isFinite(item.start) && Number.isFinite(item.end) && item.start >= 0 && item.start < seconds && item.end > item.start && item.end <= seconds + 0.1 && Math.round(item.start * RATE) < Math.min(endSample - startSample, Math.round(item.end * RATE)));
+  const valid = segments.length > 0 && (!fullText || fullText.replace(/\s/g, '') === segmentText.replace(/\s/g, '')) && segments.every(item => item && typeof item.text === 'string' && item.text.trim() && Number.isFinite(item.start) && Number.isFinite(item.end) && item.start >= 0 && item.start < seconds && item.end > item.start && item.end <= seconds + 0.1 && Math.round(item.start * RATE) < Math.min(endSample - startSample, Math.round(item.end * RATE)));
   const text = fullText || segmentText;
-  if (text.length > 20000) throw problem('文件转录服务返回的单段文本异常过长，请检查模型后重试。', 502);
   const inputs = valid ? segments.map(item => ({ text: item.text.trim(), startSample: startSample + Math.round(item.start * RATE), endSample: Math.min(endSample, startSample + Math.round(item.end * RATE)), timing: 'segment', speaker: item.speaker_id ?? item.speaker })) : text ? [{ text, startSample, endSample, timing: 'chunk' }] : [];
+  // Long recordings can contain many short utterances. Only the store's per-line
+  // limit applies; never silently truncate a sentence or invent timings to split it.
+  if (inputs.some(item => item.text.length > MAX_LINE_CHARACTERS)) throw problem(valid
+    ? '文件转录服务返回了超过 20,000 字的单条发言，无法完整保存。请检查服务的分句设置后重试；录音已保留。'
+    : '文件转录文本超过 20,000 字，但没有可用的逐句时间，无法完整保存。请检查服务的分句设置后重试；录音已保留。', 502);
   return inputs.map((item, index) => ({
     id: createHash('sha256').update(`${recordingId}:${chunkIndex}:${index}`).digest('hex'), recordingId,
     text: item.text, startSample: item.startSample, endSample: item.endSample,
@@ -124,26 +132,55 @@ function providerLines(response, chunkIndex, startSample, endSample, recordingId
 }
 
 /** File import uses its own persistent queue; a completed upload is never live capture. */
-export function createImportService({ store, ai, onTranscript = () => {}, fetchImpl = globalThis.fetch, decode = decodeAudio, chunkSeconds = 60, maxUploadBytes = 512 * 1024 ** 2, requestTimeoutMs = 300000, ...decodeOptions }) {
+export function createImportService({ store, ai, onTranscript = () => {}, fetchImpl = globalThis.fetch, decode = decodeAudio, chunkSeconds, maxUploadBytes = 512 * 1024 ** 2, requestTimeoutMs = 300000, ...decodeOptions }) {
   const importsDir = path.join(store.dataDir, 'imports'), audioDir = path.join(store.dataDir, 'audio');
   fs.mkdirSync(importsDir, { recursive: true, mode: 0o700 });
   fs.mkdirSync(audioDir, { recursive: true, mode: 0o700 });
   let started = false, worker = null, currentController = null;
-  const chunkSamples = Math.max(1, Math.round(chunkSeconds * RATE));
+  const explicitChunkSamples = chunkSeconds === undefined ? null : Math.max(1, Math.round(chunkSeconds * RATE));
+  if (explicitChunkSamples !== null && !Number.isSafeInteger(explicitChunkSamples)) throw problem('录音分段长度无效。');
   const paths = job => {
     if (!identifier(job.input.uploadId) || !identifier(job.input.recordingId) || !/^original\.(wav|mp3|m4a|mp4|flac|ogg|oga|webm|mkv|mov|aac|aif|aiff|au|amr|upload)$/.test(job.input.storedFilename)) throw problem('导入任务的文件记录无效。');
     const directory = path.join(importsDir, job.input.uploadId);
     return { directory, original: path.join(directory, job.input.storedFilename), pcm: path.join(audioDir, `${job.input.recordingId}.pcm`) };
   };
+  function createPlan(config = {}, legacy = false) {
+    const provider = config.provider === 'volcengine' ? 'volcengine' : 'openai';
+    const asrPlan = provider === 'volcengine'
+      ? { provider, resourceId: config.resourceId || 'volc.bigasr.auc_turbo' }
+      : { provider, baseUrl: config.baseUrl || '', model: config.model || '', language: config.language || '' };
+    // Do not persist credentials hidden inside an invalid endpoint URL. The
+    // missing address is reported as a configuration error before any request.
+    if (provider === 'openai') {
+      try { const url = new URL(asrPlan.baseUrl); if (url.username || url.password || url.search || url.hash) asrPlan.baseUrl = ''; }
+      catch { asrPlan.baseUrl = ''; }
+    }
+    const requested = legacy ? LEGACY_CHUNK_SAMPLES : explicitChunkSamples ?? (provider === 'volcengine' ? VOLC_CHUNK_SAMPLES : LEGACY_CHUNK_SAMPLES);
+    return { chunkSamples: provider === 'volcengine' ? Math.min(requested, VOLC_CHUNK_SAMPLES) : requested, asrPlan };
+  }
+  function ensurePlan(job, files) {
+    const hasSize = Object.hasOwn(job.input, 'chunkSamples'), hasPlan = Object.hasOwn(job.input, 'asrPlan');
+    if (hasSize && (!Number.isSafeInteger(job.input.chunkSamples) || job.input.chunkSamples < 1)) throw problem('录音任务的分段计划无效，原始录音和已保存转录已保留。');
+    if (hasPlan && !['volcengine', 'openai'].includes(job.input.asrPlan?.provider)) throw problem('录音任务的转录服务记录无效，原始录音和已保存转录已保留。');
+    if (hasSize && hasPlan) return job;
+    const chunksDir = path.join(files.directory, 'chunks');
+    const hasCheckpoints = fs.existsSync(chunksDir) && fs.readdirSync(chunksDir).some(name => /^\d+\.json$/.test(name));
+    // Older jobs never saved a provider or a plan. Once decoding/checkpointing
+    // started, their IDs and offsets were based on 60 seconds; retain that grid.
+    // Their unknown provider can only be recovered from the current settings.
+    const legacy = Boolean(job.input.decoded || job.input.completedChunks > 0 || hasCheckpoints || fs.existsSync(files.pcm));
+    const plan = createPlan(hasPlan ? job.input.asrPlan : store.getSettings().fileAsr, legacy);
+    return store.updateJob(job.id, { input: { ...job.input, chunkSamples: hasSize ? job.input.chunkSamples : plan.chunkSamples, asrPlan: hasPlan ? job.input.asrPlan : plan.asrPlan } });
+  }
   function gaps(job, error = '') {
     const recording = store.getRecording(job.input.recordingId);
-    const completed = Math.min(recording.sampleCount, (job.input.completedChunks || 0) * chunkSamples);
+    const completed = Math.min(recording.sampleCount, (job.input.completedChunks || 0) * (job.input.chunkSamples || LEGACY_CHUNK_SAMPLES));
     const retained = (recording.gaps || []).filter(gap => gap.importKind !== 'pending');
     if (completed < recording.sampleCount) retained.push({ startSample: completed, endSample: recording.sampleCount, reason: error || '录音已保存，此区间等待文件转录。', importKind: 'pending' });
     store.updateRecording(recording.id, { gaps: retained });
   }
-  async function transcribe(pcm, signal) {
-    const settings = store.getSettings(), config = settings.fileAsr || {};
+  async function transcribe(pcm, signal, plan) {
+    const settings = store.getSettings(), config = { ...plan, apiKey: settings.fileAsr?.apiKey };
     if (config.provider === 'volcengine') {
       return transcribeVolcAudio({ audio: wav(pcm), config: { ...settings.asr, resourceId: config.resourceId }, signal, fetchImpl, requestTimeoutMs });
     }
@@ -196,6 +233,8 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
       const files = paths(job);
       if (!fs.existsSync(files.original)) throw problem('找不到已上传的原始录音文件。');
       if (!job.input.supported) throw problem('暂不支持此文件格式。请使用 WAV、MP3、M4A、MP4、FLAC、OGG 或 WebM；原始文件已保留。');
+      job = ensurePlan(job, files);
+      const chunkSamples = job.input.chunkSamples;
       if (!job.input.decoded) {
         const staging = path.join(files.directory, `decoded-${randomUUID()}.pcm.partial`);
         await decode({ inputPath: files.original, outputPath: staging, signal: controller.signal, ...decodeOptions });
@@ -225,15 +264,27 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
           else {
             const pcm = Buffer.alloc((endSample - startSample) * 2);
             let count = 0; while (count < pcm.length) { const read = fs.readSync(fd, pcm, count, pcm.length - count, startSample * 2 + count); if (!read) throw problem('读取已保存的录音失败。'); count += read; }
-            lines = providerLines(await transcribe(pcm, controller.signal), index, startSample, endSample, recording.id);
+            lines = providerLines(await transcribe(pcm, controller.signal, job.input.asrPlan), index, startSample, endSample, recording.id);
             if (controller.signal.aborted) throw interrupted();
             const temporary = `${checkpointPath}.${randomUUID()}.partial`;
             fs.writeFileSync(temporary, JSON.stringify({ lines }), { mode: 0o600, flag: 'wx', flush: true });
             fs.renameSync(temporary, checkpointPath);
           }
+          if (!Array.isArray(lines) || lines.some(line => typeof line?.text !== 'string' || line.text.length > MAX_LINE_CHARACTERS)) throw problem('已保存的转录分段无法完整读取，原始录音和已保存转录已保留。', 500);
           let changed = false;
-          for (const line of lines) if (!knownIds.has(line.id)) { store.appendTranscript(job.meetingId, line); knownIds.add(line.id); changed = true; }
-          if (changed) Promise.resolve().then(() => onTranscript(job.meetingId)).catch(() => {});
+          const publish = () => { if (changed) { changed = false; Promise.resolve().then(() => onTranscript(job.meetingId)).catch(() => {}); } };
+          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
+            if (!knownIds.has(line.id)) { store.appendTranscript(job.meetingId, line); knownIds.add(line.id); changed = true; }
+            if ((lineIndex + 1) % 50 === 0) {
+              publish();
+              // A whole recording may yield thousands of utterances. Keep HTTP,
+              // live capture and cancellation responsive while committing them.
+              await yieldToEvents();
+              if (controller.signal.aborted || !started) throw interrupted();
+            }
+          }
+          publish();
           if (!lines.length) {
             const rec = store.getRecording(recording.id), oldGaps = (rec.gaps || []).filter(gap => gap.importKind !== 'pending');
             if (!oldGaps.some(gap => gap.importKind === 'no_speech' && gap.startSample === startSample)) oldGaps.push({ startSample, endSample, reason: '此区间未识别出文字，请回听核对。', importKind: 'no_speech' });
@@ -287,7 +338,7 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
       if (!started) throw problem('服务已停止，上传文件保留在本机，请重新导入。', 503);
       const meeting = store.createMeeting({ title: upload.title || path.parse(upload.originalFilename).name || '导入录音', goal: upload.goal });
       const recording = store.createRecording(meeting.id, { state: 'stopped', timelineStartMs: 0, source: 'recording_import', originalFilename: upload.originalFilename, endedAt: date() });
-      const job = store.createJob(meeting.id, 'import', { ...upload, recordingId: recording.id, completedChunks: 0, decoded: false });
+      const job = store.createJob(meeting.id, 'import', { ...upload, recordingId: recording.id, completedChunks: 0, decoded: false, ...createPlan(store.getSettings().fileAsr) });
       store.updateJob(job.id, { progress: { phase: 'decoding', completedChunks: 0, totalChunks: 0, processedSeconds: 0, totalSeconds: 0 } });
       const updated = store.updateMeeting(meeting.id, { status: 'ended', source: 'recording_import', importJobId: job.id, endedAt: date(), autoOrganize: false });
       schedule();
@@ -297,7 +348,17 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
       const meeting = store.getMeeting(meetingId);
       const job = meeting.importJobId ? store.getJob(meeting.importJobId) : store.listJobs(meetingId).find(item => item.type === 'import');
       if (!job || job.type !== 'import') throw problem('这场会议没有可重试的录音导入任务。', 404);
-      if (job.status === 'error') store.updateJob(job.id, { status: 'queued', error: null, progress: { ...job.progress, phase: job.input.decoded ? 'transcribing' : 'decoding' } });
+      if (job.status === 'error') {
+        const config = store.getSettings().fileAsr || {};
+        if (job.input.asrPlan && job.input.asrPlan.provider !== (config.provider === 'volcengine' ? 'volcengine' : 'openai')) {
+          const provider = job.input.asrPlan.provider === 'volcengine' ? '火山引擎' : 'OpenAI 兼容服务';
+          throw problem(`这项导入使用${provider}，请在连接设置中切回该服务后重试。已保存的录音和转录会保留。`, 409);
+        }
+        // An explicit retry may follow a corrected endpoint/model/resource.
+        // Refresh those settings, but never change saved chunk boundaries.
+        const input = job.input.asrPlan ? { ...job.input, asrPlan: createPlan(config).asrPlan } : job.input;
+        store.updateJob(job.id, { input, status: 'queued', error: null, progress: { ...job.progress, phase: job.input.decoded ? 'transcribing' : 'decoding' } });
+      }
       schedule(); return store.getJob(job.id);
     },
     start() { if (started) return; started = true; schedule(); },

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { normalizeAsrResult } from '../capture/protocol.js';
 
 const ENDPOINT = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash';
-const MAX_AUDIO_BYTES = 100_000_000;
+export const VOLC_FILE_LIMITS = Object.freeze({ maxAudioBytes: 100_000_000, maxDurationSeconds: 7200 });
 const MAX_RESPONSE_BYTES = 16 * 1024 ** 2;
 
 class VolcFileError extends Error {}
@@ -106,7 +106,7 @@ export async function transcribeVolcAudio({ audio, config = {}, signal, fetchImp
     const error = problem('文件转录已取消，录音已保留。', 'ASR_ABORTED'); error.name = 'AbortError'; throw error;
   }
   if (!Buffer.isBuffer(audio) || !audio.length) throw problem('文件转录需要非空音频。', 'ASR_EMPTY_AUDIO', { status: 400 });
-  if (audio.length > MAX_AUDIO_BYTES) throw problem('火山文件转录单段音频不能超过 100 MB。', 'ASR_AUDIO_TOO_LARGE', { status: 413 });
+  if (audio.length > VOLC_FILE_LIMITS.maxAudioBytes) throw problem('火山文件转录单段音频不能超过 100 MB。', 'ASR_AUDIO_TOO_LARGE', { status: 413 });
   const headers = headersFor(config);
   const controller = new AbortController();
   let timedOut = false, response, reader;

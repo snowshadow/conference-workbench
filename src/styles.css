@@ -693,9 +693,9 @@ form > label { margin-bottom: 20px; }
   .preview-flow { padding-top: 22px; padding-bottom: 22px; }
   .welcome-footer { margin-top: 20px; }
   .import-status { padding-top: 7px; padding-bottom: 7px; margin-bottom: 8px; }
-  .import-status:not(.has-error):not(:has(progress)) .import-status-copy { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 12px; }
-  .import-status:not(.has-error):not(:has(progress)) .import-status-copy > div > span { display: none; }
-  .import-status:not(.has-error):not(:has(progress)) p { margin-top: 0; }
+  .import-status:not(.has-error):not(.is-busy) .import-status-copy { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 12px; }
+  .import-status:not(.has-error):not(.is-busy) .import-status-copy > div > span { display: none; }
+  .import-status:not(.has-error):not(.is-busy) p { margin-top: 0; }
 }
 @media (max-width: 1350px) {
   .panel-actions .processed-label { display: none; }
