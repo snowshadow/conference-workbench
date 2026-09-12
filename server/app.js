@@ -51,7 +51,9 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
   app.get('/api/health',(req,res)=>res.json({ok:true,name:'conference-workbench',version:'0.1.2'}));
   app.get('/api/settings',(req,res)=>res.json(store.publicSettings()));
   app.put('/api/settings',(req,res)=>res.json(store.saveSettings(req.body)));
-  app.get('/api/meetings',(req,res)=>res.json({meetings:store.listMeetings({archived:req.query.archived==='1'}).map(m=>({id:m.id,title:m.title,goal:m.goal,status:m.status,archived:m.archived,createdAt:m.createdAt,updatedAt:m.updatedAt,transcriptRevision:m.transcriptRevision,topicCount:m.topics.filter(t=>!t.mergedInto).length}))}));
+  app.get('/api/meetings',(req,res)=>res.json(req.query.limit !== undefined || req.query.cursor !== undefined
+    ? store.listMeetingsPage({archived:req.query.archived==='1',limit:req.query.limit ?? 20,cursor:req.query.cursor})
+    : {meetings:store.listMeetings({archived:req.query.archived==='1'}).map(m=>({id:m.id,title:m.title,goal:m.goal,status:m.status,archived:m.archived,createdAt:m.createdAt,updatedAt:m.updatedAt,transcriptRevision:m.transcriptRevision,topicCount:m.topics.filter(t=>!t.mergedInto).length}))}));
   app.post('/api/meetings',(req,res)=>res.status(201).json(store.createMeeting(req.body)));
   app.post('/api/meetings/import',asyncRoute(async(req,res)=>res.status(202).json(await imports.receive(req))));
   app.post('/api/meetings/:id/import/retry',(req,res)=>res.status(202).json(imports.retry(req.params.id)));

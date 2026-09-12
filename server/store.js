@@ -19,6 +19,7 @@ export class Store {
     chmodSync(path.join(this.dataDir, 'workbench.sqlite'), 0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS meetings_created_page ON meetings (coalesce(json_extract(data,'$.archived'),0),json_extract(data,'$.createdAt') DESC,id DESC);
       CREATE TABLE IF NOT EXISTS transcript (position INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,meeting_id TEXT NOT NULL REFERENCES meetings(id),data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS transcript_meeting ON transcript(meeting_id,position);
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY,meeting_id TEXT NOT NULL REFERENCES meetings(id),data TEXT NOT NULL);
@@ -67,6 +68,37 @@ export class Store {
     return this.db.prepare('SELECT id FROM meetings').all().map(r => this.getMeeting(r.id))
       .filter(m => includeArchived || Boolean(m.archived) === Boolean(archived))
       .sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  listMeetingsPage({ archived = false, limit = 20, cursor } = {}) {
+    const count = Number(limit);
+    if (!Number.isInteger(count) || count < 1 || count > 100) throw fail('每页会议数量须为 1 到 100。');
+    let boundary;
+    if (cursor !== undefined) {
+      try {
+        if (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/.test(cursor)) throw new Error();
+        boundary = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        if (!Array.isArray(boundary) || boundary.length !== 2 || boundary.some(value => typeof value !== 'string' || !value || value.length > 100)) throw new Error();
+      } catch { throw fail('会议列表的翻页位置无效，请刷新列表。'); }
+    }
+    // Read only a page of summaries. Unlike getMeeting, this does not load the
+    // meeting's transcript or project its speaker identities.
+    const rows = this.db.prepare(`WITH page AS (
+      SELECT id,data FROM meetings
+      WHERE coalesce(json_extract(data,'$.archived'),0)=?
+      ${boundary ? "AND (json_extract(data,'$.createdAt'),id)<(?,?)" : ''}
+      ORDER BY json_extract(data,'$.createdAt') DESC,id DESC LIMIT ?
+    ) SELECT id,json_extract(data,'$.title') AS title,json_extract(data,'$.goal') AS goal,
+      json_extract(data,'$.status') AS status,json_extract(data,'$.archived') AS archived,
+      json_extract(data,'$.createdAt') AS createdAt,json_extract(data,'$.updatedAt') AS updatedAt,
+      json_extract(data,'$.transcriptRevision') AS transcriptRevision,
+      (SELECT count(*) FROM json_each(page.data,'$.topics') AS topic
+        WHERE json_extract(topic.value,'$.mergedInto') IS NULL OR json_extract(topic.value,'$.mergedInto') IN ('',0)) AS topicCount
+      FROM page`).all(Number(Boolean(archived)), ...(boundary || []), count + 1);
+    const hasMore = rows.length > count;
+    const meetings = rows.slice(0, count).map(row => ({ ...row, archived: Boolean(row.archived) }));
+    const last = meetings.at(-1);
+    const nextCursor = hasMore && last ? Buffer.from(JSON.stringify([last.createdAt, last.id])).toString('base64url') : null;
+    return { meetings, nextCursor, hasMore };
   }
   createMeeting(input = {}) {
     const title = bounded(input.title, 200);

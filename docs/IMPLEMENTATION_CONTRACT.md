@@ -32,6 +32,7 @@ AI 的来源视图提供 `participantId`、`displayName`，已关联成员时也
 GET /api/health
 GET /api/settings -> {llm:{baseUrl,model,reasoningEffort,configured},asr:{configured,resourceId},fileAsr:{provider,resourceId,baseUrl,model,language,configured}}. PUT accepts the corresponding provider settings and credentials; blank secrets preserve prior values. Fresh installations default file ASR to Volcengine, sharing live-ASR credentials with a separate file resource ID; the OpenAI-compatible alternative retains its own settings.
 GET /api/meetings?archived=1 -> {meetings:[]}; POST {title,goal} -> Meeting
+GET /api/meetings?limit=20&cursor=...&archived=1 -> {meetings:[],nextCursor,hasMore}; pagination reads summaries only, ordered by createdAt/id descending. The opaque cursor is used only for the same archive scope. Omitting limit/cursor retains the full legacy list for Agent clients.
 POST /api/meetings/import (multipart file,title?,goal?) -> 202 {meeting,job}; creates an ended meeting only after full local upload, then decodes and transcribes asynchronously.
 POST /api/meetings/:id/import/retry -> Job; resumes failed import checkpoints, returns the existing job for running/done tasks.
 GET /api/meetings/:id -> Meeting plus recordings[],jobs[],commands[],capture

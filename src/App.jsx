@@ -13,7 +13,10 @@ import ThemeDialog from './components/ThemeDialog.jsx';
 import { Button, EmptyState, IconButton, PanelErrorBoundary, ResizeHandle } from './components/ui.jsx';
 import { resolutionOutcomes } from '../shared/resolution-copy.js';
 import { latestDiscussionJob, needsManualAnalysis } from '../shared/discussion-status.js';
+import { useMeetingList } from './lib/use-meeting-list.js';
+import { useClarificationUnread } from './lib/use-clarification-unread.js';
 import './components/MeetingActions.css';
+import './workspace-navigation.css';
 
 const TopicPanel = lazy(() => import('./components/TopicPanel.jsx'));
 
@@ -29,13 +32,16 @@ const jobLabels = { organize: '讨论整理', followup: '澄清检查', answer: 
 
 function initialMeetingId() { const linked = new URLSearchParams(location.search).get('meeting'); if (linked) return linked; try { return localStorage.getItem('meeting-workbench:selected') || null; } catch { return null; } }
 
-function Sidebar({ meetings, archived, setArchived, selectedId, select, create, importRecording, settings, appearance, agent, locked, collapsed, setCollapsed, width, error }) {
+function Sidebar({ meetings, archived, setArchived, selectedId, select, create, importRecording, settings, appearance, agent, locked, collapsed, setCollapsed, width, error, loading, loadingMore, hasMore, loadMore, retry }) {
   return <aside className={`sidebar ${collapsed ? 'compact-sidebar' : ''}`} style={{ width: collapsed ? 68 : width }}>
     <div className="brand"><div className="brand-mark"><img src="/logo-beaver.png" alt={collapsed ? '会议工作台' : ''} width="32" height="32" /></div>{!collapsed && <div><strong>会议工作台</strong></div>}</div>
     <Button className="new-meeting" onClick={create} disabled={locked} aria-label="新建会议" title={locked ? '先停止当前会议的录音，再创建新会议' : '创建会议'}><Plus size={17} />{!collapsed && '新建会议'}</Button>
     <Button className="import-meeting" onClick={importRecording} disabled={locked} title={locked ? '先停止当前录音，再导入会议录音' : '导入录音'}><Upload size={16} />{!collapsed && '导入录音'}</Button>
-    {!collapsed && <><div className="sidebar-section-heading"><span>{archived ? '已归档' : '我的会议'}</span><button className="sidebar-archive-toggle" onClick={() => setArchived(!archived)} aria-label={archived ? '返回会议列表' : '查看已归档会议'}>{archived ? '返回会议' : '已归档'}</button></div><div className="meeting-list">
-      {error ? <p className="sidebar-error">{error}</p> : meetings.length ? meetings.map(meeting => <div className={`meeting-list-item ${selectedId === meeting.id ? 'active' : ''}`} key={meeting.id}><button className="meeting-select" aria-current={selectedId === meeting.id ? 'page' : undefined} disabled={locked && selectedId !== meeting.id} onClick={() => select(meeting.id)} title={locked && selectedId !== meeting.id ? '先停止当前录音，再切换会议' : meeting.title}><div><strong>{meeting.title}</strong><span>{formatDate(meeting.createdAt)} · {statusLabels[meeting.status]}</span></div></button></div>) : <div className="sidebar-empty">{archived ? '归档的会议会保留在这里。' : '还没有会议，先创建一场。'}</div>}
+    {!collapsed && <><div className="sidebar-section-heading"><span>{archived ? '已归档' : '我的会议'}</span><button className="sidebar-archive-toggle" onClick={() => setArchived(!archived)} aria-label={archived ? '返回会议列表' : '查看已归档会议'}>{archived ? '返回会议' : '已归档'}</button></div><div className="meeting-list" key={String(archived)} aria-label={archived ? '已归档会议列表' : '会议列表'} aria-busy={loading || loadingMore}>
+      {meetings.map(meeting => <div className={`meeting-list-item ${selectedId === meeting.id ? 'active' : ''}`} key={meeting.id}><button className="meeting-select" aria-current={selectedId === meeting.id ? 'page' : undefined} disabled={locked && selectedId !== meeting.id} onClick={() => select(meeting.id)} title={locked && selectedId !== meeting.id ? '先停止当前录音，再切换会议' : meeting.title}><div><strong>{meeting.title}</strong><span>{formatDate(meeting.createdAt)} · {statusLabels[meeting.status]}</span></div></button></div>)}
+      {!meetings.length && (loading ? <p className="sidebar-empty" role="status">正在加载会议…</p> : !error && <div className="sidebar-empty">{archived ? '归档的会议会保留在这里。' : '还没有会议，先创建一场。'}</div>)}
+      {error && <div className="sidebar-error"><p>{error}</p><button className="meeting-list-more" onClick={() => retry()} disabled={loading || loadingMore}>重试加载</button></div>}
+      {hasMore && <button className="meeting-list-more" onClick={loadMore} disabled={loading || loadingMore}>{loadingMore ? <><LoaderCircle size={13} className="spin" />正在加载…</> : '加载更多会议'}</button>}
     </div><div className="sidebar-note"><span className="small-ring" />会议内容保存在本机</div></>}
     <div className="sidebar-bottom"><button onClick={appearance} title="外观配色"><Palette size={17} />{!collapsed && <span>外观配色</span>}</button><button onClick={agent} title="Agent 接入"><Terminal size={17} />{!collapsed && <><span>Agent 接入</span><ArrowUpRight size={13} /></>}</button><button onClick={settings} title="连接设置"><Settings2 size={17} />{!collapsed && <span>连接设置</span>}</button><button onClick={() => setCollapsed(!collapsed)} title={collapsed ? '展开侧栏' : '收起侧栏'}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}{!collapsed && <span>收起侧栏</span>}</button></div>
   </aside>;
@@ -50,8 +56,8 @@ function Welcome({ create, importRecording, settings, agent }) {
 
 export default function App() {
   const [savedLayout] = useState(readLayout);
-  const [meetings, setMeetings] = useState([]);
   const [archived, setArchived] = useState(false);
+  const { meetings, loading: loadingMeetings, loadingMore: loadingMoreMeetings, error: listError, hasMore: hasMoreMeetings, loadMore: loadMoreMeetings, refresh: loadList } = useMeetingList({ archived });
   const [selectedId, setSelectedId] = useState(initialMeetingId);
   const [meeting, setMeeting] = useState(null);
   const [transcript, setTranscript] = useState({ lines: [], total: 0, loaded: null });
@@ -68,7 +74,6 @@ export default function App() {
   const [locating, setLocating] = useState(false);
   const [modal, setModal] = useState(null);
   const [settings, setSettings] = useState(null);
-  const [listError, setListError] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [toast, setToast] = useState(null);
   const [liveCapture, setLiveCapture] = useState(null);
@@ -88,14 +93,13 @@ export default function App() {
   const selectedRef = useRef(selectedId);
   const captureRef = useRef(null);
   const activeRefresh = useRef(null), refreshVersion = useRef(0);
-  const listVersion = useRef(0), archivedRef = useRef(archived), windowSizeRef = useRef(windowSize);
+  const windowSizeRef = useRef(windowSize);
   const transcriptRef = useRef(transcript);
   const evidenceRequest = useRef(0);
   const questionInput = useRef(null);
   const deepLinkRead = useRef(false);
   const previousStatus = useRef(null);
   selectedRef.current = selectedId;
-  archivedRef.current = archived;
   windowSizeRef.current = windowSize;
   // Cache only committed data: a superseded transition must not mark unseen lines as loaded.
   useLayoutEffect(() => { transcriptRef.current = transcript; }, [transcript]);
@@ -127,18 +131,7 @@ export default function App() {
 
   const notify = useCallback((message, kind = 'error') => setToast({ message, kind, key: Date.now() }), []);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), toast.kind === 'error' ? 10000 : 5000); return () => clearTimeout(timer); }, [toast]);
-  const loadList = useCallback(async (showArchived = archivedRef.current) => {
-    const version = ++listVersion.current;
-    const current = () => version === listVersion.current && showArchived === archivedRef.current;
-    try {
-      const result = await api(`/api/meetings${showArchived ? '?archived=1' : ''}`);
-      if (!current()) return;
-      startTransition(() => setMeetings(previous => !current() || JSON.stringify(previous) === JSON.stringify(result.meetings) ? previous : result.meetings));
-      setListError(previous => current() ? '' : previous);
-      setSelectedId(previous => current() ? previous || result.meetings[0]?.id || null : previous);
-    } catch (error) { if (current()) setListError(error.message); }
-  }, []);
-  useEffect(() => { loadList(archived); const timer = setInterval(() => loadList(archived), 4000); return () => { clearInterval(timer); listVersion.current++; }; }, [archived, loadList]);
+  useEffect(() => { if (meetings.length) setSelectedId(previous => previous || meetings[0].id); }, [meetings]);
   useEffect(() => { api('/api/settings').then(setSettings).catch(() => {}); }, []);
 
   const refresh = useCallback(async () => {
@@ -261,6 +254,10 @@ export default function App() {
   const latestOrganization = latestJobByType.find(job => jobGroup(job) === 'organization');
   const latestError = latestJobByType.find(job => job.status === 'error' && !(job.type === 'followup' && latestOrganization && String(latestOrganization.createdAt).localeCompare(String(job.createdAt)) >= 0));
   const progressCount = meeting?.followups?.filter(item => !item.mergedInto && ['active', 'recorded', 'resolved'].includes(item.status) && item.resolution).length || 0;
+  const unreadClarifications = useClarificationUnread(meeting?.id === selectedId ? meeting : null, discussionView);
+  // A linked or previously selected older meeting remains reachable before its page is loaded.
+  const sidebarMeetings = meeting?.id === selectedId && Boolean(meeting.archived) === archived && !meetings.some(item => item.id === selectedId)
+    ? [meeting, ...meetings] : meetings;
   const duration = (meeting?.recordings || []).reduce((sum, recording) => sum + (recording.sampleCount || 0) / 16, 0);
   const pendingAuthorization = command?.status === 'needs_user_action' ? command : null;
   const activeCommand = ['pending', 'running'].includes(command?.status);
@@ -283,7 +280,7 @@ export default function App() {
 
 
   return <div className={`app focused-workbench ${presentation ? 'presentation-mode' : ''}`}><a className="skip-link" href="#meeting-main">跳到会议内容</a>
-    {!presentation && <><Sidebar meetings={meetings} archived={archived} setArchived={setArchived} selectedId={selectedId} select={setSelectedId} create={() => setModal('create')} importRecording={() => setModal('import')} settings={() => setModal('settings')} appearance={() => setModal('theme')} agent={() => setModal('agent')} locked={locked} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} width={sidebarWidth} error={listError} />{!sidebarCollapsed && <ResizeHandle label="调整侧栏宽度" value={sidebarWidth} onChange={setSidebarWidth} min={205} max={350} />}</>}
+    {!presentation && <><Sidebar meetings={sidebarMeetings} archived={archived} setArchived={setArchived} selectedId={selectedId} select={setSelectedId} create={() => setModal('create')} importRecording={() => setModal('import')} settings={() => setModal('settings')} appearance={() => setModal('theme')} agent={() => setModal('agent')} locked={locked} collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} width={sidebarWidth} error={listError} loading={loadingMeetings} loadingMore={loadingMoreMeetings} hasMore={hasMoreMeetings} loadMore={loadMoreMeetings} retry={loadList} />{!sidebarCollapsed && <ResizeHandle label="调整侧栏宽度" value={sidebarWidth} onChange={setSidebarWidth} min={205} max={350} />}</>}
     {!selectedId ? <Welcome create={() => setModal('create')} importRecording={() => setModal('import')} settings={() => setModal('settings')} agent={() => setModal('agent')} /> : !meeting ? <main id="meeting-main" tabIndex={-1} className="meeting-loading">{connectionError ? <EmptyState icon={CircleAlert} title="暂时无法加载会议" action={<Button onClick={refresh}><RefreshCw size={14} />重新连接</Button>}>{connectionError}</EmptyState> : <><LoaderCircle size={24} className="spin" /><p>正在打开会议…</p></>}</main> : <main id="meeting-main" tabIndex={-1} className="main-workspace">
       <header className="meeting-header">
         <div className="meeting-heading">
@@ -331,7 +328,7 @@ export default function App() {
       <section className="discussion-stage" aria-label="当前讨论">
         <div className="panel-body">
           <div className="discussion-toolbar"><div className="discussion-tabs" role="tablist" aria-label="讨论工作区">
-            <button id="clarification-tab" role="tab" aria-selected={discussionView === 'clarification'} aria-controls="clarification-view" tabIndex={discussionView === 'clarification' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => setDiscussionView('clarification')}>澄清焦点</button>
+            <button id="clarification-tab" role="tab" aria-label={unreadClarifications ? `澄清焦点，${unreadClarifications} 个未读问题` : '澄清焦点'} aria-selected={discussionView === 'clarification'} aria-controls="clarification-view" tabIndex={discussionView === 'clarification' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => setDiscussionView('clarification')}>澄清焦点{unreadClarifications > 0 && <span className="clarification-unread" aria-hidden="true">{unreadClarifications > 99 ? '99+' : unreadClarifications}</span>}</button>
             <button id="topics-tab" role="tab" aria-selected={discussionView === 'topics'} aria-controls="topics-view" tabIndex={discussionView === 'topics' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => { setTopicsOpened(true); setDiscussionView('topics'); }}>讨论脉络</button>
           </div><div className="discussion-toolbar-actions"><DiscussionStatus key={meeting.id} job={discussionJob} request={discussionRequest} needsAnalysis={manualAnalysis} onAnalyze={() => triggerJob('organize')} onRetry={triggerJob} onSettings={() => setModal('settings')} onHistory={() => setModal('processing')} /><div className="clarification-toolbar" ref={setClarificationToolbar} /></div></div>
           <div id="clarification-view" className="discussion-view" role="tabpanel" aria-labelledby="clarification-tab" hidden={discussionView !== 'clarification'}><ClarificationPanel key={meeting.id} meeting={meeting} selected={selectedClarification} setSelected={setSelectedClarification} onEvidence={focusEvidence} onTopic={showTopic} mutate={mutate} job={followupJob} onRequestQuestion={() => triggerJob('followup')} questionRequestBusy={Boolean(followupJob) || submitting === 'followup'} analysisStatus={discussionRequest || discussionJob} pauseFollowing={Boolean(resolutionId)} toolbarTarget={clarificationToolbar} visible={discussionView === 'clarification'} /></div>
