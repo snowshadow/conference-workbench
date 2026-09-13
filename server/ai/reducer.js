@@ -59,7 +59,7 @@ const evidenceIds = evidence => [...new Set(evidence.map(item => item.id))];
 const human = item => item?.author && item.author !== 'ai';
 const protectedClarification = item => item && (human(item) || item.manualFields?.length || item.distinctions?.some(part => human(part) || part.manualFields?.length));
 const explanationMeaning = item => item && ({ explanation: item.explanation, distinctions: (item.distinctions || []).map(({ title, text, example }) => ({ title, text, example })) });
-const REVIEW_METADATA = new Set(['sourceRevision', 'presentationSourceRevision', 'updatedAt', 'createdAt', 'pendingReview', 'stale', 'peopleFields', 'identityReview', 'identityReviewedAt', 'history', 'priority']);
+const REVIEW_METADATA = new Set(['sourceRevision', 'presentationSourceRevision', 'updatedAt', 'createdAt', 'pendingReview', 'stale', 'peopleFields', 'identityReview', 'identityReviewedAt', 'history', 'priority', 'retrospective']);
 const substantiveValue = value => {
   if (Array.isArray(value)) return value.map(substantiveValue);
   if (!value || typeof value !== 'object') return value;
@@ -145,7 +145,7 @@ export function validateTopicTree(topics) {
 }
 
 /** Apply only grounded operations. IDs from the model are aliases for new server-generated IDs. */
-export function reduceOrganization(meeting, payload, lines, { sourceRevision = meeting.transcriptRevision, followupLimit = 1, fresh = true, allowStructure = true } = {}) {
+export function reduceOrganization(meeting, payload, lines, { sourceRevision = meeting.transcriptRevision, followupLimit = 1, fresh = true, allowStructure = true, retrospective = false } = {}) {
   const next = structuredClone(meeting);
   next.topics ||= []; next.followups ||= [];
   const byId = new Map(sourceLines(meeting.id, lines).map(line => [line.id, line]));
@@ -290,7 +290,9 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     const existing = exact || next.followups.find(f => question && similarQuestion(f.question, question));
     const clarification = groundedClarification(input.clarification, byId, sourceRevision, next, existing?.clarification);
     if (input.clarification !== undefined && !clarification) continue;
-    const incomingEvidence = mergeEvidence(evidence, clarificationEvidence(clarification));
+    const retrospectiveResolution = retrospective && input.resolution ? groundedResolution({ resolution: input.resolution, evidence: input.resolution.evidence }, byId, sourceRevision, next) : null;
+    if (retrospective && input.resolution && !retrospectiveResolution) continue;
+    const incomingEvidence = mergeEvidence(evidence, clarificationEvidence(clarification), retrospectiveResolution?.evidence || []);
     const priority = groundedPriority(input.priority, evidence, byId, sourceRevision, next);
     // Dropping an overlong display summary is safer than cutting off a condition or option.
     const shortQuestion = presentationText(groundedPeopleText(input.shortQuestion, evidence, byId, next), 200), discussionValue = presentationText(groundedPeopleText(input.discussionValue, evidence, byId, next), 800);
@@ -298,11 +300,11 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       if (input.id) followupAliases.set(input.id, existing.id);
       // Similarity prevents duplicates; only an explicit stable ID authorizes
       // evolving the substance of an existing question.
-      if (!exact || existing.status !== 'active' || existing.mergedInto || existing.author !== 'ai' || existing.manualFields?.some(key => ['status', 'resolution'].includes(key)) || sourceRevision < Math.max(existing.sourceRevision || 0, existing.clarification?.sourceRevision || 0, existing.attention?.sourceRevision || 0) || existing.resolution && existing.resolution.author !== 'ai') continue;
+      if (!exact || !(existing.status === 'active' || retrospective && existing.status === 'resolved') || existing.mergedInto || existing.author !== 'ai' || existing.manualFields?.some(key => ['status', 'resolution'].includes(key)) || sourceRevision < Math.max(existing.sourceRevision || 0, existing.clarification?.sourceRevision || 0, existing.attention?.sourceRevision || 0) || existing.resolution && existing.resolution.author !== 'ai') continue;
       // A fresh rank may reuse the same utterance; a stale job must not replace
       // a newer rank, and metadata alone cannot bring a retired issue back.
       const mayRank = priority && !existing.manualFields?.length && !human(existing.priority) && !existing.priority?.manualFields?.length && !protectedClarification(existing.clarification) && sourceRevision >= (existing.priority?.sourceRevision || 0);
-      const updatePriority = () => { if (mayRank && isActiveFocus(existing)) existing.priority = priority; };
+      const updatePriority = () => { if (mayRank && (isActiveFocus(existing) || retrospective && existing.status === 'resolved' && existing.attention?.needed !== false && !existing.stale)) existing.priority = priority; };
       updatePriority();
       const original = meeting.followups?.find(item => item.id === existing.id) || existing;
       const previousEvidence = mergeEvidence(followupEvidence(original), original.resolution?.evidence || []);
@@ -311,13 +313,24 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       const changedMeaning = substantive && (question !== existing.question || rationale !== existing.rationale || impact !== existing.impact);
       // Presentation-only edits can reuse current evidence. A changed question
       // after a partial answer needs evidence beyond that answer.
-      const cannotReword = changedMeaning && !newEvidence && (original.resolution
+      const cannotReword = !retrospective && changedMeaning && !newEvidence && (original.resolution
         || Math.max(-1, ...evidence.map(item => byId.get(item.id)?.startMs ?? -1)) < Math.max(-1, ...previousEvidence.map(item => byId.get(item.id)?.startMs ?? -1))
         || !evidenceFor(existing, byId));
       // Legacy questions may gain their first explanation without changing an
       // already recorded partial answer or accepting the model's rewritten ask.
       if (cannotReword && (existing.clarification || !clarification)) continue;
       const patch = {};
+      const mayRevisit = retrospective && existing.attention?.needed === false && !existing.manualFields?.length && !human(existing.attention) && !existing.attention.manualFields?.length && !protectedClarification(existing.clarification);
+      if (retrospective && (existing.attention?.needed !== false || mayRevisit)) {
+        patch.retrospective = true;
+        // An offline reading can correct an earlier AI interpretation of the
+        // same speech. Manual answers and later source revisions were guarded above.
+        if (retrospectiveResolution) {
+          patch.resolution = retrospectiveResolution; patch.resolvedEvidence = retrospectiveResolution.evidence;
+          patch.status = retrospectiveResolution.complete ? 'resolved' : 'active';
+        }
+        if (mayRevisit) patch.attention = { needed: true, evidence: incomingEvidence, evidenceIds: evidenceIds(incomingEvidence), sourceRevision, author: 'ai', stale: false };
+      }
       if (!cannotReword && substantive && (newEvidence || changedMeaning)) {
         for (const [key, value] of Object.entries({ question, rationale, impact })) if (!existing.manualFields?.includes(key)) patch[key] = value;
         if (CLARIFICATION_KINDS.has(input.kind) && !existing.manualFields?.includes('kind')) patch.kind = input.kind;
@@ -329,7 +342,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       }
       const mayExplain = !existing.manualFields?.includes('clarification') && !protectedClarification(existing.clarification);
       const explanationChanged = clarification && JSON.stringify(explanationMeaning(clarification)) !== JSON.stringify(explanationMeaning(existing.clarification));
-      const mayReviseExplanation = !existing.clarification || existing.clarification.stale || !explanationChanged || newEvidence;
+      const mayReviseExplanation = retrospective || !existing.clarification || existing.clarification.stale || !explanationChanged || newEvidence;
       if (clarification && mayExplain && mayReviseExplanation) {
         patch.clarification = clarification;
         patch.sourceRevision = sourceRevision;
@@ -362,7 +375,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
     if (input.topicId && !topicId) continue;
     const id = makeId('followup');
     if (input.id) followupAliases.set(input.id, id);
-    next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), ...(clarification ? { clarification } : {}), ...(priority ? { priority } : {}), evidenceIds: evidenceIds(incomingEvidence), evidence, status: 'active', sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
+    next.followups.push({ id, topicId, kind: input.kind, question, rationale, impact, ...(shortQuestion ? { shortQuestion } : {}), ...(discussionValue ? { discussionValue } : {}), ...((shortQuestion || discussionValue) ? { presentationSourceRevision: sourceRevision } : {}), ...(clarification ? { clarification } : {}), ...(priority ? { priority } : {}), evidenceIds: evidenceIds(incomingEvidence), evidence, status: retrospectiveResolution?.complete ? 'resolved' : 'active', ...(retrospective ? { retrospective: true } : {}), ...(retrospectiveResolution ? { resolution: retrospectiveResolution, resolvedEvidence: retrospectiveResolution.evidence } : {}), sourceRevision, stale: false, pendingReview: !fresh, author: 'ai', createdAt: new Date().toISOString() });
     markPeopleFields(next.followups.at(-1), ['question', 'shortQuestion', 'rationale', 'impact', 'discussionValue'], next);
     added++;
   }
@@ -407,7 +420,7 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
   const focus = chosen ? resolveAlias(chosen) : null;
   if (sourceRevision >= (next.focusSourceRevision || 0)) {
     if (Object.hasOwn(payload, 'focusFollowupId') || next.focusFollowupId !== undefined) {
-      next.focusFollowupId = isActiveFocus(focus) ? focus.id : focus?.attention?.needed === false && !focus.stale ? nextFocusId(next, focus.id) : null;
+      next.focusFollowupId = (isActiveFocus(focus) || retrospective && focus?.retrospective && focus.status === 'resolved' && !focus.stale && focus.attention?.needed !== false) ? focus.id : focus?.attention?.needed === false && !focus.stale ? nextFocusId(next, focus.id) : null;
       next.focusSourceRevision = sourceRevision;
     }
   }

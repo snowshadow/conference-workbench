@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { runRetrospective } from './retrospective.js';
 import { minutesDocumentMarkdown } from '../../shared/minutes-format.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 import { reduceOrganization } from './reducer.js';
@@ -36,6 +37,7 @@ function validateResult(result, purpose) {
       && (result.inference === undefined || typeof result.inference === 'string')
       && (result.insufficient === undefined || typeof result.insufficient === 'boolean');
   } else {
+    if (purpose === 'retrospective_focus' && result.topics === undefined) result.topics = [];
     valid = objects(result.topics) && objects(result.followups)
       && result.followups.every(item => ['shortQuestion','discussionValue'].every(key => item[key] === undefined || typeof item[key] === 'string'))
       && result.followups.every(item => item.priority === undefined || object(item.priority)
@@ -52,6 +54,14 @@ function validateResult(result, purpose) {
         && result.retiredFollowups.every(item => typeof item.id === 'string' && typeof item.reason === 'string' && citations(item.evidence)))
       && (result.focusFollowupId === undefined || result.focusFollowupId === null || typeof result.focusFollowupId === 'string')
       && (result.keepFollowupIds === undefined || Array.isArray(result.keepFollowupIds) && result.keepFollowupIds.every(id => typeof id === 'string'));
+  }
+  if (purpose.startsWith('retrospective_') && valid) {
+    const supported = evidence => citations(evidence) && evidence.length > 0 && evidence.length <= 30;
+    valid = result.followups.every(item => item.retrospective === true && ['concept', 'assumption', 'criteria', 'other'].includes(item.kind)
+      && ['question', 'rationale', 'impact'].every(key => typeof item[key] === 'string' && item[key].trim())
+      && object(item.clarification) && item.clarification.explanation.trim() && supported(item.evidence) && supported(item.clarification.evidence)
+      && (item.clarification.distinctions || []).every(part => part.title.trim() && part.text.trim() && supported(part.evidence))
+      && (item.resolution === undefined || object(item.resolution) && ['clarified', 'needs_verification', 'difference_remains'].includes(item.resolution.outcome) && typeof item.resolution.complete === 'boolean' && typeof item.resolution.text === 'string' && item.resolution.text.trim() && supported(item.resolution.evidence)));
   }
   if (!valid) throw fail(`模型返回的${purpose === 'answer_select' ? '问答来源选择' : purpose === 'answer' ? '问答' : purpose === 'refresh_speakers' ? '发言人核对' : '会议整理'}结果格式无效，请重试。`, 502);
   return result;
@@ -95,7 +105,8 @@ function minutesMarkdown(meeting, lines) {
   if (meeting.processedRevision < meeting.transcriptRevision) content.push('仍有新增转录待整理，本文是当前已整理部分的纪要。', '');
   if (meeting.goal) content.push(`会议目标（不作为会议事实）：${meeting.goal}`, '');
   const entries = (meeting.topics || []).filter(t => !t.mergedInto).flatMap(topic => (topic.entries || []).map(entry => ({ ...entry, topicTitle: topic.title }))).filter(entry => !entry.stale && entry.status !== 'superseded');
-  const clarifications = (meeting.followups || []).filter(item => item.status !== 'ignored' && !item.mergedInto && !item.stale && !item.resolution?.stale);
+  const clarifications = (meeting.followups || []).filter(item => item.status !== 'ignored' && !item.mergedInto && !item.stale && !item.resolution?.stale)
+    .filter(item => meeting.source !== 'recording_import' || !meeting.retrospectiveAnalysis?.focusCompleted || item.retrospective || item.author !== 'ai' || item.manualFields?.length || item.resolution?.author && item.resolution.author !== 'ai');
   const authorLabel = author => author === 'host' ? '主持人记录' : author === 'agent' ? 'Agent 记录' : 'AI 按原文整理';
   const sections = [
     ['决定', entry => entry.type === 'decision' && entry.status === 'active'],
@@ -120,6 +131,28 @@ function minutesMarkdown(meeting, lines) {
       }
     }
     if (selected.length) content.push('');
+  }
+  if (meeting.source === 'recording_import') {
+    content.push('## 复盘焦点', '');
+    const selected = clarifications.filter(item => item.attention?.needed !== false);
+    if (!selected.length) content.push('暂无值得单独展开的复盘焦点。', '');
+    for (const item of selected) {
+      content.push(`### ${item.shortQuestion || item.question}`, '');
+      if (item.impact) content.push(`回看价值：${item.impact}`, '');
+      if (item.clarification && !item.clarification.stale) {
+        content.push(`AI 理解建议（不是会议结论）：${item.clarification.explanation}`, '');
+        for (const part of item.clarification.distinctions || []) {
+          if (part.stale) continue;
+          content.push(`- **${part.title}**：${part.text}${part.example ? ` 例如：${part.example}` : ''} ${(part.evidenceIds || []).map(evidenceLink).filter(Boolean).join(' ')}`);
+        }
+        content.push('');
+      }
+      if (item.resolution) content.push(`会末记录（${authorLabel(item.resolution.author)}；${item.resolution.complete ? '核心问题已说清' : item.resolution.outcome === 'recorded' ? '未确认是否解决' : '仍有关键问题未定'}）：${item.resolution.text}`, '');
+      else content.push('会末没有记录到可确认的结果。', '');
+      const ids = [...new Set([...(item.evidenceIds || []), ...(item.clarification?.evidenceIds || []), ...(item.resolution?.evidenceIds || [])])];
+      content.push(`核对原话：${ids.map(evidenceLink).filter(Boolean).join(' ') || '未关联原文'}`, '');
+    }
+    return minutesDocumentMarkdown({ type: 'minutes', author: 'ai', markdown: content.join('\n') });
   }
   const clarificationSections = [
     ['讨论记录', item => item.status === 'recorded' && item.resolution?.outcome === 'recorded'],
@@ -190,7 +223,7 @@ const providerErrorMessages = {
 const followupContent = items => JSON.stringify(items.map(({ priority, ...item }) => item));
 
 /** Persistent jobs, one in flight per meeting; injectable request/timing seams support deterministic tests. */
-export function createAIService({ store, fetchImpl = globalThis.fetch, intervalMs = 30000, requestTimeoutMs = 300000 }) {
+export function createAIService({ store, fetchImpl = globalThis.fetch, intervalMs = 30000, requestTimeoutMs = 300000, retrospectiveMaxChars = 48000 }) {
   let started = false, timer = null;
   const running = new Map();
   const controllers = new Set();
@@ -204,55 +237,67 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
     if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) throw fail('大模型 API 地址无效。');
     if (!llm.apiKey && !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) throw fail('请先在设置中填写大模型 API Key。');
     const url = llm.baseUrl.replace(/\/+$/, '').replace(/\/chat\/completions$/, '') + '/chat/completions';
-    const call = { purpose, promptVersion: PROMPT_VERSION, model: llm.model, reasoningEffort: llm.reasoningEffort || 'default', sourceRevision: data.sourceRevision, startedAt: date() };
+    const callStarted = Date.now();
+    const call = { purpose, promptVersion: execution.promptVersion || PROMPT_VERSION, model: llm.model, reasoningEffort: llm.reasoningEffort || 'default', sourceRevision: data.sourceRevision, startedAt: date() };
     execution.modelCalls.push(call);
-    store.updateJob(execution.jobId, { promptVersion: PROMPT_VERSION, model: llm.model, reasoningEffort: call.reasoningEffort, sourceRevision: data.sourceRevision, modelCalls: execution.modelCalls });
-    let jsonFormat = true;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (!started) throw Object.assign(new Error('AI 服务已停止。'), { name: 'AbortError' });
-      const controller = new AbortController(); controllers.add(controller);
-      const timeout = setTimeout(() => controller.abort(new Error('大模型请求超时，请重试。')), requestTimeoutMs); timeout.unref?.();
-      let retry = false;
-      try {
-        const response = await fetchImpl(url, {
-          method: 'POST', signal: controller.signal,
-          headers: { 'Content-Type': 'application/json', ...(llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {}) },
-          body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer_select' ? 'sourceIds 必须是本批原发言 ID 的数组，最多 24 条。' : purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : purpose === 'refresh_speakers' ? 'records 必须是数组，每项包含输入的 id、完整 text 和原文 evidence。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
-        });
-        if (!response.ok) {
-          const kind = await providerErrorKind(response);
-          if (jsonFormat && attempt < 2 && (kind === 'format' || !kind && response.status === 400)) { jsonFormat = false; retry = true; }
-          else if (!kind && [408, 429, 500, 502, 503, 504].includes(response.status) && attempt < 2) retry = true;
-          else throw fail(`${providerErrorMessages[kind] || '大模型请求失败，请检查模型配置后重试。'}（HTTP ${response.status}）`, 502);
-        } else {
-          try {
-            const payload = await response.json();
-            return validateResult(parseJSON(payload?.choices?.[0]?.message?.content), purpose);
-          } catch (error) {
-            // A successful HTTP response can still contain broken JSON or an
-            // incomplete contract. Retry that batch once, within the same total
-            // request budget, without feeding the provider response back in.
-            if (!(error instanceof SyntaxError) && error.status !== 502) throw error;
-            if (!call.formatRetries && attempt < 2) {
-              call.formatRetries = 1;
-              store.updateJob(execution.jobId, { modelCalls: execution.modelCalls });
-              retry = true;
-            } else throw error.status ? error : fail('大模型响应不是有效 JSON，请重试。', 502);
-          }
-        }
-      } catch (error) {
+    store.updateJob(execution.jobId, { promptVersion: execution.promptVersion || PROMPT_VERSION, model: llm.model, reasoningEffort: call.reasoningEffort, sourceRevision: data.sourceRevision, modelCalls: execution.modelCalls });
+    try {
+      let jsonFormat = true;
+      for (let attempt = 0; attempt < 3; attempt++) {
         if (!started) throw Object.assign(new Error('AI 服务已停止。'), { name: 'AbortError' });
-        if (controller.signal.aborted) throw fail('大模型请求超时，请重试。', 504);
-        if (error.status || attempt >= 2) throw error.status ? error : fail('无法连接大模型服务，请检查连接和配置。', 502);
-        retry = true;
-      } finally { clearTimeout(timeout); controllers.delete(controller); }
-      if (retry) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+        const controller = new AbortController(); controllers.add(controller);
+        const timeout = setTimeout(() => controller.abort(new Error('大模型请求超时，请重试。')), requestTimeoutMs); timeout.unref?.();
+        let retry = false;
+        try {
+          const response = await fetchImpl(url, {
+            method: 'POST', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json', ...(llm.apiKey ? { Authorization: `Bearer ${llm.apiKey}` } : {}) },
+            body: JSON.stringify({ model: llm.model, temperature: 0.2, stream: false, ...(llm.reasoningEffort ? { reasoning_effort: llm.reasoningEffort } : {}), ...(jsonFormat ? { response_format: { type: 'json_object' } } : {}), messages: [{ role: 'system', content: `${execution.system || SYSTEM}\n${instructions}${call.formatRetries ? `\n上次输出未通过格式校验，请仅返回符合以上输出契约的 JSON 对象：${purpose === 'answer_select' ? 'sourceIds 必须是本批原发言 ID 的数组，最多 24 条。' : purpose === 'answer' ? 'answer 必须是字符串，evidence 必须是引用数组。' : purpose === 'refresh_speakers' ? 'records 必须是数组，每项包含输入的 id、完整 text 和原文 evidence。' : purpose.startsWith('retrospective_') ? 'followups 中的焦点须含 retrospective=true、clarification 和 evidence；可省略 resolution，填写时包含 outcome、complete 布尔值、text 和 evidence。evidence 和 summaryEvidence 只需填写已有原话的 id，由系统取回原句，无需抄写 quote。若保留 quote 则必须逐字准确，保留原文的 ASR 错字、标点和用词；未知引用 ID 不可使用。' : 'topics 和 followups 必须是数组，resolvedFollowups 中每项 resolution.complete 必须显式填写布尔值。'}` : ''}` }, { role: 'user', content: JSON.stringify(data) }] }),
+          });
+          if (!response.ok) {
+            const kind = await providerErrorKind(response);
+            if (jsonFormat && attempt < 2 && (kind === 'format' || !kind && response.status === 400)) { jsonFormat = false; retry = true; }
+            else if (!kind && [408, 429, 500, 502, 503, 504].includes(response.status) && attempt < 2) retry = true;
+            else throw fail(`${providerErrorMessages[kind] || '大模型请求失败，请检查模型配置后重试。'}（HTTP ${response.status}）`, 502);
+          } else {
+            try {
+              const payload = await response.json();
+              const parsed = parseJSON(payload?.choices?.[0]?.message?.content);
+              const result = purpose.startsWith('retrospective_') && execution.validateResult
+                ? validateResult(execution.validateResult(parsed), purpose)
+                : validateResult(parsed, purpose);
+              call.status = 'done';
+              return result;
+            } catch (error) {
+              // A successful HTTP response can still contain broken JSON or an
+              // incomplete contract. Retry that batch once, within the same total
+              // request budget, without feeding the provider response back in.
+              if (!(error instanceof SyntaxError) && error.status !== 502) throw error;
+              if (!call.formatRetries && attempt < 2) {
+                call.formatRetries = 1;
+                store.updateJob(execution.jobId, { modelCalls: execution.modelCalls });
+                retry = true;
+              } else throw error.status ? error : fail('大模型响应不是有效 JSON，请重试。', 502);
+            }
+          }
+        } catch (error) {
+          if (!started) throw Object.assign(new Error('AI 服务已停止。'), { name: 'AbortError' });
+          if (controller.signal.aborted) throw fail('大模型请求超时，请重试。', 504);
+          if (error.status || attempt >= 2) throw error.status ? error : fail('无法连接大模型服务，请检查连接和配置。', 502);
+          retry = true;
+        } finally { clearTimeout(timeout); controllers.delete(controller); }
+        if (retry) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+      }
+      throw fail('大模型服务暂时不可用，请重试。', 502);
+    } finally {
+      call.endedAt = date(); call.durationMs = Date.now() - callStarted; call.status ||= 'error';
+      store.updateJob(execution.jobId, { modelCalls: execution.modelCalls });
     }
-    throw fail('大模型服务暂时不可用，请重试。', 502);
   }
 
   async function organize(meetingId, { followupOnly = false, manual = false, force = false, execution } = {}) {
     const snapshot = store.getMeeting(meetingId);
+    if (snapshot.source === 'recording_import') return runRetrospective({ store, meetingId, execution, complete, force, focusOnly: followupOnly, maxChars: retrospectiveMaxChars });
     const allLines = sourceLines(meetingId, store.allTranscript(meetingId));
     if (!allLines.length) return { processedRevision: snapshot.processedRevision, skipped: 'no_transcript' };
     if (!force && !followupOnly && snapshot.processedRevision === snapshot.transcriptRevision && !(snapshot.topics || []).some(t => t.stale)) return { processedRevision: snapshot.processedRevision, skipped: 'no_new_transcript' };
@@ -422,7 +467,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
 
   async function minutes(meetingId, execution) {
     await organize(meetingId, { execution });
-    await reviewOpenQuestions(meetingId, execution);
+    if (store.getMeeting(meetingId).source !== 'recording_import') await reviewOpenQuestions(meetingId, execution);
     store.updateJob(execution.jobId, { progress: { ...store.getJob(execution.jobId).progress, phase: 'minutes' } });
     const snapshot = store.getMeeting(meetingId);
     const lines = sourceLines(meetingId, store.allTranscript(meetingId));
@@ -521,7 +566,7 @@ export function createAIService({ store, fetchImpl = globalThis.fetch, intervalM
           else if (job.type === 'refresh_speakers') result = await refreshPeople(job.meetingId, job.input, execution);
           else {
             result = await organize(job.meetingId, { followupOnly: job.type === 'followup', manual: job.type === 'followup', force: job.input?.force === true, execution });
-            if (job.type === 'organize' && job.input?.force) await reviewOpenQuestions(job.meetingId, execution);
+            if (job.type === 'organize' && job.input?.force && store.getMeeting(job.meetingId).source !== 'recording_import') await reviewOpenQuestions(job.meetingId, execution);
           }
           break;
         } catch (error) { if (error.code !== 'STALE_RESULT' || attempt === 2) throw error; }

@@ -79,6 +79,11 @@
 .reading-focus .focus-explanation { margin: 0; color: var(--ink); font-size: clamp(18px, 1.3vw, 20px); line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; }
 .reading-focus .focus-impact, .reading-focus .focus-legacy-impact { margin: 10px 0 0; color: var(--ink-secondary); font-size: 15px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reading-focus .focus-legacy-impact { margin-top: 15px; }
+.reading-focus .focus-meeting-outcome { margin-top: 28px; max-width: 48em; }
+.reading-focus .focus-meeting-outcome > h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin: 0 0 10px; color: var(--ink); font-size: 13px; line-height: 1.6; font-weight: 550; }
+.reading-focus .focus-meeting-outcome > h4 > span { color: var(--ink-muted); font-size: 12px; font-weight: 400; }
+.reading-focus .focus-meeting-outcome > p { margin: 0; color: var(--ink-secondary); font-size: 16px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reading-focus .focus-meeting-outcome > .record-review-state { margin-top: 10px; color: var(--warning); font-size: 13px; }
 .reading-focus .focus-evidence { margin-top: 23px; font-size: 14px; color: var(--ink-secondary); }
 .reading-focus .focus-evidence > summary { display: flex; align-items: center; gap: 8px; width: fit-content; min-height: 42px; cursor: pointer; list-style: none; color: var(--link); border-radius: 8px; }
 .reading-focus .focus-evidence > summary::-webkit-details-marker { display: none; }

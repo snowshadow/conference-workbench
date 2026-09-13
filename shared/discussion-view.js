@@ -1,28 +1,38 @@
 export const isActiveFocus = item => item?.status === 'active' && !item.stale && !item.mergedInto && item.attention?.needed !== false;
 
+// A useful retrospective can include a misunderstanding that the meeting resolved.
+// Keep its factual status; being worth revisiting does not make it unresolved.
+export const isReadingFocus = (item, meeting) => {
+  if (meeting?.source !== 'recording_import') return isActiveFocus(item);
+  if (item?.retrospective === true) return ['active', 'resolved', 'recorded'].includes(item.status) && !item.stale && !item.resolution?.stale && !item.mergedInto && item.attention?.needed !== false;
+  if (meeting.retrospectiveAnalysis?.focusCompleted && item?.author === 'ai' && !item.manualFields?.length && item.resolution?.author !== 'host') return false;
+  return isActiveFocus(item);
+};
+
 const PRIORITIES = {
   high: { level: 'high', rank: 3, label: '优先讨论' },
   medium: { level: 'medium', rank: 2, label: '随后讨论' },
   low: { level: 'low', rank: 1, label: '可以稍后' },
 };
 
-export function focusPriority(item) {
+export function focusPriority(item, meeting) {
   const priority = !item?.priority?.stale && Object.hasOwn(PRIORITIES, item?.priority?.level) ? PRIORITIES[item.priority.level] : null;
-  return priority ? { ...priority, reason: typeof item.priority.reason === 'string' ? item.priority.reason.trim() : '' }
+  const label = meeting?.source === 'recording_import' ? { high: '优先回看', medium: '随后回看', low: '可以稍后' }[priority?.level] : priority?.label;
+  return priority ? { ...priority, label, reason: typeof item.priority.reason === 'string' ? item.priority.reason.trim() : '' }
     : { level: 'unrated', rank: 0, label: '待排序', reason: '' };
 }
 
 // Three broad groups, stable within each group; no precision score or tie-break
 // based on ASR segmentation. Legacy questions retain their existing order.
 export function orderedFocuses(meeting) {
-  return (meeting.followups || []).filter(isActiveFocus).sort((a, b) => focusPriority(b).rank - focusPriority(a).rank);
+  return (meeting.followups || []).filter(item => isReadingFocus(item, meeting)).sort((a, b) => focusPriority(b).rank - focusPriority(a).rank);
 }
 
 // A reading session keeps its order. New questions enter when the host opens
 // the list again; resolved/merged questions do not become dead navigation stops.
 export function browseFocusIds(meeting, frozenIds) {
   if (!Array.isArray(frozenIds)) return orderedFocuses(meeting).map(item => item.id);
-  return [...new Set(frozenIds.map(id => resolveFocus(meeting, id)).filter(isActiveFocus).map(item => item.id))];
+  return [...new Set(frozenIds.map(id => resolveFocus(meeting, id)).filter(item => isReadingFocus(item, meeting)).map(item => item.id))];
 }
 
 export function resolveFocus(meeting, id) {
@@ -39,7 +49,7 @@ export function resolveFocus(meeting, id) {
 export function nextFocusId(meeting, currentId) {
   const items = meeting.followups || [];
   const index = items.findIndex(item => item.id === currentId);
-  const candidates = (index < 0 ? items : [...items.slice(index + 1), ...items.slice(0, index)]).filter(isActiveFocus)
+  const candidates = (index < 0 ? items : [...items.slice(index + 1), ...items.slice(0, index)]).filter(item => isReadingFocus(item, meeting))
     .sort((a, b) => focusPriority(b).rank - focusPriority(a).rank);
   const topicId = items[index]?.topicId;
   const firstRank = focusPriority(candidates[0]).rank;
@@ -48,6 +58,11 @@ export function nextFocusId(meeting, currentId) {
 }
 
 export function recommendedFocusId(meeting) {
+  if (meeting.source === 'recording_import') {
+    const ordered = orderedFocuses(meeting);
+    const chosen = resolveFocus(meeting, meeting.focusFollowupId);
+    return isReadingFocus(chosen, meeting) && focusPriority(chosen).rank >= focusPriority(ordered[0]).rank ? chosen.id : ordered[0]?.id || null;
+  }
   // An explicit empty recommendation means the meeting can continue quietly.
   if (Object.hasOwn(meeting, 'focusFollowupId')) {
     if (meeting.focusFollowupId === null) return null;
@@ -67,7 +82,7 @@ export function recommendedFocusId(meeting) {
 export function readingFocusId(meeting, selected, following = true, paused = false) {
   const item = resolveFocus(meeting, selected);
   if (!following || paused) return item?.id || null;
-  return isActiveFocus(item) ? item.id : recommendedFocusId(meeting);
+  return isReadingFocus(item, meeting) ? item.id : recommendedFocusId(meeting);
 }
 
 export function returnFocusId(meeting, readingId) {

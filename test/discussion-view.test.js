@@ -1,8 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { browseFocusIds, focusPriority, isActiveFocus, nextFocusId, orderedFocuses, readingFocusId, recommendedFocusId, resolveFocus, returnFocusId, topicReadingEntries } from '../shared/discussion-view.js';
+import { browseFocusIds, focusPriority, isActiveFocus, isReadingFocus, nextFocusId, orderedFocuses, readingFocusId, recommendedFocusId, resolveFocus, returnFocusId, topicReadingEntries } from '../shared/discussion-view.js';
 
 const question = (id, extra = {}) => ({ id, status: 'active', ...extra });
+
+test('retrospectives keep resolved lessons readable without changing factual or live focus status', () => {
+  const lesson = question('lesson', { retrospective: true, status: 'resolved', resolution: { complete: true }, priority: { level: 'high' } });
+  const pending = question('pending', { retrospective: true, priority: { level: 'medium' } });
+  const meeting = { source: 'recording_import', focusFollowupId: null, followups: [pending, lesson] };
+  const before = structuredClone(meeting);
+  assert.equal(isActiveFocus(lesson), false);
+  assert.equal(isReadingFocus(lesson, meeting), true);
+  assert.deepEqual(orderedFocuses(meeting).map(item => item.id), ['lesson', 'pending']);
+  assert.equal(recommendedFocusId(meeting), 'lesson');
+  assert.equal(readingFocusId(meeting, 'lesson'), 'lesson');
+  assert.deepEqual(browseFocusIds(meeting, ['lesson', 'pending']), ['lesson', 'pending']);
+  assert.equal(nextFocusId(meeting, 'lesson'), 'pending');
+  assert.equal(focusPriority(lesson, meeting).label, '优先回看');
+  assert.deepEqual(meeting, before);
+  assert.equal(isReadingFocus(lesson, { ...meeting, source: undefined }), false);
+  assert.equal(focusPriority(lesson).label, '优先讨论');
+});
+
+test('retrospective browsing excludes withdrawn, merged and outdated lessons and retains legacy open questions', () => {
+  const lesson = question('lesson', { retrospective: true, status: 'resolved', resolution: { complete: true } });
+  const meeting = { source: 'recording_import' };
+  for (const patch of [{ status: 'ignored' }, { mergedInto: 'other' }, { stale: true }, { resolution: { stale: true } }, { attention: { needed: false } }]) {
+    assert.equal(isReadingFocus({ ...lesson, ...patch }, meeting), false);
+  }
+  assert.equal(isReadingFocus({ ...lesson, status: 'recorded' }, meeting), true);
+  assert.equal(isReadingFocus(question('legacy'), meeting), true);
+  assert.equal(isReadingFocus({ ...lesson, retrospective: undefined }, meeting), false);
+  const completed = { ...meeting, retrospectiveAnalysis: { focusCompleted: true } };
+  assert.equal(isReadingFocus(question('old-ai', { author: 'ai' }), completed), false);
+  assert.equal(isReadingFocus(question('host', { author: 'host' }), completed), true);
+  assert.equal(isReadingFocus(question('edited', { author: 'ai', manualFields: ['question'] }), completed), true);
+  assert.equal(isReadingFocus(question('host-result', { author: 'ai', resolution: { author: 'host', complete: false, text: '先核对设备上的范围。' } }), completed), true);
+});
 
 test('explicit quiet focus never opens an old question but preserves an active reading position', () => {
   const meeting = { focusFollowupId: null, followups: [question('old')] };

@@ -18,9 +18,9 @@ export default function ImportStatus({ job, retrying, onRetry, onSettings, llmCo
     <div className="import-status-copy"><div><strong>{phase}</strong>{transcribing && progress.totalSeconds > 0 && <span>{progress.totalChunks === 1 ? `录音 ${duration}` : `已完成 ${completed} / ${duration}`}</span>}{job.status === 'done' && <span>音频保存在本机 · 可定位回听</span>}</div>
       {busy && <p>{transcribing ? '完成后显示原文，处理会在后台继续。' : '正在保存并准备可回听的音频。'}</p>}
       {failed && <p>{job.error || '处理暂时中断。'} 原录音和已完成的转录已保留，重试会继续未完成的部分。</p>}
-      {noTranscript && <p>{job.result.message || '未识别出文字，请回听核对录音。'} 确认原文后再进行 AI 分析。</p>}
-      {needsAi && <p>转录与回听已就绪，配置 AI 后可分析讨论。</p>}
-      {job.status === 'done' && !needsAi && job.result?.analysisState === 'failed' && <p>{job.result.message || '自动分析未启动，可从「会议操作」重新分析。'}</p>}
+      {noTranscript && <p>{job.result.message || '未识别出文字，请回听核对录音。'} 确认原文后再进行 AI 复盘。</p>}
+      {needsAi && <p>转录与回听已就绪，配置 AI 后可复盘整场讨论。</p>}
+      {job.status === 'done' && !needsAi && job.result?.analysisState === 'failed' && <p>{job.result.message || '自动复盘未启动，可从「会议操作」重新复盘。'}</p>}
     </div>
     {failed && <><Button className="text-button small" onClick={onSettings}><Settings2 size={12} />转录设置</Button><Button className="small" onClick={onRetry} busy={retrying}><RefreshCw size={12} />重试导入</Button></>}
     {needsAi && <Button className="small" onClick={onSettings}><Settings2 size={12} />配置 AI</Button>}

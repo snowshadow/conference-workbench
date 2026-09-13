@@ -49,6 +49,7 @@ export function decodeAudio({ inputPath, outputPath, signal, ffmpegPath = proces
 }
 
 function readUpload(req, root, maxUploadBytes) {
+  const uploadStarted = performance.now();
   const uploadId = randomUUID(), directory = path.join(root, uploadId);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const partialPath = path.join(directory, 'upload.partial');
@@ -100,7 +101,7 @@ function readUpload(req, root, maxUploadBytes) {
       const storedFilename = `original${EXTENSIONS.has(extension) ? extension : '.upload'}`;
       fs.renameSync(partialPath, path.join(directory, storedFilename));
       settled = true;
-      resolve({ uploadId, originalFilename: filename || '导入录音', storedFilename, supported: EXTENSIONS.has(extension), title: fields.title?.trim().slice(0, 200), goal: fields.goal?.trim().slice(0, 6000) || '' });
+      resolve({ uploadId, originalFilename: filename || '导入录音', storedFilename, supported: EXTENSIONS.has(extension), title: fields.title?.trim().slice(0, 200), goal: fields.goal?.trim().slice(0, 6000) || '', uploadMs: Math.round(performance.now() - uploadStarted) });
       } catch { fail(problem('录音文件保存失败，请检查本机磁盘空间。已接收的内容保留在本机。', 500)); }
     });
     req.pipe(parser);
@@ -227,6 +228,16 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
   }
   async function run(initial) {
     let job = store.getJob(initial.id);
+    // Cumulative work time survives retries. Queue waiting is not audio processing.
+    const timings = { uploadMs: job.input.uploadMs || 0, ...job.timings };
+    const measure = async (phase, action) => {
+      const start = performance.now();
+      try { return await action(); }
+      finally {
+        timings[phase] = (timings[phase] || 0) + Math.round(performance.now() - start);
+        store.updateJob(job.id, { timings });
+      }
+    };
     const controller = new AbortController(); currentController = controller;
     try {
       job = store.updateJob(job.id, { status: 'running', error: null, progress: { ...job.progress, phase: job.input.decoded ? 'transcribing' : 'decoding' } });
@@ -237,7 +248,7 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
       const chunkSamples = job.input.chunkSamples;
       if (!job.input.decoded) {
         const staging = path.join(files.directory, `decoded-${randomUUID()}.pcm.partial`);
-        await decode({ inputPath: files.original, outputPath: staging, signal: controller.signal, ...decodeOptions });
+        await measure('decodeMs', () => decode({ inputPath: files.original, outputPath: staging, signal: controller.signal, ...decodeOptions }));
         if (controller.signal.aborted) throw interrupted();
         const bytes = fs.statSync(staging).size;
         if (!bytes || bytes % 2) throw problem('解码后的音频无效，原始文件已保留。');
@@ -264,7 +275,7 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
           else {
             const pcm = Buffer.alloc((endSample - startSample) * 2);
             let count = 0; while (count < pcm.length) { const read = fs.readSync(fd, pcm, count, pcm.length - count, startSample * 2 + count); if (!read) throw problem('读取已保存的录音失败。'); count += read; }
-            lines = providerLines(await transcribe(pcm, controller.signal, job.input.asrPlan), index, startSample, endSample, recording.id);
+            lines = providerLines(await measure('asrMs', () => transcribe(pcm, controller.signal, job.input.asrPlan)), index, startSample, endSample, recording.id);
             if (controller.signal.aborted) throw interrupted();
             const temporary = `${checkpointPath}.${randomUUID()}.partial`;
             fs.writeFileSync(temporary, JSON.stringify({ lines }), { mode: 0o600, flag: 'wx', flush: true });
@@ -273,18 +284,20 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
           if (!Array.isArray(lines) || lines.some(line => typeof line?.text !== 'string' || line.text.length > MAX_LINE_CHARACTERS)) throw problem('已保存的转录分段无法完整读取，原始录音和已保存转录已保留。', 500);
           let changed = false;
           const publish = () => { if (changed) { changed = false; Promise.resolve().then(() => onTranscript(job.meetingId)).catch(() => {}); } };
-          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-            const line = lines[lineIndex];
-            if (!knownIds.has(line.id)) { store.appendTranscript(job.meetingId, line); knownIds.add(line.id); changed = true; }
-            if ((lineIndex + 1) % 50 === 0) {
-              publish();
-              // A whole recording may yield thousands of utterances. Keep HTTP,
-              // live capture and cancellation responsive while committing them.
-              await yieldToEvents();
-              if (controller.signal.aborted || !started) throw interrupted();
+          await measure('saveMs', async () => {
+            for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+              const line = lines[lineIndex];
+              if (!knownIds.has(line.id)) { store.appendTranscript(job.meetingId, line); knownIds.add(line.id); changed = true; }
+              if ((lineIndex + 1) % 50 === 0) {
+                publish();
+                // A whole recording may yield thousands of utterances. Keep HTTP,
+                // live capture and cancellation responsive while committing them.
+                await yieldToEvents();
+                if (controller.signal.aborted || !started) throw interrupted();
+              }
             }
-          }
-          publish();
+            publish();
+          });
           if (!lines.length) {
             const rec = store.getRecording(recording.id), oldGaps = (rec.gaps || []).filter(gap => gap.importKind !== 'pending');
             if (!oldGaps.some(gap => gap.importKind === 'no_speech' && gap.startSample === startSample)) oldGaps.push({ startSample, endSample, reason: '此区间未识别出文字，请回听核对。', importKind: 'no_speech' });

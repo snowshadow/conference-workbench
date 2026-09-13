@@ -7,6 +7,21 @@ const focus = (id, extra = {}) => ({ id, status: 'active', question: `问题 ${i
 const meeting = (followups, id = 'meeting-a') => ({ id, followups });
 const count = (state, id = 'meeting-a') => state.get(id)?.unreadIds.size || 0;
 
+test('a new resolved retrospective is unread until viewed, while live resolved issues are not reminders', () => {
+  const imported = followups => ({ ...meeting(followups), source: 'recording_import' });
+  let state = updateClarificationUnread(new Map(), imported([]), 'topics');
+  const lesson = focus('lesson', { retrospective: true, status: 'resolved', resolution: { complete: true } });
+  state = updateClarificationUnread(state, imported([lesson]), 'topics');
+  assert.equal(count(state), 1);
+  state = updateClarificationUnread(state, imported([lesson]), 'clarification');
+  assert.equal(count(state), 0);
+  state = updateClarificationUnread(state, imported([lesson]), 'topics');
+  assert.equal(count(state), 0);
+  let live = updateClarificationUnread(new Map(), meeting([]), 'topics');
+  live = updateClarificationUnread(live, meeting([lesson]), 'topics');
+  assert.equal(count(live), 0);
+});
+
 test('first loaded snapshot is a baseline even when the topics tab is already selected', () => {
   for (const view of ['clarification', 'topics']) {
     let state = updateClarificationUnread(new Map(), meeting([focus('old'), focus('stale', { stale: true })]), view);
