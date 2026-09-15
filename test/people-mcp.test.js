@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { once } from 'node:events';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { createWorkbench } from '../server/app.js';
+
+test('MCP confirms a member, assigns an utterance and reads the same identity through HTTP', async t => {
+  const workbench = createWorkbench({ dataDir: mkdtempSync(path.join(os.tmpdir(), 'people-mcp-')), aiFactory: () => ({ start() {}, async stop() {}, refreshSpeakers() { return null; } }) });
+  workbench.server.listen(0, '127.0.0.1'); await once(workbench.server, 'listening');
+  const base = `http://127.0.0.1:${workbench.server.address().port}`;
+  const client = new Client({ name: 'people-test', version: '1.0' });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.resolve('mcp/server.mjs')], env: { ...process.env, WORKBENCH_URL: base }, stderr: 'pipe' }));
+  t.after(async () => { await client.close(); await workbench.close(); });
+  async function call(name, args) { const result = await client.callTool({ name, arguments: args }); assert.equal(result.isError, undefined, JSON.stringify(result)); return JSON.parse(result.content[0].text); }
+  const meeting = await call('create_meeting', { title: '说话人 MCP 核验' });
+  const line = await call('add_meeting_note', { meetingId: meeting.id, text: '建议先做两场试用。' });
+  const member = await call('save_team_member', { name: '陈工' });
+  const person = await call('create_meeting_speaker', { meetingId: meeting.id, name: '陈工', memberId: member.id });
+  await call('assign_transcript_speaker', { meetingId: meeting.id, lineId: line.id, participantId: person.id });
+  const chunk = await call('get_transcript_chunk', { meetingId: meeting.id });
+  assert.equal(chunk.lines[0].participantId, person.id);
+  assert.equal(workbench.store.allTranscript(meeting.id)[0].participantSource, 'agent');
+  await call('save_team_member', { memberId: member.id, name: '陈老师' });
+  const context = await call('get_meeting_context', { meetingId: meeting.id });
+  assert.equal(context.participants.find(item => item.id === person.id).name, '陈老师');
+  const people = await call('get_meeting_speakers', { meetingId: meeting.id });
+  assert.equal(people.participants.find(item => item.id === person.id).lineCount, 1);
+  const response = await (await fetch(`${base}/api/meetings/${meeting.id}`)).json();
+  assert.equal(response.participants.find(item => item.id === person.id).memberId, member.id);
+  assert.equal(response.participants.find(item => item.id === person.id).name, '陈老师');
+  assert.equal(workbench.store.allTranscript(meeting.id)[0].text, line.text);
+  const status = await call('get_voiceprint_status', {});
+  assert.equal(status.mode, 'automatic_with_review');
+  const profiles = await call('list_voiceprint_profiles', {});
+  assert.deepEqual(profiles.profiles, []);
+  const tools = await client.listTools();
+  assert.ok(tools.tools.some(tool => tool.name === 'retry_speaker_recognition'));
+  assert.ok(tools.tools.some(tool => tool.name === 'set_voiceprint_enabled'));
+});

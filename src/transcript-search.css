@@ -1,0 +1,8 @@
+.transcript-search-match {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--brand) 22%, var(--surface));
+  border-radius: 3px;
+  padding: 0;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}

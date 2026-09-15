@@ -1,0 +1,52 @@
+.meeting-tool-window {
+  position: fixed;
+  z-index: 40;
+  right: 24px;
+  bottom: var(--meeting-tools-bottom, 80px);
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 48px));
+  height: min(600px, calc(100dvh - var(--meeting-tools-bottom, 80px) - 24px));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--floating-edge);
+  border-radius: 24px;
+  box-shadow: var(--shadow-floating);
+  animation: meeting-tool-reveal 180ms cubic-bezier(.2,.8,.2,1);
+}
+.meeting-tool-window[hidden] { display: none; }
+.meeting-tool-window:focus { outline: none; }
+.meeting-tool-window:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.meeting-tool-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 12px;
+  min-height: 60px;
+  padding: 12px 18px 8px 24px;
+  background: var(--surface);
+  border-bottom: 0;
+}
+.meeting-tool-window-title { display: flex; align-items: center; min-width: 0; gap: 9px; }
+.meeting-tool-window-title > svg { flex-shrink: 0; color: var(--brand-deep); }
+.meeting-tool-window-title > h2 { color: var(--ink); font-size: 15px; font-weight: 600; line-height: 1.5; }
+.meeting-tool-window-body { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+
+@keyframes meeting-tool-reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 640px) {
+  .meeting-tool-window {
+    right: 10px;
+    bottom: var(--meeting-tools-bottom, 80px);
+    width: calc(100vw - 20px);
+    height: min(600px, calc(100dvh - var(--meeting-tools-bottom, 80px) - 12px));
+    border-radius: 22px;
+  }
+  .meeting-tool-window-header { padding-left: 20px; }
+  .meeting-tool-window .progress-scroll, .meeting-tool-window .question-scroll { padding-left: 20px; padding-right: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { .meeting-tool-window { animation: none; } }

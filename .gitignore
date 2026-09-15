@@ -1,0 +1,34 @@
+node_modules/
+dist/
+data/
+test-output/
+releases/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+
+# Local recordings, databases and credentials
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pcm
+*.wav
+*.mp3
+*.m4a
+*.mp4
+*.webm
+*.ogg
+*.flac
+*.aac
+*.pem
+*.key
+
+# Local design tools and generated logo explorations
+/.agents/
+/skills/ip-as-logo/
+/docs/assets/logo-candidates-*/

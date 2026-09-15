@@ -1,0 +1,47 @@
+{
+  "name": "conference-workbench",
+  "version": "0.1.2",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "本地优先的会议录音、动态主题与 AI 讨论工作台",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k \"node --watch server/index.js\" \"vite --host 127.0.0.1\"",
+    "start": "node server/index.js",
+    "build": "vite build",
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/check.mjs",
+    "mcp": "node mcp/server.mjs",
+    "skills:install": "node scripts/install-skills.mjs",
+    "release:check": "npm run check && npm test && npm run build",
+    "demo": "node scripts/demo.mjs"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^1.1.8",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "@xyflow/react": "^12.10.0",
+    "busboy": "^1.6.0",
+    "concurrently": "^9.1.0",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^9.0.3",
+    "vite": "8.2.2",
+    "ws": "^8.18.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@rolldown/plugin-babel": "0.2.3",
+    "babel-plugin-react-compiler": "1.0.0"
+  }
+}

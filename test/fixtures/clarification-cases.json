@@ -1,0 +1,813 @@
+{
+  "version": 1,
+  "description": "公开合成案例。scriptedReply 只用于管线回归，不代表真实模型通过；expected 与 scriptedReply 不进入模型请求。",
+  "sourcesNote": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。",
+  "cases": [
+    {
+      "id": "synthetic-template-stability",
+      "title": "合成测试：模板稳定与内容更新",
+      "provenance": {
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
+      },
+      "sources": [
+        {
+          "id": "synthetic-template-1",
+          "speakerId": "主持人",
+          "text": "活动报名表要保持稳定，志愿者已经按这张表培训了。",
+          "startMs": 0,
+          "endMs": 10000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-template-2",
+          "speakerId": "产品",
+          "text": "参加者改了联系电话，我们应该能更新，不然现场联系不上。",
+          "startMs": 10000,
+          "endMs": 20000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-template-3",
+          "speakerId": "开发",
+          "text": "我们说的稳定，是栏目不变，还是填好的每个值也不能改？",
+          "startMs": 20000,
+          "endMs": 30000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-template-4",
+          "speakerId": "主持人",
+          "text": "现在说清楚：固定的是栏目，参加者确认的新电话可以更新。",
+          "startMs": 30000,
+          "endMs": 40000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        }
+      ],
+      "seedFollowups": [],
+      "stages": [
+        {
+          "id": "unresolved",
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
+          "expected": {
+            "focus": "explanation",
+            "minimumMeanings": 2,
+            "quality": [
+              "分清栏目与值，解释作为建议。",
+              "不能用 30 秒后才说清的定义解释此前已经形成共识。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [
+              {
+                "id": "f_template",
+                "kind": "concept",
+                "question": "报名表保持稳定，是否也意味着联系电话不能更新？",
+                "rationale": "同一个说法可能指向不同的对象。",
+                "impact": "影响当前方案的范围与后续操作。",
+                "evidence": [
+                  {
+                    "id": "synthetic-template-1",
+                    "quote": "活动报名表要保持稳定，志愿者已经按这张表培训了。"
+                  },
+                  {
+                    "id": "synthetic-template-2",
+                    "quote": "参加者改了联系电话，我们应该能更新，不然现场联系不上。"
+                  },
+                  {
+                    "id": "synthetic-template-3",
+                    "quote": "我们说的稳定，是栏目不变，还是填好的每个值也不能改？"
+                  }
+                ],
+                "clarification": {
+                  "explanation": "可以先分开看表的栏目与填写的内容。栏目变更会影响培训，联系电话更新是在原栏目内修正事实；目前还需要确认大家所说的稳定约束哪一层。",
+                  "evidence": [
+                    {
+                      "id": "synthetic-template-1",
+                      "quote": "活动报名表要保持稳定，志愿者已经按这张表培训了。"
+                    },
+                    {
+                      "id": "synthetic-template-2",
+                      "quote": "参加者改了联系电话，我们应该能更新，不然现场联系不上。"
+                    },
+                    {
+                      "id": "synthetic-template-3",
+                      "quote": "我们说的稳定，是栏目不变，还是填好的每个值也不能改？"
+                    }
+                  ],
+                  "distinctions": [
+                    {
+                      "title": "栏目结构",
+                      "text": "志愿者依照既定栏目处理报名。",
+                      "evidence": [
+                        {
+                          "id": "synthetic-template-1",
+                          "quote": "活动报名表要保持稳定，志愿者已经按这张表培训了。"
+                        }
+                      ]
+                    },
+                    {
+                      "title": "填写内容",
+                      "text": "参加者的联系方式可能需要更新。",
+                      "evidence": [
+                        {
+                          "id": "synthetic-template-2",
+                          "quote": "参加者改了联系电话，我们应该能更新，不然现场联系不上。"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "focusFollowupId": "f_template"
+          }
+        }
+      ]
+    },
+    {
+      "id": "synthetic-pin-retains-source",
+      "title": "合成测试：显示变化不等于删除，旧问题退出",
+      "provenance": {
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
+      },
+      "sources": [
+        {
+          "id": "synthetic-pin-1",
+          "speakerId": "主持人",
+          "text": "把公告置顶后，原来的列表里是不是就删掉了？",
+          "startMs": 0,
+          "endMs": 10000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-pin-2",
+          "speakerId": "产品",
+          "text": "置顶只改变排序，公告原文和附件都保留。",
+          "startMs": 10000,
+          "endMs": 20000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-pin-3",
+          "speakerId": "开发",
+          "text": "明白了，我们决定只调整显示顺序，不删除公告。",
+          "startMs": 20000,
+          "endMs": 30000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        }
+      ],
+      "seedFollowups": [
+        {
+          "id": "f_pin",
+          "kind": "concept",
+          "question": "置顶会删除原公告吗？",
+          "rationale": "同一个说法可能指向不同的对象。",
+          "impact": "影响当前方案的范围与后续操作。",
+          "evidence": [
+            {
+              "id": "synthetic-pin-1",
+              "quote": "把公告置顶后，原来的列表里是不是就删掉了？"
+            }
+          ],
+          "status": "active",
+          "author": "ai",
+          "evidenceIds": [
+            "synthetic-pin-1"
+          ],
+          "manualFields": []
+        }
+      ],
+      "stages": [
+        {
+          "id": "resolved",
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
+          "expected": {
+            "focus": "quiet",
+            "trackedId": "f_pin",
+            "tracked": "resolved_or_retired",
+            "quality": [
+              "承认显示与存储已区分，不继续重复追问。",
+              "不把其他删除或归档策略也说成已经决定。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [],
+            "focusFollowupId": null,
+            "resolvedFollowups": [
+              {
+                "id": "f_pin",
+                "resolution": {
+                  "outcome": "clarified",
+                  "complete": true,
+                  "text": "置顶只改变顺序，原公告及附件保留。"
+                },
+                "evidence": [
+                  {
+                    "id": "synthetic-pin-2",
+                    "quote": "置顶只改变排序，公告原文和附件都保留。"
+                  },
+                  {
+                    "id": "synthetic-pin-3",
+                    "quote": "明白了，我们决定只调整显示顺序，不删除公告。"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "synthetic-summary-reference-evolution",
+      "title": "合成测试：从引用未定到误解解除",
+      "provenance": {
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
+      },
+      "sources": [
+        {
+          "id": "synthetic-summary-1",
+          "speakerId": "主持人",
+          "text": "活动复盘首页只放摘要，长段的访谈另存。",
+          "startMs": 0,
+          "endMs": 10000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-summary-2",
+          "speakerId": "产品",
+          "text": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。",
+          "startMs": 10000,
+          "endMs": 20000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-summary-3",
+          "speakerId": "开发",
+          "text": "摘要怎么写与能否追溯到访谈，是两个需要分别约定的问题。",
+          "startMs": 20000,
+          "endMs": 30000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-summary-4",
+          "speakerId": "主持人",
+          "text": "每条摘要会保留对应访谈的引用链接，点击可以看原话。",
+          "startMs": 30000,
+          "endMs": 40000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-summary-5",
+          "speakerId": "产品",
+          "text": "那我明白了，原话没有丢；首页一次显示多少条以后再讨论。",
+          "startMs": 40000,
+          "endMs": 50000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        }
+      ],
+      "seedFollowups": [
+        {
+          "id": "f_reference",
+          "kind": "concept",
+          "question": "摘要能否追溯到具体访谈，还是只能看到概括？",
+          "rationale": "同一个说法可能指向不同的对象。",
+          "impact": "影响当前方案的范围与后续操作。",
+          "evidence": [
+            {
+              "id": "synthetic-summary-1",
+              "quote": "活动复盘首页只放摘要，长段的访谈另存。"
+            },
+            {
+              "id": "synthetic-summary-2",
+              "quote": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。"
+            }
+          ],
+          "status": "active",
+          "author": "ai",
+          "evidenceIds": [
+            "synthetic-summary-1",
+            "synthetic-summary-2"
+          ],
+          "manualFields": []
+        }
+      ],
+      "stages": [
+        {
+          "id": "unresolved",
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
+          "expected": {
+            "focus": "explanation",
+            "trackedId": "f_reference",
+            "quality": [
+              "解释概括与可追溯性的区别。",
+              "不能把下一阶段的引用方案当作已知。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [
+              {
+                "id": "f_reference",
+                "kind": "concept",
+                "question": "摘要能否追溯到具体访谈，还是只能看到概括？",
+                "rationale": "同一个说法可能指向不同的对象。",
+                "impact": "影响当前方案的范围与后续操作。",
+                "evidence": [
+                  {
+                    "id": "synthetic-summary-1",
+                    "quote": "活动复盘首页只放摘要，长段的访谈另存。"
+                  },
+                  {
+                    "id": "synthetic-summary-2",
+                    "quote": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。"
+                  },
+                  {
+                    "id": "synthetic-summary-3",
+                    "quote": "摘要怎么写与能否追溯到访谈，是两个需要分别约定的问题。"
+                  }
+                ],
+                "clarification": {
+                  "explanation": "摘要让首页容易浏览，引用让读者能核对具体依据。可以把两者分开设计；当前材料还没有说明引用链接是否保留。",
+                  "evidence": [
+                    {
+                      "id": "synthetic-summary-1",
+                      "quote": "活动复盘首页只放摘要，长段的访谈另存。"
+                    },
+                    {
+                      "id": "synthetic-summary-2",
+                      "quote": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。"
+                    },
+                    {
+                      "id": "synthetic-summary-3",
+                      "quote": "摘要怎么写与能否追溯到访谈，是两个需要分别约定的问题。"
+                    }
+                  ]
+                }
+              }
+            ],
+            "focusFollowupId": "f_reference"
+          }
+        },
+        {
+          "id": "reference-understood",
+          "cutoff": "00:00:50",
+          "cutoffMs": 50000,
+          "expected": {
+            "focus": "quiet_or_new_residual",
+            "trackedId": "f_reference",
+            "tracked": "resolved_or_retired",
+            "quality": [
+              "承认引用已明确，同时保留展示数量未定。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [],
+            "focusFollowupId": null,
+            "resolvedFollowups": [
+              {
+                "id": "f_reference",
+                "resolution": {
+                  "outcome": "clarified",
+                  "complete": true,
+                  "text": "每条摘要保留访谈引用链接，可以回到具体原话。首页的展示数量尚未确定。"
+                },
+                "evidence": [
+                  {
+                    "id": "synthetic-summary-4",
+                    "quote": "每条摘要会保留对应访谈的引用链接，点击可以看原话。"
+                  },
+                  {
+                    "id": "synthetic-summary-5",
+                    "quote": "那我明白了，原话没有丢；首页一次显示多少条以后再讨论。"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "synthetic-export-scope",
+      "title": "合成测试：范围明确，未完成工作退出焦点",
+      "provenance": {
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
+      },
+      "sources": [
+        {
+          "id": "synthetic-export-1",
+          "speakerId": "主持人",
+          "text": "文本导出的十个样例都检查过了。",
+          "startMs": 0,
+          "endMs": 10000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-export-2",
+          "speakerId": "产品",
+          "text": "附件导出还没实现，不能说整套导出功能都通过。",
+          "startMs": 10000,
+          "endMs": 20000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        },
+        {
+          "id": "synthetic-export-3",
+          "speakerId": "开发",
+          "text": "本次只验收文字，附件安排下一次做，今天先不展开。",
+          "startMs": 20000,
+          "endMs": 30000,
+          "provenance": {
+            "kind": "synthetic"
+          }
+        }
+      ],
+      "seedFollowups": [
+        {
+          "id": "f_export",
+          "kind": "concept",
+          "question": "当前导出验收是否也覆盖附件？",
+          "rationale": "同一个说法可能指向不同的对象。",
+          "impact": "影响当前方案的范围与后续操作。",
+          "evidence": [
+            {
+              "id": "synthetic-export-1",
+              "quote": "文本导出的十个样例都检查过了。"
+            },
+            {
+              "id": "synthetic-export-2",
+              "quote": "附件导出还没实现，不能说整套导出功能都通过。"
+            }
+          ],
+          "status": "active",
+          "author": "ai",
+          "evidenceIds": [
+            "synthetic-export-1",
+            "synthetic-export-2"
+          ],
+          "manualFields": []
+        }
+      ],
+      "stages": [
+        {
+          "id": "deferred",
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
+          "expected": {
+            "focus": "quiet",
+            "trackedId": "f_export",
+            "tracked": "retired_not_resolved",
+            "quality": [
+              "当前不再讨论附件，不代表附件已经完成。",
+              "记录限制后退出焦点，不把部分检查扩大到整套功能。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [],
+            "focusFollowupId": null,
+            "resolvedFollowups": [
+              {
+                "id": "f_export",
+                "resolution": {
+                  "outcome": "needs_verification",
+                  "complete": false,
+                  "text": "文字导出的样例已检查；附件仍未实现，留到下一次。"
+                },
+                "evidence": [
+                  {
+                    "id": "synthetic-export-1",
+                    "quote": "文本导出的十个样例都检查过了。"
+                  },
+                  {
+                    "id": "synthetic-export-2",
+                    "quote": "附件导出还没实现，不能说整套导出功能都通过。"
+                  },
+                  {
+                    "id": "synthetic-export-3",
+                    "quote": "本次只验收文字，附件安排下一次做，今天先不展开。"
+                  }
+                ]
+              }
+            ],
+            "retiredFollowups": [
+              {
+                "id": "f_export",
+                "reason": "本次验收范围已说清，附件明确留待后续，不再占当前焦点。",
+                "evidence": [
+                  {
+                    "id": "synthetic-export-2",
+                    "quote": "附件导出还没实现，不能说整套导出功能都通过。"
+                  },
+                  {
+                    "id": "synthetic-export-3",
+                    "quote": "本次只验收文字，附件安排下一次做，今天先不展开。"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "synthetic-three-meanings",
+      "title": "合成测试：稳定包含三种含义，不硬拆成双方",
+      "provenance": {
+        "kind": "synthetic",
+        "coverage": "full_fixture",
+        "note": "专为测试多义解释构造，不属于任何真实会议，也不能用来评价真实参会者。"
+      },
+      "sources": [
+        {
+          "id": "synthetic-stable-1",
+          "speakerId": "甲",
+          "text": "职业、爱好这些字段这周已经跟产品定了。画像要稳定，别聊天时又改。",
+          "startMs": 0,
+          "endMs": 10000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的测试输入，不是实录。"
+          }
+        },
+        {
+          "id": "synthetic-stable-2",
+          "speakerId": "乙",
+          "text": "用户今天从设计转做开发了，不改画像下次还推荐设计资料。我不明白稳定为什么连这个都不能改。",
+          "startMs": 10000,
+          "endMs": 20000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的测试输入，不是实录。"
+          }
+        },
+        {
+          "id": "synthetic-stable-3",
+          "speakerId": "丙",
+          "text": "昨天同样20轮抽出设计师，今天重跑变成程序员。我说稳定是这个问题，这样怎么验收？",
+          "startMs": 20000,
+          "endMs": 30000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的测试输入，不是实录。"
+          }
+        },
+        {
+          "id": "synthetic-stable-4",
+          "speakerId": "丁",
+          "text": "那现在是不是把自动更新先关了？如果都叫不稳定，今天的新职业也记不进去了。",
+          "startMs": 30000,
+          "endMs": 40000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的测试输入，不是实录。"
+          }
+        }
+      ],
+      "seedFollowups": [],
+      "stages": [
+        {
+          "id": "unresolved",
+          "cutoff": "00:00:40",
+          "cutoffMs": 40000,
+          "expected": {
+            "focus": "explanation",
+            "minimumMeanings": 3,
+            "quality": [
+              "说透字段结构、用户取值更新、同输入抽取复现三者的区别。",
+              "不把三种含义硬压成双方对立，也不要求三种解释都冲突。",
+              "说明为何一刀切关闭更新不能直接解决这三个问题。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [
+              {
+                "id": "new_three",
+                "kind": "concept",
+                "question": "先关自动更新前，能否把字段不变、用户情况变化和重复抽取一致性分开处理？",
+                "rationale": "稳定指向了三个不同的对象。",
+                "impact": "影响是否关闭整条自动更新。",
+                "evidence": [
+                  {
+                    "id": "synthetic-stable-1",
+                    "quote": "职业、爱好这些字段这周已经跟产品定了。画像要稳定，别聊天时又改。"
+                  },
+                  {
+                    "id": "synthetic-stable-2",
+                    "quote": "用户今天从设计转做开发了，不改画像下次还推荐设计资料。我不明白稳定为什么连这个都不能改。"
+                  },
+                  {
+                    "id": "synthetic-stable-3",
+                    "quote": "昨天同样20轮抽出设计师，今天重跑变成程序员。我说稳定是这个问题，这样怎么验收？"
+                  },
+                  {
+                    "id": "synthetic-stable-4",
+                    "quote": "那现在是不是把自动更新先关了？如果都叫不稳定，今天的新职业也记不进去了。"
+                  }
+                ],
+                "clarification": {
+                  "explanation": "这里的稳定可能有三种意思：产品字段结构保持约定，用户当前信息及时反映变化，相同依据的抽取结果可以复现。字段不随聊天变化，与用户转行后更新职业可以同时成立；重跑不一致要查抽取，未必需要关闭所有更新。",
+                  "evidence": [
+                    {
+                      "id": "synthetic-stable-1",
+                      "quote": "职业、爱好这些字段这周已经跟产品定了。画像要稳定，别聊天时又改。"
+                    },
+                    {
+                      "id": "synthetic-stable-2",
+                      "quote": "用户今天从设计转做开发了，不改画像下次还推荐设计资料。我不明白稳定为什么连这个都不能改。"
+                    },
+                    {
+                      "id": "synthetic-stable-3",
+                      "quote": "昨天同样20轮抽出设计师，今天重跑变成程序员。我说稳定是这个问题，这样怎么验收？"
+                    },
+                    {
+                      "id": "synthetic-stable-4",
+                      "quote": "那现在是不是把自动更新先关了？如果都叫不稳定，今天的新职业也记不进去了。"
+                    }
+                  ],
+                  "distinctions": [
+                    {
+                      "title": "字段结构",
+                      "text": "产品已定职业、爱好等字段，不希望聊天改变结构。",
+                      "evidence": [
+                        {
+                          "id": "synthetic-stable-1",
+                          "quote": "职业、爱好这些字段这周已经跟产品定了。画像要稳定，别聊天时又改。"
+                        }
+                      ]
+                    },
+                    {
+                      "title": "用户当前情况",
+                      "text": "职业变化后，希望新事实进入画像。",
+                      "evidence": [
+                        {
+                          "id": "synthetic-stable-2",
+                          "quote": "用户今天从设计转做开发了，不改画像下次还推荐设计资料。我不明白稳定为什么连这个都不能改。"
+                        }
+                      ]
+                    },
+                    {
+                      "title": "相同依据的结果一致性",
+                      "text": "同样20轮重跑出现不同职业，影响验收复现。",
+                      "evidence": [
+                        {
+                          "id": "synthetic-stable-3",
+                          "quote": "昨天同样20轮抽出设计师，今天重跑变成程序员。我说稳定是这个问题，这样怎么验收？"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "focusFollowupId": "new_three"
+          }
+        }
+      ]
+    },
+    {
+      "id": "synthetic-shared-sla-assumption",
+      "title": "合成保留测试：大家意见一致，但承诺依赖未验证前提",
+      "provenance": {
+        "kind": "synthetic",
+        "coverage": "full_fixture",
+        "role": "holdout",
+        "note": "不在当前提示词校准示例中的人工输入；不是实录，不代表真实团队的承诺或测试结果。"
+      },
+      "sources": [
+        {
+          "id": "synthetic-sla-1",
+          "speakerId": "研发",
+          "text": "昨天下午用一台客户端串行跑了1000次，平均响应180毫秒。",
+          "startMs": 0,
+          "endMs": 10000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的保留测试输入，不是任何会议实录。"
+          }
+        },
+        {
+          "id": "synthetic-sla-2",
+          "speakerId": "业务",
+          "text": "这组数据大家认可，那明天就把晚高峰500人同时使用、99%的请求在300毫秒内返回作为合同承诺。",
+          "startMs": 10000,
+          "endMs": 20000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的保留测试输入，不是任何会议实录。"
+          }
+        },
+        {
+          "id": "synthetic-sla-3",
+          "speakerId": "研发",
+          "text": "数值没争议，机器也没换，我按这个承诺给排期。",
+          "startMs": 20000,
+          "endMs": 30000,
+          "provenance": {
+            "kind": "synthetic",
+            "note": "人工构造的保留测试输入，不是任何会议实录。"
+          }
+        }
+      ],
+      "seedFollowups": [],
+      "stages": [
+        {
+          "id": "unverified-premise",
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
+          "expected": {
+            "focus": "explanation",
+            "quality": [
+              "解释现有依据与拟作承诺之间缺少的关键联系，说明为什么可能改变眼下决定；不要求命中特定术语。",
+              "所有人同意数据仍可共同依赖未验证的前提，不制造双方冲突或概念误会。",
+              "指出需要怎样的相关证据或适用条件才能支撑判断，不编造未提供的测试、失败或承诺已经达成。",
+              "允许用一段完整解释说清，不强求并列 distinctions，不泛泛罗列性能优化措施。"
+            ]
+          },
+          "scriptedReply": {
+            "topics": [],
+            "followups": [
+              {
+                "id": "new_sla",
+                "kind": "assumption",
+                "question": "目前这组测试能支持即将写进合同的高峰响应承诺吗？",
+                "rationale": "对测试数据没有异议，不代表它已覆盖承诺中的使用条件。",
+                "impact": "影响明天是否据此承诺服务表现及安排交付。",
+                "evidence": [
+                  {
+                    "id": "synthetic-sla-1",
+                    "quote": "昨天下午用一台客户端串行跑了1000次，平均响应180毫秒。"
+                  },
+                  {
+                    "id": "synthetic-sla-2",
+                    "quote": "这组数据大家认可，那明天就把晚高峰500人同时使用、99%的请求在300毫秒内返回作为合同承诺。"
+                  },
+                  {
+                    "id": "synthetic-sla-3",
+                    "quote": "数值没争议，机器也没换，我按这个承诺给排期。"
+                  }
+                ],
+                "clarification": {
+                  "explanation": "这里未必是大家对词义理解不同，而是从已有测试到合同承诺之间少了一段依据：一次串行测试的平均耗时，不能直接说明大量用户同时使用时绝大多数请求仍满足时限。机器没换并不能排除排队等条件变化。需要核对与承诺相匹配的场景表现；在这段资料里还不能认为承诺已被验证。",
+                  "evidence": [
+                    {
+                      "id": "synthetic-sla-1",
+                      "quote": "昨天下午用一台客户端串行跑了1000次，平均响应180毫秒。"
+                    },
+                    {
+                      "id": "synthetic-sla-2",
+                      "quote": "这组数据大家认可，那明天就把晚高峰500人同时使用、99%的请求在300毫秒内返回作为合同承诺。"
+                    },
+                    {
+                      "id": "synthetic-sla-3",
+                      "quote": "数值没争议，机器也没换，我按这个承诺给排期。"
+                    }
+                  ]
+                }
+              }
+            ],
+            "focusFollowupId": "new_sla"
+          }
+        }
+      ]
+    }
+  ]
+}

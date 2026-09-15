@@ -1,0 +1,238 @@
+/* Theme palette. All application colors and shadows are configured here. */
+:root {
+  color-scheme: light;
+
+  /* Exact 8-bit sRGB conversion of the supplied HSB palette. */
+  --brand-light: #ceeff0;
+  --brand: #05afb5;
+  --brand-deep: #047b80;
+  --brand-blue: #233d4f;
+
+  --white: #ffffff;
+  --transparent: transparent;
+  --canvas: #f5f7f9;
+  --surface: var(--white);
+  --surface-muted: #f0f4f6;
+  --surface-hover: #f6f9fa;
+  --ink: #26343e;
+  --ink-secondary: #4e616e;
+  --ink-muted: #5c707c;
+  --ink-placeholder: var(--ink-muted);
+  --border: #dfe7eb;
+  --border-strong: #c1cfd7;
+
+  --brand-tint: color-mix(in srgb, var(--brand-light) 35%, var(--white));
+  --brand-selected: color-mix(in srgb, var(--brand-light) 50%, var(--white));
+  --brand-border: color-mix(in srgb, var(--brand-deep) 30%, var(--white));
+  --action: var(--brand-blue);
+  --action-hover: #182f40;
+  --action-text: var(--white);
+  --link: var(--brand-deep);
+  --focus: var(--brand-deep);
+  --focus-halo: color-mix(in srgb, var(--brand) 16%, var(--transparent));
+
+  --progress: #c56f22;
+  --progress-track: #f7e8d8;
+  --warning: #9a5518;
+  --warning-bg: #fff6eb;
+  --warning-border: #edd4b8;
+  --success: #256e55;
+  --success-bg: #eff8f3;
+  --success-border: #c6e0d3;
+  --error: #ae3a34;
+  --error-bg: #fff2f0;
+  --error-border: #eac6c0;
+  --info: var(--brand-blue);
+  --info-bg: #eff4f8;
+  --info-border: #d2e0e9;
+
+  --map-edge: #a2bdc8;
+  --map-grid: #cadbe1;
+  --map-handle: var(--brand-border);
+  --scrollbar: #c8d5dc;
+  --scrollbar-hover: #aabec8;
+  --backdrop: color-mix(in srgb, var(--brand-blue) 35%, var(--transparent));
+  --shadow-color: color-mix(in srgb, var(--brand-blue) 8%, var(--transparent));
+  --shadow-raised-color: color-mix(in srgb, var(--brand-blue) 13%, var(--transparent));
+  --shadow-panel: 0 1px 2px var(--shadow-color), 0 4px 14px color-mix(in srgb, var(--shadow-color) 35%, var(--transparent));
+  --shadow-small: 0 2px 5px var(--shadow-color);
+  --shadow-raised: 0 8px 32px var(--shadow-raised-color);
+  --shadow-modal: 0 24px 90px color-mix(in srgb, var(--brand-blue) 24%, var(--transparent));
+  --shadow-focus: 0 0 0 3px var(--focus-halo);
+  --hero-glow: radial-gradient(ellipse at 82% 8%, var(--brand-tint), var(--transparent) 60%);
+  --clarification-surface: linear-gradient(130deg, var(--brand-tint), var(--surface) 70%);
+
+  /* Continuous reading surface and the lighter layer used by controls. */
+  --reading-surface: color-mix(in srgb, var(--surface) 62%, var(--canvas));
+  --navigation-surface: color-mix(in srgb, var(--surface-muted) 80%, var(--reading-surface));
+  --control-material: color-mix(in srgb, var(--surface) 92%, var(--transparent));
+  --floating-edge: color-mix(in srgb, var(--surface) 72%, var(--border));
+  --soft-divider: color-mix(in srgb, var(--border) 45%, var(--transparent));
+  --shadow-control: 0 2px 5px var(--shadow-color), 0 5px 20px color-mix(in srgb, var(--shadow-color) 55%, var(--transparent));
+  --shadow-floating: 0 12px 44px var(--shadow-raised-color), 0 2px 9px var(--shadow-color);
+
+  /* Match vendor controls to the application palette. */
+  --xy-background-color: var(--surface-hover);
+  --xy-edge-stroke: var(--map-edge);
+  --xy-edge-stroke-selected: var(--brand-deep);
+  --xy-connectionline-stroke: var(--map-edge);
+  --xy-handle-background-color: var(--map-handle);
+  --xy-handle-border-color: var(--surface);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: var(--brand-tint);
+  --xy-controls-button-color: var(--ink-secondary);
+  --xy-controls-button-color-hover: var(--brand-deep);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: var(--shadow-small);
+  --xy-attribution-background-color: var(--surface);
+}
+
+/* Palette references are independent of semantic roles and only paint swatches. */
+:root,
+.theme-preview[data-palette="cyan"] {
+  --palette-1: #ceeff0;
+  --palette-2: #05afb5;
+  --palette-3: #047b80;
+  --palette-4: #233d4f;
+}
+:root[data-theme="deep-sea"],
+.theme-preview[data-palette="deep-sea"] {
+  --palette-1: #122e8a;
+  --palette-2: #f5efea;
+  --palette-3: #122e8a;
+  --palette-4: #f5efea;
+}
+:root[data-theme="lagoon"],
+.theme-preview[data-palette="lagoon"] {
+  --palette-1: #2dacb5;
+  --palette-2: #c3e9ea;
+  --palette-3: #1e2d58;
+  --palette-4: #374d73;
+}
+:root[data-theme="sky"],
+.theme-preview[data-palette="sky"] {
+  --palette-1: #2f9cff;
+  --palette-2: #ffe632;
+  --palette-3: #2f9cff;
+  --palette-4: #ffe632;
+}
+:root[data-theme="iris"],
+.theme-preview[data-palette="iris"] {
+  --palette-1: #a75eff;
+  --palette-2: #ffff81;
+  --palette-3: #a75eff;
+  --palette-4: #ffff81;
+}
+
+/* Deep-sea blue and soft cream: the original blue carries primary actions. */
+:root[data-theme="deep-sea"] {
+  --brand-light: #e5eafb;
+  --brand: #122e8a;
+  --brand-deep: #122e8a;
+  --brand-blue: #122e8a;
+  --canvas: #f5efea;
+  --surface: #fffdfa;
+  --surface-muted: #eee7e1;
+  --surface-hover: #faf5f0;
+  --ink: #1d2b49;
+  --ink-secondary: #47546d;
+  --ink-muted: #606779;
+  --border: #dfd9d4;
+  --border-strong: #c7c3cd;
+  --brand-tint: #f1f3fc;
+  --brand-selected: #e5eafb;
+  --brand-border: #b3bee6;
+  --action: #122e8a;
+  --action-hover: #0e2675;
+  --action-text: #ffffff;
+  --info-bg: #eef1fa;
+  --info-border: #cbd3ed;
+  --map-edge: #98a8d3;
+  --map-grid: #d3dbef;
+  --scrollbar: #c8c8d3;
+  --scrollbar-hover: #a9adc2;
+}
+
+/* Lagoon: cyan buttons use dark navy text, with the reference pale cyan below. */
+:root[data-theme="lagoon"] {
+  --brand-light: #c3e9ea;
+  --brand: #2dacb5;
+  --brand-deep: #116f77;
+  --brand-blue: #1e2d58;
+  --canvas: #f0f8f9;
+  --surface-muted: #e8f2f4;
+  --surface-hover: #f5fafb;
+  --ink: #1e2d58;
+  --ink-secondary: #374d73;
+  --ink-muted: #51657b;
+  --border: #d2e4e8;
+  --border-strong: #b4ccd6;
+  --brand-tint: #edf8f8;
+  --brand-selected: #c3e9ea;
+  --brand-border: #83bbc2;
+  --action: #2dacb5;
+  --action-hover: #45bbc2;
+  --action-text: #1e2d58;
+  --info-bg: #edf2f8;
+  --info-border: #c7d4e5;
+  --map-edge: #80afb9;
+  --map-grid: #c7e1e5;
+  --scrollbar: #bad4db;
+  --scrollbar-hover: #8aafb9;
+}
+
+/* Sky blue and bright yellow: blue actions, warm selected surfaces, dark type. */
+:root[data-theme="sky"] {
+  --brand-light: #ffe632;
+  --brand: #2f9cff;
+  --brand-deep: #145eac;
+  --brand-blue: #163d77;
+  --canvas: #f3f8ff;
+  --surface-muted: #eaf1fa;
+  --surface-hover: #f7faff;
+  --ink: #19344f;
+  --ink-secondary: #405a74;
+  --ink-muted: #53687c;
+  --border: #d6e3f0;
+  --border-strong: #adc6e0;
+  --brand-tint: #fffbe0;
+  --brand-selected: #fff2a0;
+  --brand-border: #9bbce1;
+  --action: #2f9cff;
+  --action-hover: #54adff;
+  --action-text: #132942;
+  --info-bg: #eef5ff;
+  --info-border: #c3d9f3;
+  --map-edge: #81aad8;
+  --map-grid: #cbdcf0;
+  --scrollbar: #bed1e7;
+  --scrollbar-hover: #91b1d4;
+}
+
+/* Iris and pale yellow: reference purple actions retain dark-purple text. */
+:root[data-theme="iris"] {
+  --brand-light: #ffff81;
+  --brand: #a75eff;
+  --brand-deep: #653495;
+  --brand-blue: #4d287b;
+  --canvas: #faf7fd;
+  --surface-muted: #f1ecf7;
+  --surface-hover: #fcf9ff;
+  --ink: #30243e;
+  --ink-secondary: #574469;
+  --ink-muted: #6b577c;
+  --border: #e5dced;
+  --border-strong: #cbb8dc;
+  --brand-tint: #ffffeb;
+  --brand-selected: #ffffbc;
+  --brand-border: #c3a2df;
+  --action: #a75eff;
+  --action-hover: #b47aff;
+  --action-text: #221335;
+  --info-bg: #f4eefb;
+  --info-border: #d8c6e9;
+  --map-edge: #b395cb;
+  --map-grid: #dfd0ec;
+  --scrollbar: #d2c3df;
+  --scrollbar-hover: #b29dc4;
+}
