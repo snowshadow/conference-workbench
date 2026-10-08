@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="950" viewBox="0 0 1440 950" role="img" aria-labelledby="title desc">
+<title id="title">说话人识别与人工核对流程</title><desc id="desc">先设置团队成员并确认姓名，从会议录音中选择清晰片段登记声音。新转录中的未命名分组由本地声纹比对，结果一致时自动采用团队姓名，不确定时给出候选或等待人工填写。人工确认优先。同一人被分成多组可以合并，不同人的发言混在一组可以逐段修正归属。</desc>
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="m1 1 5 3-5 3" fill="none" stroke="#81a6ad" stroke-width="1.5"/></marker></defs>
+<rect width="1440" height="950" rx="26" fill="#f1f6f6"/>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif">
+<text x="54" y="56" fill="#64858c" font-size="17" letter-spacing="2">SPEAKER IDENTIFICATION · 功能流程示意</text>
+<text x="54" y="107" fill="#233d4f" font-size="36" font-weight="650">让下一场会议，认得出谁在说话</text>
+<text x="54" y="142" fill="#5f7983" font-size="19">实时转录和新导入录音共用身份映射；样本本地保存，比对本地完成。</text>
+
+<g><rect x="54" y="181" width="398" height="218" rx="18" fill="white" stroke="#d6e5e6"/>
+<text x="79" y="218" fill="#048e94" font-size="18" font-weight="600">01 · 设置团队成员</text>
+<text x="79" y="255" fill="#344f5d" font-size="21">确认这场会议里的姓名</text>
+<rect x="79" y="276" width="221" height="42" rx="21" fill="#e3f2ee"/><circle cx="103" cy="297" r="12" fill="#80b8a5"/><text x="126" y="304" fill="#386c62" font-size="19">小禾 · 团队成员</text>
+<text x="79" y="355" fill="#6a7f87" font-size="18">关联已有成员，或加入团队</text><text x="79" y="383" fill="#6a7f87" font-size="16">访客可以仅在本场会议标记</text></g>
+
+<path d="M465 288h35" stroke="#81a6ad" stroke-width="2" marker-end="url(#arrow)"/>
+<g><rect x="522" y="181" width="398" height="218" rx="18" fill="white" stroke="#d6e5e6"/>
+<text x="547" y="218" fill="#048e94" font-size="18" font-weight="600">02 · 登记声音</text>
+<text x="547" y="255" fill="#344f5d" font-size="21">回听并选取 2–4 段单人发言</text>
+<rect x="547" y="276" width="346" height="42" rx="12" fill="#f0f6f7"/>
+<path d="M562 293.0v8" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M572 288.0v18" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M582 291.0v12" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M592 284.0v26" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M602 280.0v34" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M612 286.0v22" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M622 290.0v14" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M632 283.0v28" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M642 288.0v18" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M652 281.0v32" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M662 285.0v24" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M672 292.0v10" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M682 289.0v16" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M692 282.0v30" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M702 287.0v20" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M712 291.0v12" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M722 285.0v24" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M732 280.0v34" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M742 288.0v18" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M752 292.0v10" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M762 284.0v26" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M772 289.0v16" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M782 282.0v30" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M792 287.0v20" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M802 291.0v12" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M812 293.0v8" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M822 288.0v18" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M832 283.0v28" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M842 289.0v16" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M852 286.0v22" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><path d="M862 291.0v12" stroke="#65aaa8" stroke-width="4" stroke-linecap="round"/><text x="547" y="355" fill="#6a7f87" font-size="18">团队样本可跨会议使用</text><text x="547" y="383" fill="#6a7f87" font-size="16">访客样本仅用于本场会议</text></g>
+<path d="M933 288h35" stroke="#81a6ad" stroke-width="2" marker-end="url(#arrow)"/>
+<g><rect x="990" y="181" width="396" height="218" rx="18" fill="#244d5a"/>
+<text x="1015" y="218" fill="#a6dbd5" font-size="18" font-weight="600">03 · 匹配新发言</text>
+<text x="1015" y="255" fill="#eff7f5" font-size="21">未命名分组 → 本地声纹比对</text>
+<rect x="1015" y="276" width="346" height="42" rx="12" fill="#345e69"/><text x="1036" y="304" fill="#d3e9e5" font-size="19">新声音 × 已登记的声音样本</text>
+<text x="1015" y="355" fill="#bbd4d7" font-size="18">选取多段清晰发言，比较结果</text><text x="1015" y="383" fill="#bbd4d7" font-size="16">自动识别不会登记新样本</text></g>
+
+<path d="M1188 399v28H364v22M1054 427v22" fill="none" stroke="#81a6ad" stroke-width="2"/>
+<circle cx="1188" cy="427" r="4" fill="#81a6ad"/>
+<g><rect x="54" y="450" width="630" height="177" rx="18" fill="#e3f1eb" stroke="#c6ded3"/>
+<circle cx="94" cy="492" r="17" fill="#5a967c"/><path d="m86 492 5 5 10-11" fill="none" stroke="white" stroke-width="2.5"/>
+<text x="126" y="501" fill="#315e50" font-size="26" font-weight="600">结果一致 · 自动采用姓名</text>
+<text x="81" y="545" fill="#517666" font-size="20">多段匹配满足条件时，采用团队成员姓名。</text>
+<text x="81" y="584" fill="#517666" font-size="18">同一 ASR 分组后续发言直接复用姓名。</text></g>
+<g><rect x="716" y="450" width="670" height="177" rx="18" fill="#fff3df" stroke="#ebdbb9"/>
+<circle cx="756" cy="492" r="17" fill="#c1964e"/><text x="750" y="499" fill="white" font-size="23" font-weight="600">?</text>
+<text x="788" y="501" fill="#755b2f" font-size="26" font-weight="600">尚不确定 · 等待人工确认</text>
+<text x="743" y="545" fill="#8a744e" font-size="20">显示候选，可点「确认是这位」或填写姓名。</text>
+<text x="743" y="584" fill="#8a744e" font-size="18">也可以等更多发言，或手动重新识别。</text></g>
+<rect x="54" y="646" width="1332" height="51" rx="13" fill="#dcebed"/>
+<text x="84" y="679" fill="#406772" font-size="20" font-weight="550">人工确认优先：已确认的姓名不会被自动识别结果改写。</text>
+
+<text x="54" y="752" fill="#344f5d" font-size="23" font-weight="600">分组有误，仍然可以修正</text>
+<rect x="54" y="774" width="630" height="120" rx="16" fill="white" stroke="#d6e5e6"/>
+<text x="81" y="812" fill="#44656f" font-size="22" font-weight="600">同一个人被分成多组 → 合并分组</text>
+<text x="81" y="852" fill="#6a7f87" font-size="18">选定目标说话人，点击「合并为同一人」。</text>
+<rect x="716" y="774" width="670" height="120" rx="16" fill="white" stroke="#d6e5e6"/>
+<text x="743" y="812" fill="#44656f" font-size="22" font-weight="600">不同人的发言混在一组 → 逐段拆开</text>
+<text x="743" y="852" fill="#6a7f87" font-size="18">在「修正原文」中改给现有说话人，或新增一位。</text>
+<text x="54" y="928" fill="#7c9198" font-size="15">声纹功能需安装本地模型；样本应清晰、无他人插话。手动标记与分组修正可独立使用。</text>
+</g></svg>
