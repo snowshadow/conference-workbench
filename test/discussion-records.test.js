@@ -24,7 +24,7 @@ function fixture(t, responder = () => ({ topics: [], followups: [] })) {
   } });
   ai.start();
   t.after(async () => { await ai.stop(); store.close(); });
-  const meeting = store.createMeeting({ title: '中性讨论记录' });
+  const meeting = store.createMeeting({ scenario: 'technical', title: '中性讨论记录' });
   const line = store.appendTranscript(meeting.id, { text: '我们决定先做小范围试验，响应时延还需要测量。', speakerId: '1' });
   store.mutateMeeting(meeting.id, current => {
     current.followups = reduceOrganization(current, { followups: [{
@@ -109,7 +109,7 @@ test('a brief note is recorded without resolving the question, changing transcri
 });
 
 test('neutral records tolerate appended speech, reject stale and foreign evidence, and remain auditable after corrections', t => {
-  const f = fixture(t), other = f.store.createMeeting({ title: '另一场会议' });
+  const f = fixture(t), other = f.store.createMeeting({ scenario: 'technical', title: '另一场会议' });
   const foreign = f.store.appendTranscript(other.id, { text: '异场依据。' });
   assert.throws(() => record(f, { resolution: { outcome: 'recorded', text: '记录', evidenceIds: [foreign.id] } }), /本次会议/);
   f.store.appendTranscript(f.meeting.id, { text: '接下来讨论预算。' });
@@ -207,7 +207,7 @@ test('MCP defaults to a neutral record and exposes presentation, provenance and 
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [resolve('mcp/server.mjs')], env: { ...process.env, WORKBENCH_URL: `http://127.0.0.1:${workbench.server.address().port}` }, stderr: 'pipe' }));
   t.after(async () => { await client.close(); await workbench.close(); });
   async function call(name, args) { const result = await client.callTool({ name, arguments: args }); assert.equal(result.isError, undefined, JSON.stringify(result)); return JSON.parse(result.content[0].text); }
-  const meeting = workbench.store.createMeeting({ title: 'Agent 简短记录' });
+  const meeting = workbench.store.createMeeting({ scenario: 'technical', title: 'Agent 简短记录' });
   const source = workbench.store.appendTranscript(meeting.id, { text: '告警具体时延还需核对。' });
   workbench.store.mutateMeeting(meeting.id, current => { current.followups = [{ id: 'f', status: 'active', author: 'ai', question: '告警时延要求是什么？', rationale: '尚未核对', impact: '影响告警实现', evidenceIds: [source.id] }]; });
   await call('update_followup_presentation', { meetingId: meeting.id, followupId: 'f', shortQuestion: '告警需多快？', discussionValue: '核对时延后再决定实现。', sourceRevision: 1, transcriptEditRevision: 0 });

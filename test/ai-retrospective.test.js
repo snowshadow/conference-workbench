@@ -5,15 +5,30 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../server/store.js';
 import { createAIService } from '../server/ai/service.js';
-import { retrospectiveCodec, packRetrospective } from '../server/ai/retrospective.js';
+import { retrospectiveCodec, retrospectiveWireData, packRetrospective } from '../server/ai/retrospective.js';
 import { resolvePeopleText } from '../shared/people.js';
 
 const response = value => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }));
 const empty = () => ({ topics: [], followups: [] });
 const cite = source => ({ id: source.id, quote: source.text });
+const quoteFrom = (data, evidence) => evidence.quote ?? data.sources?.find(source => source.id === evidence.id)?.text ?? data.quotedSources?.find(source => source.id === evidence.id)?.quotes[0];
 const idsOnly = value => Array.isArray(value) ? value.map(idsOnly) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'quote').map(([key, item]) => [key, idsOnly(item)])) : value;
 const topic = source => ({ id: 'new_t', title: '画像的两种含义', summary: '栏目结构和栏目值分别讨论。', summaryEvidence: [cite(source)], entries: [{ type: 'viewpoint', text: '栏目和栏目值可以分别更新。', evidence: [cite(source)] }] });
 const focus = (source, options = {}) => ({ id: 'new_f', retrospective: true, kind: 'concept', question: '稳定的是栏目，还是栏目值？', rationale: '稳定所指对象不同。', impact: '影响画像更新方法。', evidence: [cite(source)], priority: { level: 'high', reason: '区分对象能解开反复讨论。' }, clarification: { explanation: '栏目结构与栏目内的信息分开理解。', evidence: [cite(source)] }, resolution: { outcome: 'clarified', complete: true, text: '会上最后明确栏目结构和信息分开。', evidence: [cite(source)] }, ...options });
+
+test('wire evidence is shared without losing distinct excerpts, original speech or stored citations', () => {
+  const text = '保留原话中的错子、标点和不同条件。'.repeat(100);
+  const original = { coveredSections: [{ topics: Array.from({ length: 40 }, () => topic({ id: 's1', text })), followups: [focus({ id: 's2', text: '早期说法' }), focus({ id: 's2', text: '后来的纠正' })] }] };
+  const wire = retrospectiveWireData(original);
+  assert.ok(JSON.stringify(wire).length < JSON.stringify(original).length / 4);
+  assert.deepEqual(wire.quotedSources, [{ id: 's1', quotes: [text] }, { id: 's2', quotes: ['早期说法', '后来的纠正'] }]);
+  assert.deepEqual(wire.coveredSections[0].topics[0].summaryEvidence, [{ id: 's1' }]);
+  assert.equal(original.coveredSections[0].topics[0].summaryEvidence[0].quote, text);
+  assert.deepEqual(retrospectiveWireData(wire), wire);
+  const direct = retrospectiveWireData({ sources: [{ id: 's1', text }], evidence: [{ id: 's1', quote: text.slice(0, 30) }] });
+  assert.equal(direct.quotedSources, undefined);
+  assert.equal(direct.sources[0].text, text);
+});
 
 function fixture(t, responder, options = {}) {
   const store = new Store(mkdtempSync(join(tmpdir(), 'meeting-retrospective-')));
@@ -27,7 +42,7 @@ function fixture(t, responder, options = {}) {
   return { store, ai, calls };
 }
 function seed(store, text = '最后说清楚了：固定的是栏目结构，栏目里的信息可以更新。') {
-  const created = store.createMeeting({ title: '完整录音复盘', autoOrganize: false });
+  const created = store.createMeeting({ scenario: 'technical', title: '完整录音复盘', autoOrganize: false });
   const meeting = store.updateMeeting(created.id, { source: 'recording_import', status: 'ended' });
   const line = store.appendTranscript(meeting.id, { text, speakerId: 'speaker-1', startMs: 0, endMs: 2000 });
   return { meeting, line };
@@ -98,9 +113,9 @@ test('long imports cover every source before global topics and focus, including 
     assert.equal(data.coverage.material, 'section_summaries');
     assert.equal(data.coverage.complete, true);
     const evidence = data.coveredSections.at(-1).topics[0].summaryEvidence;
-    assert.match(evidence[0].quote, /最后明确/);
-    if (data.mode === 'retrospective_synthesis') return response({ topics: [{ ...topic({ id: evidence[0].id, text: evidence[0].quote }), id: 'new_all' }], followups: [] });
-    return response({ followups: [focus({ id: evidence[0].id, text: evidence[0].quote }, { topicId: data.knownTopics[0].id })], focusFollowupId: 'new_f' });
+    assert.match(quoteFrom(data, evidence[0]), /最后明确/);
+    if (data.mode === 'retrospective_synthesis') return response({ topics: [{ ...topic({ id: evidence[0].id, text: quoteFrom(data, evidence[0]) }), id: 'new_all' }], followups: [] });
+    return response({ followups: [focus({ id: evidence[0].id, text: quoteFrom(data, evidence[0]) }, { topicId: data.knownTopics[0].id })], focusFollowupId: 'new_f' });
   }, { retrospectiveMaxChars: budget });
   const { meeting } = seed(store, '最初讨论把栏目和信息混在一起。'.repeat(100));
   for (let i = 0; i < 7; i++) store.appendTranscript(meeting.id, { text: `第${i}段描述会议中的不同说法。`.repeat(90), startMs: 4000 + i * 2000, endMs: 6000 + i * 2000 });
@@ -190,8 +205,14 @@ test('compact metadata preserves speech, quotes, shared membership, and origin w
   assert.equal(decoded.sourceSpan.from, 'p1');
   assert.equal(decoded.sourceSpan.to, 'p1');
   assert.equal(decoded.quote, 'p1 和 [[person:p1]] 的字面原话。');
-  assert.throws(() => codec.decode({ rationale: '[[person:p9]] 表达了不同观点。' }), /未知的参会者/);
-  assert.throws(() => codec.decode({ rationale: 'p9 表达了不同观点。' }), /未知的参会者/);
+  const warnings = [];
+  const unknown = codec.decode({ participantIds: ['p1', 'p9', 'p1'], participantId: 'p9', rationale: '[[person:p9]] 表达了不同观点。' }, { onWarning: warning => warnings.push(warning) });
+  assert.deepEqual(unknown.participantIds, [saved.participants[0].id]);
+  assert.equal(unknown.participantId, null);
+  assert.equal(unknown.rationale, '某位参会者 表达了不同观点。');
+  assert.deepEqual(warnings.map(item => item.field), ['participantIds', 'participantId', 'rationale']);
+  assert.ok(warnings.every(item => item.code === 'unknown_participant' && item.reference === 'p9'));
+  assert.equal(codec.decode({ text: 'p50 延迟为 100ms，p95 为 200ms，p99 为 400ms；p0 是优先级。' }).text, 'p50 延迟为 100ms，p95 为 200ms，p99 为 400ms；p0 是优先级。');
   assert.throws(() => codec.decode({ evidence: [{ id: 's999', quote: line.text }] }), /原话不符/);
   assert.throws(() => codec.decode({ evidence: [{ id: 's999' }] }), /原话不符/);
   const items = [{ text: 'a'.repeat(80) }, { text: 'b'.repeat(80) }];
@@ -199,6 +220,55 @@ test('compact metadata preserves speech, quotes, shared membership, and origin w
   const exact = JSON.stringify(makeData(items)).length;
   assert.equal(packRetrospective(items, makeData, exact).length, 1);
   assert.equal(packRetrospective(items, makeData, exact - 1).length, 2);
+});
+
+test('latency percentiles in imported meeting prose do not block analysis or minutes', async t => {
+  const text = '然后大概 p50 呢，还是一百毫秒，业务是200毫秒，然后最长是400毫秒左右。';
+  const { store, ai, calls } = fixture(t, data => {
+    const source = data.sources[0];
+    if (data.mode === 'retrospective_topics') return response(idsOnly({ topics: [{ ...topic(source), title: 'p50 延迟', summary: 'p50 约为 100ms。', entries: [{ id: 'new_metric', type: 'viewpoint', text: `${source.participantId}汇报 p50 约为 100ms，最长约为 400ms。`, evidence: [cite(source)], participantIds: [source.participantId] }] }], followups: [] }));
+    return response(idsOnly({ followups: [focus(source, { topicId: data.knownTopics[0].id, question: 'p50 和最长延迟对应什么范围？', clarification: { explanation: 'p50 描述中位数，不等于最长延迟。', evidence: [cite(source)] }, resolution: undefined })] }));
+  });
+  const { meeting, line } = seed(store, text);
+  const job = await finish(store, ai.submit(meeting.id, 'minutes'));
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(calls.length, 2, 'identity decoding must not trigger extra model calls');
+  assert.ok(job.modelCalls.every(call => !call.formatRetries));
+  const saved = store.getMeeting(meeting.id), entry = saved.topics[0].entries[0];
+  assert.equal(saved.processedRevision, saved.transcriptRevision);
+  assert.equal(saved.retrospectiveAnalysis.focusCompleted, true);
+  assert.deepEqual(entry.participantIds, [saved.participants[0].id]);
+  assert.equal(entry.evidence[0].id, line.id);
+  assert.equal(entry.evidence[0].quote, text);
+  assert.match(saved.artifacts.find(item => item.type === 'minutes').markdown, /p50/);
+  assert.ok(job.stages.every(stage => !stage.validationWarnings));
+});
+
+test('unknown explicit person references lose only attribution while grounded analysis and minutes survive', async t => {
+  const { store, ai, calls } = fixture(t, data => {
+    const source = data.sources[0];
+    if (data.mode === 'retrospective_topics') {
+      const item = topic(source);
+      item.entries[0].text = '[[person:p99]]说明栏目结构固定，信息可以更新。';
+      item.entries[0].participantIds = ['p99'];
+      item.summary = '[[person:p1]]说明结构与信息的区别。';
+      return response(idsOnly({ topics: [item], followups: [] }));
+    }
+    return response(idsOnly({ followups: [focus(source, { topicId: data.knownTopics[0].id, clarification: { explanation: '[[person:missing-person]]的说法涉及结构与信息两个层面。', evidence: [cite(source)] } })] }));
+  });
+  const { meeting, line } = seed(store);
+  const job = await finish(store, ai.submit(meeting.id, 'minutes'));
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(calls.length, 2);
+  assert.ok(job.modelCalls.every(call => !call.formatRetries));
+  const saved = store.getMeeting(meeting.id), entry = saved.topics[0].entries[0];
+  assert.deepEqual(entry.participantIds, [], 'unknown identity must not be guessed from cited authors');
+  assert.match(entry.text, /^某位参会者说明/);
+  assert.equal(entry.evidence[0].id, line.id);
+  assert.match(saved.topics[0].summary, /\[\[person:participant_/);
+  assert.match(saved.followups[0].clarification.explanation, /^某位参会者/);
+  assert.doesNotMatch(saved.artifacts.find(item => item.type === 'minutes').markdown, /person:(p99|missing-person)/);
+  assert.deepEqual(job.stages.flatMap(stage => stage.validationWarnings || []).map(item => item.reference), ['p99', 'p99', 'missing-person']);
 });
 
 test('bare compact person labels still require the cited utterance to support their attribution', async t => {
@@ -258,11 +328,11 @@ test('long ID-only extraction exposes system-sourced full quotes to all later sy
     assert.equal(data.coverage.totalSources, 15);
     assert.equal(data.coveredSections.reduce((sum, part) => sum + part.sourceSpan.count, 0), 15);
     for (const part of data.coveredSections) for (const item of part.topics) {
-      for (const evidence of [item.summaryEvidence, item.entries[0].evidence]) assert.equal(evidence[0].quote, originals.get(evidence[0].id));
+      for (const evidence of [item.summaryEvidence, item.entries[0].evidence]) assert.equal(quoteFrom(data, evidence[0]), originals.get(evidence[0].id));
     }
     const tail = data.coveredSections.at(-1).topics[0].summaryEvidence[0];
-    if (data.mode === 'retrospective_synthesis') return response(idsOnly({ topics: [topic({ id: tail.id, text: tail.quote })], followups: [] }));
-    return response(idsOnly({ followups: [focus({ id: tail.id, text: tail.quote }, { topicId: data.knownTopics[0].id })], focusFollowupId: 'new_f' }));
+    if (data.mode === 'retrospective_synthesis') return response(idsOnly({ topics: [topic({ id: tail.id, text: quoteFrom(data, tail) })], followups: [] }));
+    return response(idsOnly({ followups: [focus({ id: tail.id, text: quoteFrom(data, tail) }, { topicId: data.knownTopics[0].id })], focusFollowupId: 'new_f' }));
   }, { retrospectiveMaxChars: 5000 });
   const { meeting } = seed(store, '第0段谈到固定栏目与变化信息。'.repeat(25));
   for (let i = 1; i < 15; i++) store.appendTranscript(meeting.id, { text: `第${i}段谈到固定栏目与变化信息。`.repeat(25), startMs: i * 2000, endMs: i * 2000 + 1000 });
@@ -355,7 +425,7 @@ test('multi-level synthesis keeps continuous coverage compact and includes every
       assert.equal(data.coveredSections.at(-1).sourceSpan.to, 's18');
     }
     const quote = data.coveredSections.at(-1).topics[0].entries[0].evidence[0];
-    if (data.mode === 'retrospective_focus') return response({ followups: [focus({ id: quote.id, text: quote.quote }, { topicId: data.knownTopics[0].id })], focusFollowupId: 'new_f' });
+    if (data.mode === 'retrospective_focus') return response({ followups: [focus({ id: quote.id, text: quoteFrom(data, quote) }, { topicId: data.knownTopics[0].id })], focusFollowupId: 'new_f' });
     return response({ topics: [{ id: 'new_synthesis', title: '画像概念', entries: [{ type: 'viewpoint', text: '栏目和信息是两个对象。', evidence: [quote] }] }], followups: [] });
   }, { retrospectiveMaxChars: budget });
   const { meeting } = seed(store, '第0段原始讨论：栏目与信息混在一起。'.repeat(40));
@@ -420,7 +490,7 @@ test('extra full-source extraction after publishing topics is cached when focus 
     }
     if (failFocus) return new Response('{}', { status: 401 });
     const evidence = data.coveredSections.at(-1).topics[0].summaryEvidence[0];
-    return response({ followups: [focus({ id: evidence.id, text: evidence.quote })], focusFollowupId: 'new_f' });
+    return response({ followups: [focus({ id: evidence.id, text: quoteFrom(data, evidence) })], focusFollowupId: 'new_f' });
   }, { retrospectiveMaxChars: 5000 });
   const { meeting } = seed(store, '第一段讨论栏目与用户信息。'.repeat(65));
   for (let i = 1; i < 3; i++) store.appendTranscript(meeting.id, { text: `第${i}段讨论栏目与用户信息。`.repeat(65), startMs: i * 2000, endMs: i * 2000 + 1000 });
@@ -433,6 +503,74 @@ test('extra full-source extraction after publishing topics is cached when focus 
   const retry = await finish(store, ai.submit(meeting.id, 'organize', { force: true }));
   assert.equal(retry.status, 'done', retry.error);
   assert.deepEqual(calls.slice(oldCalls).map(item => item.mode), ['retrospective_focus']);
+});
+
+test('an oversized extracted section is re-extracted from smaller original ranges without losing late speech', async t => {
+  const accepted = [], oversized = [];
+  const { store, ai } = fixture(t, data => {
+    assert.ok(JSON.stringify(data).length <= 5000);
+    if (data.mode === 'retrospective_extract') {
+      const item = topic(data.sources.at(-1));
+      if (data.sources.length > 2) {
+        oversized.push(data.sources.map(source => source.id));
+        item.summary = '模型过度展开了这段材料。'.repeat(600);
+      } else accepted.push(...data.sources.map(source => source.id));
+      return response(idsOnly({ topics: [item], followups: [] }));
+    }
+    if (data.coverage.complete) {
+      assert.equal(data.coveredSections.reduce((sum, part) => sum + part.sourceSpan.count, 0), 12);
+      assert.equal(data.coveredSections.at(-1).sourceSpan.to, 's12');
+    }
+    const evidence = data.coveredSections.at(-1).topics[0].summaryEvidence[0];
+    const source = { id: evidence.id, text: quoteFrom(data, evidence) };
+    if (data.mode === 'retrospective_synthesis') return response(idsOnly({ topics: [topic(source)], followups: [] }));
+    return response(idsOnly({ followups: [focus(source)], focusFollowupId: 'new_f' }));
+  }, { retrospectiveMaxChars: 5000 });
+  const { meeting } = seed(store, '第0段原话。'.repeat(90));
+  for (let i = 1; i < 12; i++) store.appendTranscript(meeting.id, { text: `第${i}段原话。`.repeat(90), startMs: i * 2000, endMs: i * 2000 + 1000 });
+  const result = await finish(store, ai.submit(meeting.id, 'minutes'));
+  assert.equal(result.status, 'done', result.error);
+  assert.ok(oversized.length > 0);
+  assert.deepEqual(accepted, Array.from({ length: 12 }, (_, i) => `s${i + 1}`));
+  assert.ok(result.stages.some(stage => stage.outputChars > 5000));
+  assert.ok(result.stages.every(stage => stage.inputChars <= 5000));
+  assert.equal(store.getMeeting(meeting.id).processedLineCount, 12);
+  assert.ok(store.getMeeting(meeting.id).artifacts.some(item => item.type === 'minutes'));
+});
+
+for (const shrinksOnRetry of [true, false]) test(`nonshrinking compression retries with a tighter budget and ${shrinksOnRetry ? 'recovers' : 'fails without publishing partial topics'}`, async t => {
+  const attempts = new Map();
+  const { store, ai, calls } = fixture(t, (data, { body }) => {
+    assert.ok(JSON.stringify(data).length <= 5000);
+    if (data.mode === 'retrospective_extract') {
+      const source = { ...data.sources.at(-1), text: data.sources.at(-1).text.slice(0, 20) };
+      return response({ topics: [{ ...topic(source), summary: '同一事项的补充说明。'.repeat(180) }], followups: [] });
+    }
+    const evidence = data.coveredSections.at(-1).topics[0].summaryEvidence[0];
+    const source = { id: evidence.id, text: quoteFrom(data, evidence) };
+    if (!data.coverage.complete) {
+      assert.match(body.messages[0].content, /压缩中间提要/);
+      assert.ok(data.outputBudgetChars > 0);
+      const key = data.coveredSections[0].sourceSpan.from;
+      const previous = attempts.get(key);
+      attempts.set(key, data.outputBudgetChars);
+      if (previous) assert.ok(data.outputBudgetChars < previous);
+      if (!previous || !shrinksOnRetry) return response(idsOnly({ topics: data.coveredSections.flatMap(section => section.topics).map(item => ({ ...item, summary: '压缩失败后反而增加的说明。'.repeat(600) })), followups: [] }));
+    }
+    if (data.mode === 'retrospective_synthesis') return response(idsOnly({ topics: [topic(source)], followups: [] }));
+    return response(idsOnly({ followups: [focus(source)], focusFollowupId: 'new_f' }));
+  }, { retrospectiveMaxChars: 5000 });
+  const { meeting } = seed(store, '第0段原始讨论。'.repeat(90));
+  for (let i = 1; i < 12; i++) store.appendTranscript(meeting.id, { text: `第${i}段原始讨论。`.repeat(90), startMs: i * 2000, endMs: i * 2000 + 1000 });
+  const result = await finish(store, ai.submit(meeting.id, 'organize'));
+  assert.equal(result.status, shrinksOnRetry ? 'done' : 'error', result.error);
+  const compression = calls.filter(data => data.mode === 'retrospective_synthesis' && !data.coverage.complete);
+  assert.ok(compression.length > 0);
+  assert.equal(compression.length, attempts.size * 2);
+  if (!shrinksOnRetry) {
+    assert.match(result.error, /两次压缩/);
+    assert.equal(store.getMeeting(meeting.id).topics.length, 0);
+  }
 });
 
 test('an unsupported nonempty focus is an error, not a successful empty selection', async t => {

@@ -27,8 +27,9 @@ export function createAutomaticSpeakerService({
     }, Math.max(1, pending.get(meetingId) - Date.now()));
     timer.unref?.(); timers.set(meetingId, timer);
   }
+  const confirmedImport = meetingId => { const meeting = store.getMeeting(meetingId); return meeting.source === 'recording_import' && Boolean(meeting.speakersConfirmedAt); };
   function schedule(meetingId, delay = debounceMs, participantId = null) {
-    if (stopped) return;
+    if (stopped || confirmedImport(meetingId)) return;
     if (!participantId) targets.set(meetingId, null);
     else if (!targets.has(meetingId)) targets.set(meetingId, new Set([participantId]));
     else targets.get(meetingId)?.add(participantId);
@@ -83,7 +84,7 @@ export function createAutomaticSpeakerService({
     return { candidates, accepted };
   }
   async function finish(meetingId, participantId, job) {
-    if (stopped || !canRecognizeParticipant(person(meetingId, participantId))) return;
+    if (stopped || confirmedImport(meetingId) || !canRecognizeParticipant(person(meetingId, participantId))) return;
     if (job.status !== 'done') {
       state(meetingId, participantId, { status: 'error', error: job.error || '声音识别未完成', message: '暂未识别，等新的清晰发言再试', nextAttemptAt: new Date(Date.now() + retryDelayMs).toISOString() });
       return;
@@ -98,7 +99,7 @@ export function createAutomaticSpeakerService({
     const { candidates, accepted } = validCandidates(meetingId, job.result);
     if (accepted) {
       const saved = store.applyRecognizedParticipant(meetingId, participantId, accepted, {
-        expectedJobId: job.id, recognition: { jobId: job.id, sourceIds: job.input?.sourceIds || [], segmentMatches: job.result.segmentMatches || [], policy: job.result.policy || null },
+        expectedJobId: job.id, recognition: { jobId: job.id, sourceIds: job.input?.sourceIds || [], segmentMatches: job.result.segmentMatches || [], decision: job.result.decision || null, policy: job.result.policy || null },
       });
       if (saved.applied && saved.affectedSourceIds.length) {
         try {
@@ -114,17 +115,21 @@ export function createAutomaticSpeakerService({
     }
     state(meetingId, participantId, {
       status: candidates.length ? 'candidate' : 'unknown', candidates, candidate: null, error: null,
-      message: candidates.length ? '有相近的声音，等待确认或更多发言' : '暂未认出，再等几句清晰发言',
+      message: job.result?.decision?.reason === 'conflicting_matches' ? '不同片段明确匹配到不同的人，请核对这个说话人分组' : candidates.length ? '有相近的声音，等待确认或更多发言' : '暂未认出，再等几句清晰发言',
       nextAttemptAt: new Date(Date.now() + retryDelayMs).toISOString(),
-      segmentMatches: job.result?.segmentMatches || [], policy: job.result?.policy || null,
+      segmentMatches: job.result?.segmentMatches || [], decision: job.result?.decision || null, policy: job.result?.policy || null,
     });
+    // Imported meetings already contain more speech: keep checking unused
+    // excerpts within the existing attempt budget instead of waiting forever
+    // for a transcript notification that will never arrive after import ends.
+    if (job.result?.decision?.reason !== 'conflicting_matches' && (recognition.attempts || 0) < maxAttempts && currentLines.some(line => recognition.triedSources?.[line.id] !== signature(line))) schedule(meetingId, retryDelayMs, participantId);
   }
   async function followJob(meetingId, participantId, initial) {
     activeJobId = initial.id;
     let job = initial;
     const deadline = Date.now() + jobTimeoutMs;
     while (!stopped && !terminal.has(job.status)) {
-      if (!canRecognizeParticipant(person(meetingId, participantId))) {
+      if (confirmedImport(meetingId) || !canRecognizeParticipant(person(meetingId, participantId))) {
         voiceprints.cancelJob?.(job.id); activeJobId = null; return;
       }
       if (Date.now() > deadline) {
@@ -140,15 +145,16 @@ export function createAutomaticSpeakerService({
   }
   async function checkParticipant(meetingId, participantId, availability) {
     let participant = person(meetingId, participantId);
-    if (!canRecognizeParticipant(participant)) return;
+    if (confirmedImport(meetingId) || !canRecognizeParticipant(participant)) return;
     let recognition = participant.recognition || {};
+    if (recognition.decision?.reason === 'conflicting_matches') return;
     // Restart recovery is lazy: only a meeting receiving a new notification is
     // revisited. We never scan old ended meetings or rewrite their identities.
     if (['queued', 'running'].includes(recognition.status) && recognition.jobId) {
       try { await followJob(meetingId, participantId, voiceprints.getJob(recognition.jobId)); }
       catch (error) { state(meetingId, participantId, { status: 'error', error: error.message, message: '等待新的发言后重试' }); }
       participant = person(meetingId, participantId);
-      if (!canRecognizeParticipant(participant)) return;
+      if (confirmedImport(meetingId) || !canRecognizeParticipant(participant)) return;
       recognition = participant.recognition || {};
     }
     if (!availability.available) { state(meetingId, participantId, { status: 'unavailable', message: '本地声音识别尚未就绪', error: null }); return; }
@@ -191,13 +197,13 @@ export function createAutomaticSpeakerService({
       pending.delete(meetingId); clearTimeout(timers.get(meetingId)); timers.delete(meetingId);
       try {
         const meeting = store.getMeeting(meetingId);
-        if (meeting.archived) continue;
+        if (meeting.archived || confirmedImport(meetingId)) continue;
         const participants = (meeting.participants || []).filter(participant => canRecognizeParticipant(participant) && (!requested || requested.has(participant.id)));
         if (!participants.length) continue;
         const available = voiceprints.status().available;
         const availability = { available, hasProfiles: available && voiceprints.listProfiles({ meetingId }).length > 0 };
         for (const participant of participants) {
-          if (stopped) return;
+          if (stopped || confirmedImport(meetingId)) return;
           try { await checkParticipant(meetingId, participant.id, availability); }
           catch { /* Recording continues even if optional recognition cannot run. */ }
         }
@@ -216,11 +222,12 @@ export function createAutomaticSpeakerService({
   }
   function notify(meetingId) { schedule(meetingId); }
   function retry(meetingId, participantId) {
+    if (confirmedImport(meetingId)) throw Object.assign(new Error('本场说话人已确认，请直接手动修正姓名或发言归属。'), { status: 409 });
     const participant = person(meetingId, participantId);
     if (!participant) throw Object.assign(new Error('参会者不存在或不属于本次会议'), { status: 404 });
     if (!canRecognizeParticipant(participant)) throw Object.assign(new Error('这位说话人已标记姓名，不需要重复识别'), { status: 409 });
     if (['queued', 'running'].includes(participant.recognition?.status)) return participant.recognition;
-    state(meetingId, participantId, { status: 'waiting', attempts: 0, sourceIds: [], triedSourceIds: [], triedSources: {}, jobId: null, nextAttemptAt: null, candidates: [], candidate: null, error: null, message: '等待辨认声音' });
+    state(meetingId, participantId, { status: 'waiting', attempts: 0, sourceIds: [], triedSourceIds: [], triedSources: {}, jobId: null, nextAttemptAt: null, candidates: [], candidate: null, segmentMatches: [], decision: null, error: null, message: '等待辨认声音' });
     schedule(meetingId, 0, participantId);
     return person(meetingId, participantId).recognition;
   }

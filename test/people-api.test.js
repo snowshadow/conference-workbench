@@ -47,7 +47,7 @@ test('HTTP member naming propagates into AI views and export across meetings wit
     assert.equal(store.getMeeting(meeting.id).processedRevision, 1);
     assert.match(store.getMeeting(meeting.id).topics[0].entries[0].text, /\[\[person:/);
   }
-  assert.ok(refreshes.every(item => item.kind === 'attribution'));
+  assert.ok(refreshes.every(item => item.kind === 'labels'));
   refreshes.length = 0;
   assert.equal((await request(`/api/members/${member.id}`, 'PATCH', { name: '孙先生' })).status, 200);
   assert.equal(refreshes.length, 2);
@@ -195,22 +195,28 @@ test('HTTP keeps speaker recognition state across reads and exposes reversible t
   assert.equal((await request('/api/voiceprints/profiles/sample', 'PATCH', { enabled: true })).data.profile.available, true);
 });
 
-test('participant membership changes recheck attribution while renames and unchanged links only refresh labels', async t => {
+test('naming and linking a distinct speaker only refresh labels; joining or separating identities rechecks attribution', async t => {
   const { workbench: { store }, request, refreshes } = await fixture(t);
   const meeting = store.createMeeting({ title: '身份核对' });
   const line = store.appendTranscript(meeting.id, { text: '我同意。', speakerId: 'one' });
   const a = store.createMember({ name: '孙总' }), b = store.createMember({ name: '李总' });
   const endpoint = `/api/meetings/${meeting.id}/participants/${line.participantId}`;
   for (const [patch, kind] of [
-    [{ name: '孙总' }, 'labels'], [{ memberId: a.id }, 'attribution'],
-    [{ memberId: a.id, name: '孙总' }, 'labels'], [{ memberId: b.id }, 'attribution'],
-    [{ memberId: null }, 'attribution'], [{ name: '本场李老师' }, 'labels'],
+    [{ name: '孙总' }, 'labels'], [{ memberId: a.id }, 'labels'],
+    [{ memberId: a.id, name: '孙总' }, 'labels'], [{ memberId: b.id }, 'labels'],
+    [{ memberId: null }, 'labels'], [{ name: '本场李老师' }, 'labels'],
   ]) {
     assert.equal((await request(endpoint, 'PATCH', patch)).status, 200);
     assert.deepEqual(refreshes.at(-1), { meetingId: meeting.id, sourceIds: [line.id], kind });
   }
   assert.equal(store.getMeeting(meeting.id).transcriptRevision, 1);
   assert.equal(store.allTranscript(meeting.id)[0].speakerId, 'one');
+  const other = store.appendTranscript(meeting.id, { text: '再考虑一下。', speakerId: 'two' });
+  store.updateParticipant(meeting.id, other.participantId, { memberId: a.id });
+  for (const memberId of [a.id, b.id]) {
+    assert.equal((await request(endpoint, 'PATCH', { memberId })).status, 200);
+    assert.equal(refreshes.at(-1).kind, 'attribution');
+  }
 });
 
 test('legacy speaker labels remain saved when AI refresh fails and removing a label also refreshes it', async t => {
@@ -287,4 +293,28 @@ test('legacy corrections isolate unknown utterances and reject ambiguous histori
   assert.equal(one.status, 200); assert.equal(two.status, 200);
   assert.notEqual(one.data.participantId, two.data.participantId);
   assert.equal(one.data.participantSource, 'host');
+});
+
+test('HTTP splits a mixed speaker group in one save and one analysis refresh with repeat and race protection', async t => {
+  const { workbench: { store }, request, refreshes } = await fixture(t);
+  const meeting = store.createMeeting({ title: '混入另一人的发言' });
+  const lines = [0, 1, 2].map(i => store.appendTranscript(meeting.id, { text: `发言 ${i}`, speakerId: 'mixed', startMs: i * 1000 }));
+  store.updateParticipant(meeting.id, lines[0].participantId, { name: '龙枭' });
+  store.updateMeeting(meeting.id, { status: 'ended' });
+  const member = store.createMember({ name: '夏云' });
+  const endpoint = `/api/meetings/${meeting.id}/participants/${lines[0].participantId}`;
+  const page = (await request(`${endpoint}/utterances`)).data;
+  const body = { sourceIds: lines.slice(1).map(line => line.id), target: { memberId: member.id }, identityRevision: page.identityRevision, transcriptEditRevision: page.transcriptEditRevision };
+  const result = await request(`${endpoint}/split`, 'POST', body);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.refreshJob.status, 'queued');
+  assert.deepEqual(result.data.affectedSourceIds, body.sourceIds);
+  assert.equal(result.data.meeting.participants.find(person => person.id === result.data.participantId).name, '夏云');
+  assert.deepEqual(refreshes, [{ meetingId: meeting.id, sourceIds: body.sourceIds, kind: 'attribution' }]);
+  assert.equal((await request(`${endpoint}/utterances`)).data.total, 1);
+  const moved = (await request(`/api/meetings/${meeting.id}/participants/${result.data.participantId}/utterances`)).data;
+  assert.deepEqual(moved.lines.map(line => line.id), body.sourceIds);
+  assert.equal((await request(`${endpoint}/split`, 'POST', body)).status, 409);
+  assert.equal(refreshes.length, 1);
+  assert.equal(store.listParticipants(meeting.id).length, 2);
 });

@@ -5,18 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadCases, validateCases, sourcesAt, transcriptPrefix, runEvaluation } from '../scripts/evaluate-clarification.mjs';
 
-test('fixed evidence distinguishes real excerpts from synthetic examples and forbids later evidence', () => {
+test('public evidence is synthetic and forbids later evidence', () => {
   const fixture = validateCases(loadCases());
-  assert.ok(fixture.cases.filter(item => item.provenance.kind === 'synthetic').every(item => item.provenance.note && item.sources.every(source => source.provenance.kind === 'synthetic')));
+  assert.ok(fixture.cases.every(item => item.provenance.kind === 'synthetic' && item.provenance.note && item.sources.every(source => source.provenance.kind === 'synthetic')));
   const holdout = fixture.cases.find(item => item.id === 'synthetic-shared-sla-assumption');
   assert.equal(holdout.provenance.role, 'holdout');
   assert.equal(holdout.stages[0].scriptedReply.followups[0].clarification.distinctions, undefined);
-  const early = fixture.cases.find(item => item.id === 'profile-stability-before-015755');
+  const early = fixture.cases.find(item => item.id === 'synthetic-template-stability');
   const available = sourcesAt(early.sources, early.stages[0].cutoffMs);
-  assert.ok(available.every(source => source.endMs <= 7_075_000));
-  assert.ok(!available.some(source => source.id === 'kickoff-L3735'));
+  assert.ok(available.every(source => source.endMs <= 30_000));
+  assert.ok(!available.some(source => source.id === 'synthetic-template-4'));
   const tampered = structuredClone(fixture);
-  tampered.cases[0].stages[0].scriptedReply.followups[0].clarification.evidence.push({ id: 'kickoff-L3735', quote: '画像是固定的' });
+  tampered.cases[0].stages[0].scriptedReply.followups[0].clarification.evidence.push({ id: 'synthetic-template-4', quote: '固定的是栏目' });
   assert.throws(() => validateCases(tampered), /after cutoff or outside fixture/);
 });
 
@@ -34,7 +34,7 @@ test('offline replay exercises persisted explanations and resolved questions wit
   assert.equal(report.mode, 'offline-scripted');
   assert.equal(report.qualityVerdict, 'requires_human_review');
   assert.equal(report.structuralPassed, true);
-  const evolution = report.cases.find(item => item.id === 'record-memory-reference-evolution');
+  const evolution = report.cases.find(item => item.id === 'synthetic-summary-reference-evolution');
   assert.equal(evolution.stages[0].followups[0].status, 'active');
   assert.equal(evolution.stages[1].followups[0].status, 'resolved');
   for (const item of report.cases) {
@@ -53,7 +53,7 @@ test('offline replay exercises persisted explanations and resolved questions wit
 });
 
 test('retirement preserves incomplete work instead of equating leaving focus with resolution', async () => {
-  const report = await runEvaluation({ caseIds: ['daily-parameters-out-of-scope'], outRoot: mkdtempSync(join(tmpdir(), 'clarification-retirement-')) });
+  const report = await runEvaluation({ caseIds: ['synthetic-export-scope'], outRoot: mkdtempSync(join(tmpdir(), 'clarification-retirement-')) });
   const residual = report.cases[0].stages[0];
   assert.equal(residual.activeCount, 0);
   assert.equal(residual.followups[0].status, 'active');

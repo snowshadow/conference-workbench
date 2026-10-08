@@ -1,8 +1,10 @@
+import { meetingScenarios, meetingScenario } from '../shared/meeting-scenarios.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as people from './people/store.js';
+import { presentPeopleReviewError } from './ai/people-errors.js';
 
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
@@ -103,7 +105,9 @@ export class Store {
   createMeeting(input = {}) {
     const title = bounded(input.title, 200);
     if (!title) throw fail('请填写会议名称');
-    const meeting = { id: id(), title, goal: bounded(input.goal, 6000), status: 'planned', archived: false,
+    const scenario = input.scenario ?? 'regular';
+    if (!Object.hasOwn(meetingScenarios, scenario)) throw fail('请选择有效的会议场景');
+    const meeting = { id: id(), scenario, title, goal: bounded(input.goal, 6000), status: 'planned', archived: false,
       createdAt: now(), updatedAt: now(), transcriptRevision: 0, transcriptEditRevision: 0, contentRevision: 0,
       processedRevision: 0, processedThroughMs: 0, autoOrganize: true, topics: [], followups: [], questions: [], artifacts: [], speakerLabels: {}, participants: [], identityRevision: 0,
       capture: { connected: false, state: 'idle', recordingId: null, asrState: 'stopped', error: null } };
@@ -117,12 +121,14 @@ export class Store {
   }
   updateMeeting(meetingId, patch) {
     const meeting = this.getMeeting(meetingId);
+    const scenarioChanged = Object.hasOwn(patch, 'scenario') && patch.scenario !== meetingScenario(meeting);
+    if (Object.hasOwn(patch, 'scenario') && !Object.hasOwn(meetingScenarios, patch.scenario)) throw fail('请选择有效的会议场景');
     const labelsChanged = Object.hasOwn(patch, 'speakerLabels') &&
       Object.keys({ ...meeting.speakerLabels, ...patch.speakerLabels }).some(key => meeting.speakerLabels?.[key] !== patch.speakerLabels?.[key]);
-    const allowed = ['title','goal','status','archived','autoOrganize','speakerLabels','capture','endedAt','processedRevision','processedThroughMs','source','importJobId'];
+    const allowed = ['title','goal','status','archived','autoOrganize','speakerLabels','capture','endedAt','processedRevision','processedThroughMs','source','importJobId','scenario'];
     let contentChanged = false;
     for (const key of allowed) if (Object.hasOwn(patch, key)) {
-      if (['title','goal'].includes(key) && JSON.stringify(meeting[key]) !== JSON.stringify(patch[key]) || key === 'speakerLabels' && labelsChanged) contentChanged = true;
+      if (['title','goal','scenario'].includes(key) && JSON.stringify(meeting[key]) !== JSON.stringify(patch[key]) || key === 'speakerLabels' && labelsChanged) contentChanged = true;
       meeting[key] = clone(patch[key]);
     }
     if (Object.hasOwn(patch,'title')) { meeting.title = bounded(patch.title,200); if (!meeting.title) throw fail('会议名称不能为空'); }
@@ -131,6 +137,11 @@ export class Store {
     // Names label stable speaker IDs; only editTranscript changes who said a line.
     // Keep existing discussion and its watermark while contentRevision rejects AI
     // results still using the old names. Never clear earlier source corrections.
+    if (scenarioChanged) {
+      delete meeting.retrospectiveAnalysis;
+      meeting.processedRevision = 0;
+      for (const artifact of meeting.artifacts || []) { artifact.stale = true; artifact.staleReason = 'content_changed'; }
+    }
     if (contentChanged) meeting.contentRevision++;
     if (labelsChanged) meeting.identityRevision = (meeting.identityRevision || 0) + 1;
     return this.persistMeeting(meeting);
@@ -160,6 +171,7 @@ export class Store {
   applyRecognizedParticipant(meetingId, participantId, candidate, input) { return people.applyRecognizedParticipant(this, meetingId, participantId, candidate, input); }
   mergeParticipants(meetingId, sourceId, targetId) { return people.mergeParticipants(this, meetingId, sourceId, targetId); }
   assignTranscriptParticipant(meetingId, lineId, participantId, input) { return people.assignTranscriptParticipant(this, meetingId, lineId, participantId, input); }
+  splitParticipant(meetingId, participantId, input) { return people.splitParticipant(this, meetingId, participantId, input); }
   getTranscript(meetingId, {cursor=0,limit=100,q=''} = {}) {
     let lines = this.allTranscript(meetingId);
     if (q) lines = lines.filter(line => line.text.toLocaleLowerCase().includes(String(q).toLocaleLowerCase()));
@@ -256,6 +268,7 @@ export class Store {
   }
   createJob(meetingId,type,input={}) { return this.createRecord('jobs',meetingId,{type,input,status:'queued',result:null,error:null}); }
   annotateJob(job) {
+    job = { ...job, error: presentPeopleReviewError(job) };
     if(job.status!=='done' || !job.result || !['answer','minutes'].includes(job.type)) return job;
     const meeting=this.getMeeting(job.meetingId);
     const current=job.type==='answer' ? meeting.questions.find(item=>item.id===job.result.id) : meeting.artifacts.find(item=>item.id===job.result.id);
@@ -280,7 +293,7 @@ export class Store {
     // Keep an existing OpenAI-compatible file provider until it is explicitly
     // switched. Fresh installations use the shared Volcengine credentials.
     const fileProvider = process.env.FILE_ASR_PROVIDER || (saved.fileAsr?.baseUrl || process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL ? 'openai' : 'volcengine');
-    return { llm: {baseUrl:process.env.LLM_BASE_URL || 'https://api.deepseek.com',model:process.env.LLM_MODEL || 'deepseek-chat',apiKey:process.env.LLM_API_KEY || '',...saved.llm},
+    return { llm: {baseUrl:process.env.LLM_BASE_URL || 'https://opencode.ai/zen/go/v1',model:process.env.LLM_MODEL || 'deepseek-v4.1-flash',apiKey:process.env.LLM_API_KEY || '',...saved.llm},
       asr: {apiKey:process.env.VOLCENGINE_ASR_API_KEY || '',appKey:process.env.VOLCENGINE_ASR_APP_KEY || '',accessKey:process.env.VOLCENGINE_ASR_ACCESS_KEY || '',resourceId:process.env.VOLCENGINE_ASR_RESOURCE_ID || 'volc.bigasr.sauc.duration',...saved.asr},
       fileAsr: {provider:fileProvider,resourceId:process.env.FILE_ASR_RESOURCE_ID || 'volc.bigasr.auc_turbo',baseUrl:process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL || 'http://127.0.0.1:8000',model:process.env.FILE_ASR_MODEL || process.env.OMLX_ASR_MODEL || 'Qwen3-ASR-1.7B-8bit',apiKey:process.env.FILE_ASR_API_KEY ?? process.env.OMLX_API_KEY ?? '',language:process.env.FILE_ASR_LANGUAGE || 'zh',...saved.fileAsr} };
   }

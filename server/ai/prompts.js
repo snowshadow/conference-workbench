@@ -47,6 +47,7 @@ sources 是指定范围中的一部分，不能单凭这一段判断整场有没
 export const REFRESH_PEOPLE = `主持人刚核对了发言人的身份。请逐项核对 records 中已有 AI 内容，让“谁说了什么”符合 sources 里最新的 participantId，并把旧的人名写法迁移为稳定身份标记。
 保留原事项和原意，只修正身份归属及由此直接影响的比较；不会改变含义的文字保持原样。旧文里的 speaker 编号或姓名不再作为身份依据。单方观点仍是单方观点，多人引用不代表多人都持同一观点。不能确认归属时保留有依据的内容，省去姓名，不能捏造一个参会者。
 每条 record 的 evidenceIds 指定核对范围。只使用该范围中的原话；不要新增议题、决定、任务或状态，不改主持人内容。Markdown 的标题、引用链接和格式保留。
-输出契约：{"records":[{"id":"输入 record 的完整 id","text":"核对后的完整字段内容，身份写为 [[person:participantId]]","evidence":[{"id":"该 record 范围内的原发言 ID","quote":"逐字原话"}],"participantIds":[]}]}。每项都返回，未改变的也返回原文；participantIds 只用于条目 text 的观点归属，无法确定可以为空。`;
+本任务的引用只返回原发言 id，程序会从本地取回准确原文和版本，无需抄写 quote。每项选择支持该字段内容及人物归属的来源；整篇纪要可引用多段原文，不受 30 条限制。
+输出契约：{"records":[{"id":"输入 record 的完整 id","edits":[{"from":"需更正的原文字段片段","to":"更正后的片段，身份写为 [[person:participantId]]"}],"evidence":[{"id":"该 record 范围内的原发言 ID"}],"participantIds":[]}]}。只提交需要改动的片段，不重写整篇纪要；from 必须逐字匹配且在本字段中只出现一次，可以加上相邻文字定位。程序按顺序应用 edits，未涉及的文字和链接原样保留。每项都返回；确认字段及其人物归属无需修改时只返回 {"id":"原 record id","unchanged":true}，程序保留该字段和已有引用。participantIds 只用于条目 text 的观点归属，无法确定可以为空。`;
 
 export const PROMPT_VERSION = `clarification-v6-${createHash('sha256').update([SYSTEM, ORGANIZE, ORGANIZE_CONTRACT, FOLLOWUP, ANSWER, ANSWER_CONTRACT, ANSWER_SELECT, REFRESH_PEOPLE].join('\n')).digest('hex').slice(0, 12)}`;

@@ -125,6 +125,36 @@ test('repeated uncertainty is bounded and a host retry can explicitly reset the 
   assert.equal(f.submitted.length, 3);
 });
 
+test('an imported group checks already available unused utterances without another transcript notification', async t => {
+  const f = fixture(t), first = f.append();
+  for (let i = 0; i < 5; i++) f.append();
+  const submit = f.voiceprints.submit;
+  f.voiceprints.submit = (type, input) => {
+    f.data.result = { status: 'candidate', candidates: [f.profile], autoAccept: f.submitted.length ? f.profile : null };
+    return submit(type, input);
+  };
+  f.automatic.start(); f.automatic.notify(f.meeting.id);
+  await until(() => f.person(first.participantId).identitySource === 'voiceprint');
+  assert.equal(f.submitted.length, 2);
+  assert.equal(new Set(f.submitted.flatMap(job => job.input.sourceIds)).size, 6);
+});
+
+test('a reliable identity conflict remains pending through new speech until the host explicitly retries', async t => {
+  const f = fixture(t), first = f.append(); f.append();
+  f.data.result = { status: 'candidate', candidates: [f.profile], autoAccept: null, decision: { reason: 'conflicting_matches', matchingSourceIds: ['a', 'b'] } };
+  f.automatic.start(); f.automatic.notify(f.meeting.id);
+  await until(() => f.person(first.participantId).recognition?.decision?.reason === 'conflicting_matches');
+  assert.match(f.person(first.participantId).recognition.message, /不同的人/);
+  f.data.result = { status: 'candidate', candidates: [f.profile], autoAccept: f.profile };
+  f.append(); f.append(); f.automatic.notify(f.meeting.id);
+  await pause(25);
+  assert.equal(f.submitted.length, 1);
+  assert.notEqual(f.person(first.participantId).identitySource, 'voiceprint');
+  f.automatic.retry(f.meeting.id, first.participantId);
+  await until(() => f.person(first.participantId).identitySource === 'voiceprint');
+  assert.equal(f.submitted.length, 2);
+});
+
 test('host naming during an in-flight comparison wins permanently over the late candidate', async t => {
   const f = fixture(t); f.data.pending = true;
   const first = f.append(); f.append();
@@ -233,4 +263,20 @@ test('shutdown cancels optional recognition without changing any manual identity
   assert.equal(f.jobs.get('job-1').status, 'cancelled');
   assert.equal(f.person(first.participantId).name, '');
   assert.deepEqual(f.store.rawTranscript(f.meeting.id), before);
+});
+
+test('confirming an imported meeting cancels late automatic matches instead of changing analyzed identities', async t => {
+  const f = fixture(t);
+  f.store.updateMeeting(f.meeting.id, { source: 'recording_import', status: 'ended' });
+  const first = f.append(); f.append();
+  f.data.pending = true;
+  f.automatic.start(); f.automatic.notify(f.meeting.id);
+  await until(() => f.submitted.length === 1);
+  f.store.mutateMeeting(f.meeting.id, meeting => { meeting.speakersConfirmedAt = new Date().toISOString(); });
+  await until(() => [...f.jobs.values()][0].status === 'cancelled');
+  assert.notEqual(f.person(first.participantId).memberId, f.member.id);
+  assert.equal(f.refreshes.length, 0);
+  f.automatic.notify(f.meeting.id);
+  await pause(15);
+  assert.equal(f.submitted.length, 1);
 });

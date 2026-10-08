@@ -1,8 +1,10 @@
+import { meetingScenario } from './meeting-scenarios.js';
 export const isActiveFocus = item => item?.status === 'active' && !item.stale && !item.mergedInto && item.attention?.needed !== false;
 
 // A useful retrospective can include a misunderstanding that the meeting resolved.
 // Keep its factual status; being worth revisiting does not make it unresolved.
 export const isReadingFocus = (item, meeting) => {
+  if (meetingScenario(meeting) === 'regular' && item?.resolution?.complete) return false;
   if (meeting?.source !== 'recording_import') return isActiveFocus(item);
   if (item?.retrospective === true) return ['active', 'resolved', 'recorded'].includes(item.status) && !item.stale && !item.resolution?.stale && !item.mergedInto && item.attention?.needed !== false;
   if (meeting.retrospectiveAnalysis?.focusCompleted && item?.author === 'ai' && !item.manualFields?.length && item.resolution?.author !== 'host') return false;
@@ -17,7 +19,7 @@ const PRIORITIES = {
 
 export function focusPriority(item, meeting) {
   const priority = !item?.priority?.stale && Object.hasOwn(PRIORITIES, item?.priority?.level) ? PRIORITIES[item.priority.level] : null;
-  const label = meeting?.source === 'recording_import' ? { high: '优先回看', medium: '随后回看', low: '可以稍后' }[priority?.level] : priority?.label;
+  const label = meeting?.source === 'recording_import' && meetingScenario(meeting) !== 'regular' ? { high: '优先回看', medium: '随后回看', low: '可以稍后' }[priority?.level] : priority?.label;
   return priority ? { ...priority, label, reason: typeof item.priority.reason === 'string' ? item.priority.reason.trim() : '' }
     : { level: 'unrated', rank: 0, label: '待排序', reason: '' };
 }

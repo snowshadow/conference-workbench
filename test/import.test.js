@@ -67,7 +67,7 @@ test('real WAV decoding yields saved PCM, end-of-recording playback and timestam
   assert.equal(result.status, 202); assert.equal(result.meeting.source, 'recording_import');
   assert.equal(result.meeting.status, 'ended'); assert.equal(result.meeting.capture.state, 'idle');
   const job = await f.finished(result.job.id); assert.equal(job.status, 'done');
-  assert.equal(job.result.durationMs, 2100); assert.equal(job.result.analysisState, 'not_configured');
+  assert.equal(job.result.durationMs, 2100); assert.equal(job.result.analysisState, 'awaiting_speakers');
   assert.equal(requestCount, 3);
   const recording = f.store.getRecording(job.result.recordingId);
   assert.equal(recording.state, 'stopped'); assert.equal(recording.sampleCount, 33600); assert.deepEqual(recording.gaps, []);
@@ -432,17 +432,17 @@ test('unusable segment timestamps fall back to whole chunk and no-speech interva
   assert.equal(gap.startSample, 16000); assert.equal(gap.endSample, 32000); assert.equal(gap.importKind, 'no_speech');
 });
 
-test('completed import submits AI minutes only when configured and treats scheduling failure as a separate state', async t => {
+test('completed import waits for speaker confirmation even when AI is configured', async t => {
   const f = await fixture(t);
-  f.store.saveSettings({ llm: { baseUrl: 'http://127.0.0.1:9999/v1' } });
-  const { meeting, job } = await f.upload(); const done = await f.finished(job.id);
-  assert.equal(done.status, 'done'); assert.equal(done.result.analysisState, 'queued');
-  assert.deepEqual(f.submissions, [{ meetingId: meeting.id, type: 'minutes' }]);
-  assert.equal(f.store.getJob(done.result.analysisJobId).type, 'minutes');
-  f.ai.submit = () => { throw new Error('a separate scheduling problem'); };
-  const second = await f.upload(); const failedAnalysis = await f.finished(second.job.id);
-  assert.equal(failedAnalysis.status, 'done'); assert.equal(failedAnalysis.result.analysisState, 'failed');
-  assert.equal(failedAnalysis.result.transcriptCount, 1);
+  f.store.saveSettings({ llm: { apiKey: 'fixture-secret' } });
+  const { meeting, job } = await f.upload();
+  const done = await f.finished(job.id);
+  assert.equal(done.status, 'done');
+  assert.equal(done.result.analysisState, 'awaiting_speakers');
+  assert.equal(done.result.analysisJobId, null);
+  assert.deepEqual(f.submissions, []);
+  assert.equal(f.store.getMeeting(meeting.id).speakersConfirmedAt, null);
+  assert.equal(f.store.getMeeting(meeting.id).scenario, 'regular');
 });
 
 test('audio parsing failures retain the source, never follow media playlist URLs, and make no ASR call', async t => {

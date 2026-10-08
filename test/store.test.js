@@ -9,6 +9,24 @@ import { reduceOrganization } from '../server/ai/reducer.js';
 import { readingFocusId } from '../shared/discussion-view.js';
 
 function fixture(t) {const dir=fs.mkdtempSync(path.join(os.tmpdir(),'meeting-store-test-')),store=new Store(dir);t.after(()=>store.close());return store;}
+test('historical speaker validation errors explain preserved identity edits without rewriting stored history', t => {
+  const store = fixture(t), meeting = store.createMeeting({ title: '历史核对记录' });
+  const error = '发言人核对的原文依据不完整，原内容已保留，请重试。';
+  const job = store.createJob(meeting.id, 'refresh_speakers');
+  store.updateJob(job.id, { status: 'error', error });
+  const presented = store.getJob(job.id);
+  assert.equal(presented.status, 'error');
+  assert.match(presented.error, /核对结果未通过校验/);
+  assert.match(presented.error, /已保存的姓名标记和原文不受影响/);
+  assert.doesNotMatch(presented.error, /原文依据不完整|请重试|人物归属与引用/);
+  assert.equal(store.listJobs(meeting.id)[0].error, presented.error);
+  assert.equal(store.getRecord('jobs', job.id).error, error);
+  const unrelated = store.createJob(meeting.id, 'organize');
+  store.updateJob(unrelated.id, { status: 'error', error });
+  assert.equal(store.getJob(unrelated.id).error, error);
+  store.updateJob(job.id, { error: '模型服务连接失败' });
+  assert.equal(store.getJob(job.id).error, '模型服务连接失败');
+});
 test('dismissing a manually selected question advances even from an AI quiet recommendation',t=>{
   const s=fixture(t),m=s.createMeeting({title:'先放下后继续'});
   s.mutateMeeting(m.id,d=>{

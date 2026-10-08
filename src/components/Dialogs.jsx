@@ -1,3 +1,4 @@
+import { meetingScenarios, meetingScenario, awaitingSpeakers } from '../../shared/meeting-scenarios.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { BookOpen, Check, Copy, Download, FileAudio, FileText, Headphones, KeyRound, Mic, Pencil, Save, Settings2, Sparkles, Terminal, Upload } from 'lucide-react';
 import { api, downloadText, formatDate, uploadRecording } from '../lib/api.js';
@@ -5,13 +6,19 @@ import { Button, EmptyState, Evidence, FormError, Modal, useFormAction } from '.
 import { MeetingMarkdown } from './AiPanels.jsx';
 import { ResolutionSummary } from './ClarificationPanel.jsx';
 import { minutesDocumentMarkdown } from '../../shared/minutes-format.js';
+import { speakerReviewProgress } from '../../shared/discussion-status.js';
+
+function ScenarioField({ value, onChange, disabled }) {
+  return <label>会议场景<select value={value} onChange={event => onChange(event.target.value)} disabled={disabled}>{Object.entries(meetingScenarios).map(([key, scene]) => <option key={key} value={key}>{scene.label}</option>)}</select><span className="form-hint">{meetingScenarios[value].hint}</span></label>;
+}
 
 export function MeetingDialog({ meeting, onClose, onSave }) {
   const [title, setTitle] = useState(meeting?.title || '');
   const [goal, setGoal] = useState(meeting?.goal || '');
-  const { submit, busy, error } = useFormAction(async () => { await onSave({ title: title.trim(), goal: goal.trim() }); onClose(); });
+  const [scenario, setScenario] = useState(meeting ? meetingScenario(meeting) : 'regular');
+  const { submit, busy, error } = useFormAction(async () => { await onSave({ title: title.trim(), goal: goal.trim(), scenario }); onClose(); });
   return <Modal title={meeting ? '编辑会议' : '开启一场有进展的讨论'} subtitle={meeting ? '讨论目标帮助 AI 理解方向，不作为会议事实。' : '写下这次要说清的事情，让每个人带着同一个问题开始。'} onClose={onClose} closeDisabled={busy}>
-    <form onSubmit={submit} aria-busy={busy}><label>会议名称<input autoFocus value={title} onChange={event => setTitle(event.target.value)} maxLength={160} placeholder="例如：产品试点方案讨论" required disabled={busy} /></label><label>讨论目标 <span className="optional">可选</span><textarea value={goal} onChange={event => setGoal(event.target.value)} rows={4} maxLength={6000} placeholder="这次会议结束时，希望明确什么？" disabled={busy} /></label><div className="form-info"><Mic size={16} /><span>进入会议后选择音频来源并授权录音。</span></div><FormError error={error} /><div className="modal-footer"><Button type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" className="primary" busy={busy} disabled={!title.trim()}>{meeting ? '保存修改' : '创建会议'}</Button></div></form>
+    <form onSubmit={submit} aria-busy={busy}><ScenarioField value={scenario} onChange={setScenario} disabled={busy} /><label>会议名称<input autoFocus value={title} onChange={event => setTitle(event.target.value)} maxLength={160} placeholder="例如：产品试点方案讨论" required disabled={busy} /></label><label>讨论目标 <span className="optional">可选</span><textarea value={goal} onChange={event => setGoal(event.target.value)} rows={4} maxLength={6000} placeholder="这次会议结束时，希望明确什么？" disabled={busy} /></label><div className="form-info"><Mic size={16} /><span>进入会议后选择音频来源并授权录音。</span></div><FormError error={error} /><div className="modal-footer"><Button type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" className="primary" busy={busy} disabled={!title.trim()}>{meeting ? '保存修改' : '创建会议'}</Button></div></form>
   </Modal>;
 }
 
@@ -20,6 +27,7 @@ export function ImportDialog({ onClose, onImported, settings }) {
   const [title, setTitle] = useState('');
   const [titleEdited, setTitleEdited] = useState(false);
   const [goal, setGoal] = useState('');
+  const [scenario, setScenario] = useState('regular');
   const [progress, setProgress] = useState(0);
   const [fileError, setFileError] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -28,7 +36,7 @@ export function ImportDialog({ onClose, onImported, settings }) {
   const { submit, busy, error } = useFormAction(async () => {
     if (!file) throw new Error('请选择录音文件。');
     setProgress(0);
-    const result = await uploadRecording({ file, title: title.trim(), goal: goal.trim() }, setProgress);
+    const result = await uploadRecording({ file, title: title.trim(), goal: goal.trim(), scenario }, setProgress);
     onImported(result);
     onClose();
   });
@@ -57,7 +65,7 @@ export function ImportDialog({ onClose, onImported, settings }) {
   }
   const isFileDrag = event => Array.from(event.dataTransfer?.types || []).includes('Files');
   const sizeLabel = file ? file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KiB` : `${(file.size / 1024 / 1024).toFixed(1)} MiB` : '';
-  return <Modal title="导入录音创建会议" subtitle="上传已有录音，转录后即可检查澄清问题、提问和回听。" onClose={onClose} closeDisabled={busy}>
+  return <Modal title="导入录音创建会议" subtitle="导入并转录 → 匹配与确认说话人 → 分析并生成纪要。" onClose={onClose} closeDisabled={busy}>
     <form onSubmit={submit} aria-busy={busy}>
       <div className={`recording-file-field ${file ? 'has-file' : ''} ${dragging ? 'is-dragging' : ''} ${busy ? 'is-uploading' : ''}`} role="group" aria-labelledby={fileHeadingId}
         onDragEnter={event => { if (!isFileDrag(event)) return; event.preventDefault(); if (!busy) { dragDepth.current++; setDragging(true); } }}
@@ -69,18 +77,19 @@ export function ImportDialog({ onClose, onImported, settings }) {
         <small id={fileHintId} className="recording-file-hint">支持 WAV、MP3、M4A、MP4、FLAC、OGG、WebM 等格式，最大 512 MiB。</small>
       </div>
       <FormError id={fileErrorId} error={fileError} />
+      <ScenarioField value={scenario} onChange={setScenario} disabled={busy} />
       <label>会议名称<input value={title} onChange={event => { setTitle(event.target.value); setTitleEdited(true); }} maxLength={160} placeholder="默认使用录音文件名" disabled={busy} required /></label>
       <label>讨论目标 <span className="optional">可选</span><textarea value={goal} onChange={event => setGoal(event.target.value)} rows={3} maxLength={6000} placeholder="希望借助这次讨论说清什么？" disabled={busy} /></label>
       <div className="form-info"><Headphones size={16} /><span>原录音保存在本机，转录使用{settings?.fileAsr?.provider === 'openai' ? '已配置的 OpenAI 兼容服务' : '火山引擎'}。上传完成后可离开此页面，处理会继续。</span></div>
       {settings?.fileAsr && !settings.fileAsr.configured && <p className="form-hint import-hint">文件转录尚未配置。请在「连接设置」中{settings.fileAsr.provider === 'openai' ? '填写文件转录服务信息' : '填写火山凭证，并确认已开通录音文件识别极速版'}。</p>}
-      {!settings?.llm?.configured && <p className="form-hint import-hint">AI 尚未配置。配置 AI 后，可从「会议操作」重新分析已完成的转录。</p>}
+      {!settings?.llm?.configured && <p className="form-hint import-hint">AI 尚未配置。配置 AI 后，确认说话人即可生成纪要。</p>}
       {busy && <div className="upload-progress" role="status"><div><span>{progress < 100 ? '正在上传录音' : '文件已发送，正在确认本地保存'}</span><strong>{progress}%</strong></div><progress max="100" value={progress} aria-label="录音上传进度" /><p>请保持当前页面打开，上传完成后会自动进入会议。</p></div>}
       <FormError error={error} /><div className="modal-footer"><Button type="button" onClick={onClose} disabled={busy}>取消</Button><Button type="submit" className="primary" busy={busy} disabled={!file || !title.trim()}><Upload size={14} />{busy ? '正在导入' : '导入并转录'}</Button></div>
     </form>
   </Modal>;
 }
 
-const jobKinds = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入', refresh_speakers: '发言人核对' };
+const jobKinds = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入', refresh_speakers: 'AI 人物归属更新' };
 const jobStatuses = { queued: '等待处理', running: '处理中', done: '已完成', error: '失败', cancelled: '已取消，结果未应用', stale: '来源已更新', superseded: '已由新任务替代' };
 
 export function ProcessingDialog({ meeting, onClose }) {
@@ -88,7 +97,7 @@ export function ProcessingDialog({ meeting, onClose }) {
   const kinds = retrospective ? { ...jobKinds, organize: '会议复盘', followup: '复盘焦点整理' } : jobKinds;
   const jobs = [...(meeting.jobs || [])].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   return <Modal title="处理记录" subtitle="查看处理状态、使用的模型和思考强度，方便比较分析效果。" onClose={onClose}>
-    <div className="processing-history">{jobs.length ? jobs.map(job => <article className="processing-record" key={job.id}><div className="processing-heading"><strong>{kinds[job.type] || job.type}</strong><span className={`processing-status ${job.status}`}>{jobStatuses[job.status] || job.status}</span><time dateTime={job.createdAt}>{formatDate(job.createdAt)}</time></div>{job.type !== 'import' && <dl><div><dt>模型</dt><dd>{job.model === null ? '未调用模型' : job.model || '未记录'}</dd></div><div><dt>思考强度</dt><dd>{job.reasoningEffort === 'low' ? '较低（优先响应速度）' : job.reasoningEffort === 'default' ? '模型默认' : job.reasoningEffort === null ? '未调用模型' : '未记录'}</dd></div>{job.input?.force && <div><dt>{retrospective ? '复盘范围' : '分析范围'}</dt><dd>全部原文，保留人工修正</dd></div>}</dl>}{job.error && <p className="form-error">{job.error}</p>}{job.type === 'import' && job.result?.message && <p className="processing-note">{job.result.message}</p>}</article>) : <EmptyState compact icon={Sparkles} title="还没有处理记录">{retrospective ? '导入录音或发起 AI 复盘后，记录会保存在这里。' : '导入录音或发起 AI 分析后，记录会保存在这里。'}</EmptyState>}</div><div className="modal-footer"><Button className="primary" onClick={onClose}>完成</Button></div>
+    <div className="processing-history">{jobs.length ? jobs.map(job => <article className="processing-record" key={job.id}><div className="processing-heading"><strong>{kinds[job.type] || job.type}</strong><span className={`processing-status ${job.status}`}>{jobStatuses[job.status] || job.status}</span><time dateTime={job.createdAt}>{formatDate(job.createdAt)}</time></div>{job.type !== 'import' && <dl><div><dt>模型</dt><dd>{job.model === null ? '未调用模型' : job.model || '未记录'}</dd></div><div><dt>思考强度</dt><dd>{job.reasoningEffort === 'low' ? '较低（优先响应速度）' : job.reasoningEffort === 'default' ? '模型默认' : job.reasoningEffort === null ? '未调用模型' : '未记录'}</dd></div>{job.input?.force && <div><dt>{retrospective ? '复盘范围' : '分析范围'}</dt><dd>全部原文，保留人工修正</dd></div>}</dl>}{speakerReviewProgress(job) && <p className="processing-note" role="status">{speakerReviewProgress(job)}</p>}{job.error && <p className="form-error">{job.error}</p>}{job.type === 'import' && job.result?.message && <p className="processing-note">{job.result.message}</p>}</article>) : <EmptyState compact icon={Sparkles} title="还没有处理记录">{retrospective ? '导入录音或发起 AI 复盘后，记录会保存在这里。' : '导入录音或发起 AI 分析后，记录会保存在这里。'}</EmptyState>}</div><div className="modal-footer"><Button className="primary" onClick={onClose}>完成</Button></div>
   </Modal>;
 }
 
@@ -102,7 +111,7 @@ export function SettingsDialog({ onClose, onSaved }) {
   const { submit, busy, error } = useFormAction(async () => { const value = await api('/api/settings', { method: 'PUT', body: draft }); onSaved(value); onClose(); });
   return <Modal title="连接设置" subtitle="语音识别与 AI 独立配置。密钥保存在本机，留空会保留现有密钥。" onClose={onClose} closeDisabled={busy}>
     <form onSubmit={submit} aria-busy={busy}><FormError error={loadingError} />
-      <div className="settings-section"><h3><Sparkles size={16} />AI 模型<span className={`config-pill ${settings?.llm?.configured ? 'configured' : ''}`}>{settings?.llm?.configured ? '已配置' : '待配置'}</span></h3><p>兼容 OpenAI Chat Completions 的模型服务，用于整理、追问、问答和纪要。</p><label>服务地址<input disabled={busy} type="url" value={draft.llm.baseUrl} onChange={event => change('llm', 'baseUrl', event.target.value)} placeholder="https://api.openai.com/v1" autoComplete="off" spellCheck={false} /></label><div className="form-row"><label>模型名称<input disabled={busy} value={draft.llm.model} onChange={event => change('llm', 'model', event.target.value)} placeholder="服务中的模型标识" autoComplete="off" spellCheck={false} /></label><label>API Key<input disabled={busy} type="password" value={draft.llm.apiKey} onChange={event => change('llm', 'apiKey', event.target.value)} placeholder={settings?.llm?.configured ? '已配置，留空保留' : '输入 API Key'} autoComplete="new-password" /></label></div><label>思考强度<select disabled={busy} value={draft.llm.reasoningEffort} onChange={event => change('llm', 'reasoningEffort', event.target.value)}><option value="">模型默认</option><option value="low">较低（优先响应速度）</option></select><span className="form-hint">仅在模型服务支持时选择；默认沿用服务设置。</span></label></div>
+      <div className="settings-section"><h3><Sparkles size={16} />AI 模型<span className={`config-pill ${settings?.llm?.configured ? 'configured' : ''}`}>{settings?.llm?.configured ? '已配置' : '待配置'}</span></h3><p>默认使用 OpenCode Go 的 DeepSeek V4.1 Flash，也支持其他兼容 OpenAI Chat Completions 的服务。</p><label>服务地址<input disabled={busy} type="url" value={draft.llm.baseUrl} onChange={event => change('llm', 'baseUrl', event.target.value)} placeholder="https://opencode.ai/zen/go/v1" autoComplete="off" spellCheck={false} /></label><div className="form-row"><label>模型名称<input disabled={busy} value={draft.llm.model} onChange={event => change('llm', 'model', event.target.value)} placeholder="deepseek-v4.1-flash" autoComplete="off" spellCheck={false} /></label><label>API Key<input disabled={busy} type="password" value={draft.llm.apiKey} onChange={event => change('llm', 'apiKey', event.target.value)} placeholder={settings?.llm?.configured ? '已配置，留空保留' : '输入 API Key'} autoComplete="new-password" /></label></div><label>思考强度<select disabled={busy} value={draft.llm.reasoningEffort} onChange={event => change('llm', 'reasoningEffort', event.target.value)}><option value="">模型默认</option><option value="low">较低（优先响应速度）</option></select><span className="form-hint">仅在模型服务支持时选择；默认沿用服务设置。</span></label></div>
       <div className="settings-section"><h3><Headphones size={16} />实时语音识别<span className={`config-pill ${settings?.asr?.configured ? 'configured' : ''}`}>{settings?.asr?.configured ? '已配置' : '待配置'}</span></h3><p>火山引擎流式语音识别。尚未配置时仍可保存录音、补充原文。</p><label>API Key<input disabled={busy} type="password" value={draft.asr.apiKey} onChange={event => change('asr', 'apiKey', event.target.value)} placeholder={settings?.asr?.configured ? '已配置，留空保留' : '输入语音识别 API Key'} autoComplete="new-password" /></label><details className="legacy-asr-settings"><summary>使用 App Key + Access Key</summary><div className="form-row"><label>App Key<input disabled={busy} type="password" value={draft.asr.appKey} onChange={event => change('asr', 'appKey', event.target.value)} placeholder="留空保留现有密钥" autoComplete="new-password" /></label><label>Access Key<input disabled={busy} type="password" value={draft.asr.accessKey} onChange={event => change('asr', 'accessKey', event.target.value)} placeholder="留空保留现有密钥" autoComplete="new-password" /></label></div></details><label>Resource ID<input disabled={busy} value={draft.asr.resourceId} onChange={event => change('asr', 'resourceId', event.target.value)} placeholder="服务中的资源标识" autoComplete="off" spellCheck={false} /></label></div>
       <div className="settings-section"><h3><FileAudio size={16} />录音文件转录<span className={`config-pill ${!fileProviderChanged && settings?.fileAsr?.configured ? 'configured' : ''}`}>{fileProviderChanged ? '待保存' : settings?.fileAsr?.configured ? '已配置' : '待配置'}</span></h3>
         <label>文件转录服务<select disabled={busy} value={draft.fileAsr.provider} onChange={event => change('fileAsr', 'provider', event.target.value)}><option value="volcengine">火山引擎（默认）</option><option value="openai">OpenAI 兼容服务</option></select></label>
@@ -140,7 +149,7 @@ export function MinutesDialog({ meeting, onClose, mutate, submitJob, onEvidence 
   const clarificationRecords = (meeting.followups || []).filter(item => ['resolved', 'recorded'].includes(item.status) && item.resolution);
   const currentEntries = meeting.topics?.filter(topic => !topic.mergedInto).flatMap(topic => (topic.entries || []).filter(entry => entry.status !== 'superseded' && !entry.stale).map(entry => ({ ...entry, topicTitle: topic.title }))) || [];
   return <Modal title={otherArtifacts.length ? '会议纪要与产物' : '会议纪要'} onClose={onClose} closeDisabled={busy} wide>
-    <div className="minutes-toolbar"><div>{artifact ? <span className="muted">{artifact.author === 'host' ? '主持人修订' : artifact.author === 'agent' ? 'Agent 写入' : 'AI 整理'} · {formatDate(artifact.updatedAt)}{artifact.stale && <span className="stale-tag">来源或整理内容已更新</span>}</span> : <span className="muted">尚未保存纪要</span>}</div><div>{!editing && <><Button className="small" disabled={busy} onClick={() => setEditing(true)}><Pencil size={13} />{isDraft ? '审阅并采纳' : artifact ? '编辑' : '手动撰写'}</Button><Button className="small primary" busy={busy || generating} onClick={generate} disabled={!meeting.transcriptRevision}><Sparkles size={13} />{generating ? '正在生成' : minutes && minutes.author !== 'ai' ? '生成更新草稿' : minutes ? '更新纪要' : '生成纪要'}</Button></>}</div></div>
+    <div className="minutes-toolbar"><div>{artifact ? <span className="muted">{artifact.author === 'host' ? '主持人修订' : artifact.author === 'agent' ? 'Agent 写入' : 'AI 整理'} · {formatDate(artifact.updatedAt)}{artifact.stale && <span className="stale-tag">来源或整理内容已更新</span>}</span> : <span className="muted">{awaitingSpeakers(meeting) ? '确认说话人后生成纪要' : '尚未保存纪要'}</span>}</div><div>{!editing && <><Button className="small" disabled={busy} onClick={() => setEditing(true)}><Pencil size={13} />{isDraft ? '审阅并采纳' : artifact ? '编辑' : '手动撰写'}</Button><Button className="small primary" busy={busy || generating} onClick={generate} disabled={awaitingSpeakers(meeting) || !meeting.transcriptRevision}><Sparkles size={13} />{generating ? '正在生成' : minutes && minutes.author !== 'ai' ? '生成更新草稿' : minutes ? '更新纪要' : '生成纪要'}</Button></>}</div></div>
     {!editing && (updateDraft || otherArtifacts.length > 0) && <div className="minutes-versions">{otherArtifacts.length ? <select aria-label="选择会议产物" value={artifactType} onChange={event => setArtifactType(event.target.value)}><option value="minutes">当前纪要</option>{updateDraft && <option value="minutes-draft">纪要更新草稿</option>}{otherArtifacts.map(item => <option key={item.id} value={item.type}>{item.title}{/^minutes-draft-/.test(item.type) ? ` ${item.type.slice(14)}` : ''}</option>)}</select> : <div className="segmented"><button className={artifactType === 'minutes' ? 'active' : ''} onClick={() => setArtifactType('minutes')}>当前纪要</button><button className={isDraft ? 'active' : ''} onClick={() => setArtifactType('minutes-draft')}>更新草稿</button></div>}<span>{isDraft ? '更新草稿保留原有纪要，审阅后可采纳。' : otherArtifacts.length ? 'Agent 写入的会议产物在这里同步显示。' : '更新草稿保留原有纪要，审阅后可采纳。'}</span></div>}
     <FormError error={error} />
     <div className="minutes-content">{editing ? <><label>{isMinutes ? '纪要标题' : '产物标题'}<input disabled={busy} value={title} onChange={event => setTitle(event.target.value)} /></label><label>正文 <span className="optional">Markdown</span><textarea disabled={busy} className="minutes-editor" value={markdown} onChange={event => setMarkdown(event.target.value)} placeholder="记下讨论结论、还要验证的事、不同意见，以及谁接下来要做什么。" /></label></> : artifact ? <div className="minutes-markdown"><h1>{artifact.title}</h1><MeetingMarkdown onEvidence={id => { onClose(); onEvidence(id); }}>{artifactMarkdown}</MeetingMarkdown></div> : <><EmptyState compact icon={FileText} title={generating ? '正在整理会议纪要' : '把讨论带到下一步'}>{generating ? '任务完成后，纪要会显示在这里。' : '基于本次会议生成纪要，或先查看已经整理出的结果。'}</EmptyState>{clarificationRecords.length > 0 && <section className="minutes-preview"><h3>澄清记录</h3>{clarificationRecords.map(item => <div key={item.id}><p className="minutes-clarification-question">{item.question}</p><ResolutionSummary item={item} onEvidence={id => { onClose(); onEvidence(id); }} /></div>)}</section>}{[['decision', '已作出的决定'], ['action', '行动项'], ['question', '未决问题']].map(([kind, label]) => { const entries = currentEntries.filter(entry => entry.type === kind && (kind !== 'question' || entry.status !== 'resolved')); return entries.length ? <section className="minutes-preview" key={kind}><h3>{label}</h3>{entries.map(entry => <div key={entry.id}><p>{entry.text}</p>{entry.owner && <span className="muted">{entry.owner}{entry.due ? ` · ${entry.due}` : ''}</span>}<Evidence ids={entry.evidenceIds} onSelect={id => { onClose(); onEvidence(id); }} /></div>)}</section> : null; })}</> }</div>

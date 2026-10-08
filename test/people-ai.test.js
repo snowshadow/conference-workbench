@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../server/store.js';
 import { createAIService } from '../server/ai/service.js';
+import { checkPeopleReview } from '../server/ai/people-review.js';
 import { reduceOrganization } from '../server/ai/reducer.js';
 import { sourceView } from '../server/ai/retrieval.js';
 import { knownContext } from '../server/ai/context.js';
@@ -12,13 +13,13 @@ import { allowedPeople, peopleReviewRecords, sourceParticipantId } from '../serv
 import { isUnassignedUtterance, participantFor, personReference, presentMeetingPeople, presentPeopleValue, resolvePeopleText, speakerName } from '../shared/people.js';
 
 const response = output => Response.json({ choices: [{ message: { content: JSON.stringify(output) } }] });
-function fixture(t, responder) {
+function fixture(t, responder, options = {}) {
   const store = new Store(mkdtempSync(join(tmpdir(), 'meeting-people-ai-')));
   store.saveSettings({ llm: { baseUrl: 'http://127.0.0.1:1234/v1', model: 'fixture-model' } });
   const calls = [];
-  const ai = createAIService({ store, fetchImpl: async (_, request) => {
+  const ai = createAIService({ store, speakerDebounceMs: 0, ...options, fetchImpl: async (_, request) => {
     const body = JSON.parse(request.body), data = JSON.parse(body.messages[1].content);
-    calls.push(data); return response(await responder(data, store, calls));
+    calls.push(data); return response(await responder(data, store, calls, request.signal));
   } });
   ai.start();
   t.after(async () => { await ai.stop(); store.close(); });
@@ -35,6 +36,94 @@ async function finish(store, job) {
 const line = (id, person, text) => ({ id, participantId: person, speakerId: `raw-${person}`, meetingId: 'm', origin: 'asr', revision: 1, text });
 const baseMeeting = () => ({ id: 'm', transcriptRevision: 1, participants: [{ id: 'p1', name: '孙总', speakerIds: ['raw-p1'] }, { id: 'p2', name: '李明', speakerIds: ['raw-p2'] }], topics: [], followups: [], questions: [], artifacts: [] });
 const evidence = source => ({ id: source.id, quote: source.text });
+
+test('speaker review supports a whole document with 229 local references and unchanged text', () => {
+  const meeting = baseMeeting();
+  const sources = Array.from({ length: 229 }, (_, i) => line(`s${i}`, 'p1', i === 0 ? '好' : `第 ${i} 段会议原文。`));
+  const byId = new Map(sources.map(source => [source.id, source]));
+  const record = { id: 'artifacts/a/markdown', field: 'markdown', text: sources.map(source => `[[person:p1]] [原话](#transcript:${source.id})`).join('\n'), evidenceIds: sources.map(source => source.id) };
+  const result = { unchanged: true, evidence: sources.map(({ id }) => ({ id })) };
+  const checked = checkPeopleReview(record, result, byId, meeting);
+  assert.equal(checked.issue, undefined);
+  assert.equal(checked.update.text, record.text);
+  assert.equal(result.evidence[0].quote, undefined, 'hydration must not rewrite the model response');
+  const outside = line('foreign', 'p2', '同场但不在这个字段的引用范围。');
+  byId.set(outside.id, outside);
+  assert.equal(checkPeopleReview(record, { ...result, evidence: [{ id: outside.id }] }, byId, meeting).issue.code, 'unknown_source');
+  assert.equal(checkPeopleReview(record, { ...result, text: '[[person:p2]]建议上线', unchanged: false }, byId, meeting).issue.code, 'unsupported_person');
+});
+
+test('local speaker edits preserve a long document and reject ambiguous anchors or changed links', () => {
+  const meeting = baseMeeting(), source = line('s1', 'p1', '我建议验证。'), byId = new Map([[source.id, source]]);
+  const prefix = '保留内容\n'.repeat(8000);
+  const record = { id: 'a/markdown', field: 'markdown', text: `${prefix}有人建议验证 [原话](#transcript:s1)`, evidenceIds: ['s1'] };
+  const output = { edits: [{ from: '有人建议验证', to: '[[person:p1]]建议验证' }], evidence: [{ id: 's1' }] };
+  const checked = checkPeopleReview(record, output, byId, meeting);
+  assert.equal(checked.issue, undefined);
+  assert.equal(checked.update.text, `${prefix}[[person:p1]]建议验证 [原话](#transcript:s1)`);
+  assert.equal(checkPeopleReview(record, { ...output, edits: [{ from: '保留内容', to: '替换内容' }] }, byId, meeting).issue.code, 'ambiguous_edit');
+  assert.equal(checkPeopleReview(record, { ...output, edits: [{ from: '#transcript:s1', to: '#transcript:s2' }] }, byId, meeting).issue.code, 'changed_links');
+  assert.equal(checkPeopleReview(record, { ...output, edits: [{ from: '有人', to: '[[person:p2]]' }] }, byId, meeting).issue.code, 'unsupported_person');
+});
+
+test('speaker review retries only invalid fields and publishes all updates after validation', async t => {
+  let first, target, seeded, failedId, before;
+  const { store, ai, calls } = fixture(t, (data, store, calls) => {
+    const output = review(data, first, target);
+    output.records.forEach(record => {
+      record.evidence = record.evidence.map(({ id }) => ({ id }));
+      record.edits = [{ from: data.records.find(input => input.id === record.id).text, to: record.text }];
+      delete record.text;
+    });
+    if (calls.length === 1) {
+      failedId = output.records[1].id;
+      output.records[1].evidence = [{ id: 'invented-source' }];
+    } else {
+      assert.deepEqual(data.records.map(record => record.id), [failedId]);
+      assert.equal(data.validationIssues[0].code, 'unknown_source');
+      assert.deepEqual(store.getMeeting(seeded.meeting.id).topics, before.topics, 'no partial writes during repair');
+      const running = store.listJobs(seeded.meeting.id)[0];
+      assert.equal(running.progress.retrying, true);
+      assert.ok(running.progress.completedRecords > 0);
+    }
+    return output;
+  });
+  seeded = seedRecords(store); ({ first, target } = seeded);
+  store.assignTranscriptParticipant(seeded.meeting.id, seeded.source.id, target);
+  before = store.getMeeting(seeded.meeting.id);
+  const job = await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]));
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(calls.length, 2);
+  assert.equal(job.modelCalls[0].validation.issues[0].recordId, failedId);
+  assert.equal(job.modelCalls[1].validation.status, 'passed');
+  assert.equal(job.progress.completedRecords, job.progress.totalRecords);
+  assert.equal(job.progress.completedBatches, job.progress.totalBatches);
+  assert.match(store.getMeeting(seeded.meeting.id).topics[0].entries[0].text, new RegExp(target));
+});
+
+test('unchanged speaker review replies preserve source-grounded entry attribution', async t => {
+  const { store, ai } = fixture(t, data => ({ records: data.records.map(record => ({ id: record.id, unchanged: true })) }));
+  const seeded = seedRecords(store);
+  const before = store.getMeeting(seeded.meeting.id).topics[0].entries[0];
+  const job = await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]));
+  assert.equal(job.status, 'done', job.error);
+  const after = store.getMeeting(seeded.meeting.id).topics[0].entries[0];
+  assert.equal(after.text, before.text);
+  assert.deepEqual(after.participantIds, before.participantIds);
+});
+
+test('speaker format retries retain the reason and accept compact unchanged confirmations', async t => {
+  const { store, ai } = fixture(t, (data, store, calls) => calls.length === 1
+    ? { records: data.records.map(record => ({ id: record.id, text: record.text })) }
+    : { records: data.records.map(record => ({ id: record.id, unchanged: true })) });
+  const seeded = seedRecords(store);
+  const job = await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]));
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(job.modelCalls.length, 1);
+  assert.equal(job.modelCalls[0].formatRetries, 1);
+  assert.match(job.modelCalls[0].formatErrors[0], /发言人核对.*格式无效/);
+  assert.equal(job.modelCalls[0].validation.status, 'passed');
+});
 
 test('presentation resolves exact stable references after rename/merge without rewriting names, quotes, IDs or host text', () => {
   const meeting = baseMeeting();
@@ -154,7 +243,7 @@ test('viewpoint attribution uses explicit source-grounded authors, not every cit
 
 test('new structured AI results and minutes reflect rename with no extra model call', async t => {
   const { store, ai, calls } = fixture(t, data => ({ topics: [{ id: 't', title: '验证安排', summary: `${personReference(data.sources[0].participantId)}建议先验证`, summaryEvidence: [evidence(data.sources[0])], entries: [{ id: 'e', text: `${personReference(data.sources[0].participantId)}建议先验证`, participantIds: [data.sources[0].participantId], evidence: [evidence(data.sources[0])] }] }], followups: [] }));
-  const m = store.createMeeting({ title: '改名测试' });
+  const m = store.createMeeting({ scenario: 'technical', title: '改名测试' });
   const source = store.appendTranscript(m.id, { text: '建议先验证并发。', speakerId: 'speaker-5' });
   const p = store.allTranscript(m.id)[0].participantId;
   store.updateParticipant(m.id, p, { name: '孙总' });
@@ -172,7 +261,7 @@ test('new structured AI results and minutes reflect rename with no extra model c
 });
 
 function seedRecords(store) {
-  const meeting = store.createMeeting({ title: '会后更正身份', status: 'ended' });
+  const meeting = store.createMeeting({ scenario: 'technical', title: '会后更正身份', status: 'ended' });
   const source = store.appendTranscript(meeting.id, { text: '我建议先做并发验证，再决定上线。', speakerId: 'speaker-5' });
   const other = store.appendTranscript(meeting.id, { text: '文档周五更新。', speakerId: 'speaker-8' });
   const first = store.allTranscript(meeting.id).find(item => item.id === source.id).participantId;
@@ -238,13 +327,25 @@ test('legacy free text migrates only through explicit targeted review, never by 
 });
 
 test('invalid or missing refresh fields cannot partially publish or hide original viewpoints', async t => {
-  for (const bad of ['foreign-person', 'missing-record', 'foreign-source', 'citation-loss']) await t.test(bad, async t => {
+  const failures = {
+    'foreign-person': /人物归属与引用的发言人不一致/,
+    'missing-record': /未返回完整的发言人核对内容/,
+    'unknown-record': /未返回完整的发言人核对内容/,
+    'empty-text': /未返回完整的发言人核对内容/,
+    'foreign-source': /原文引用未通过校验/,
+    'misquoted-source': /原文引用未通过校验/,
+    'citation-loss': /改动了纪要中的原文链接/,
+  };
+  for (const [bad, expectedError] of Object.entries(failures)) await t.test(bad, async t => {
     let first, target;
     const { store, ai } = fixture(t, data => {
       const output = review(data, first, target);
       if (bad === 'missing-record') output.records.pop();
+      if (bad === 'unknown-record') output.records.at(-1).id = 'not-a-record';
+      if (bad === 'empty-text') output.records.at(-1).text = '  ';
       if (bad === 'foreign-person') output.records.at(-1).text = '[[person:invented]]说可以上线';
       if (bad === 'foreign-source') output.records.at(-1).evidence = [{ id: 'not-in-meeting', quote: '伪造依据' }];
+      if (bad === 'misquoted-source') output.records.at(-1).evidence[0].quote = '模型改写的句子';
       if (bad === 'citation-loss') output.records.find(record => record.id.includes('artifacts')).text = '没有保留原文链接';
       return output;
     });
@@ -253,7 +354,11 @@ test('invalid or missing refresh fields cannot partially publish or hide origina
     const before = store.getMeeting(seeded.meeting.id);
     const job = await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]));
     assert.equal(job.status, 'error');
+    assert.match(job.error, expectedError);
+    assert.match(job.error, /本次未更新 AI 内容，已保存的姓名标记和原文不受影响/);
     const after = store.getMeeting(seeded.meeting.id);
+    assert.deepEqual(after.participants, before.participants);
+    assert.equal(store.allTranscript(seeded.meeting.id).find(line => line.id === seeded.source.id).participantId, target);
     assert.deepEqual(after.topics, before.topics);
     assert.deepEqual(after.followups, before.followups);
     assert.deepEqual(after.questions, before.questions);
@@ -292,9 +397,94 @@ test('queued identity corrections coalesce source scope and remain serial with o
   assert.equal((await finish(store, a)).status, 'done');
 });
 
+test('successive speaker edits wait for a quiet period and share one review', async t => {
+  const { store, ai, calls } = fixture(t, data => ({ records: data.records.map(record => ({ id: record.id, unchanged: true })) }), { speakerDebounceMs: 60 });
+  const seeded = seedRecords(store);
+  const first = ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  const second = ai.refreshSpeakers(seeded.meeting.id, [seeded.other.id]);
+  assert.equal(first.id, second.id);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(calls.length, 0, 'each edit resets the quiet period');
+  assert.equal((await finish(store, second)).status, 'done');
+  assert.equal(store.listJobs(seeded.meeting.id).length, 1);
+  assert.equal(calls.length, 1);
+  const ids = calls[0].records.map(record => record.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test('a new edit aborts an obsolete request and updates the same job with the latest identity', async t => {
+  let seeded, replacement, aborted = false;
+  const entered = Promise.withResolvers();
+  const { store, ai, calls } = fixture(t, async (data, store, calls, signal) => {
+    if (calls.length === 1) {
+      entered.resolve();
+      await new Promise((resolve, reject) => signal.addEventListener('abort', () => { aborted = true; reject(signal.reason); }, { once: true }));
+    }
+    return review(data, seeded.first, replacement);
+  });
+  seeded = seedRecords(store);
+  replacement = store.createParticipant(seeded.meeting.id, { name: '最终确认的人' }).participant.id;
+  store.assignTranscriptParticipant(seeded.meeting.id, seeded.source.id, seeded.target);
+  const first = ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]);
+  await entered.promise;
+  store.assignTranscriptParticipant(seeded.meeting.id, seeded.source.id, replacement);
+  const second = ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]);
+  assert.equal(second.id, first.id);
+  const done = await finish(store, second);
+  assert.equal(done.status, 'done', done.error);
+  assert.equal(aborted, true);
+  assert.equal(calls.length, 2);
+  assert.equal(store.listJobs(seeded.meeting.id).length, 1);
+  assert.equal(store.getMeeting(seeded.meeting.id).topics[0].entries[0].text, `${personReference(replacement)}建议先验证`);
+});
+
+test('overlapping reviews reuse validated fields but recheck changes to text or cited identities', async t => {
+  const { store, ai, calls } = fixture(t, data => ({ records: data.records.map(record => ({ id: record.id, unchanged: true })) }));
+  const seeded = seedRecords(store);
+  store.mutateMeeting(seeded.meeting.id, m => { m.topics[0].summaryEvidenceIds.push(seeded.other.id); });
+  assert.equal((await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]))).status, 'done');
+  const firstIds = new Set(calls[0].records.map(record => record.id));
+  assert.equal((await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.other.id]))).status, 'done');
+  assert.ok(calls[1].records.every(record => !firstIds.has(record.id)), 'shared title and summary are not sent twice');
+  assert.equal(ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id, seeded.other.id]), null);
+  store.mutateMeeting(seeded.meeting.id, m => { m.topics[0].summary += '，下周确认。'; });
+  assert.equal((await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]))).status, 'done');
+  assert.deepEqual(calls.at(-1).records.map(record => record.id), ['topics/topic/summary']);
+  store.updateParticipant(seeded.meeting.id, seeded.first, { name: '新的身份名称' });
+  assert.equal((await finish(store, ai.refreshSpeakers(seeded.meeting.id, [seeded.source.id]))).status, 'done');
+  assert.ok(calls.at(-1).records.some(record => record.id === 'topics/topic/entries/entry/text'));
+});
+
+test('speaker review runs at most two batches concurrently and keeps validation attached to its own call', async t => {
+  let active = 0, maxActive = 0;
+  const { store, ai, calls } = fixture(t, async (data, store, calls) => {
+    const callNumber = calls.length;
+    maxActive = Math.max(maxActive, ++active);
+    await new Promise(resolve => setTimeout(resolve, callNumber % 2 ? 25 : 5));
+    active--;
+    return { records: data.records.map(record => ({ id: record.id, unchanged: true })) };
+  });
+  const meeting = store.createMeeting({ scenario: 'technical', title: '长会议校对' });
+  const lines = Array.from({ length: 13 }, (_, i) => store.appendTranscript(meeting.id, { speakerId: 'speaker-one', text: `第${i}段。${'原文依据。'.repeat(1400)}` }));
+  store.mutateMeeting(meeting.id, m => {
+    m.topics = [{ id: 'topic', title: '', entries: lines.map((line, i) => ({ id: `entry-${i}`, author: 'ai', type: 'viewpoint', text: `第${i}项建议`, evidenceIds: [line.id], participantIds: [line.participantId] })) }];
+  });
+  const result = await finish(store, ai.refreshSpeakers(meeting.id, lines.map(line => line.id)));
+  assert.equal(result.status, 'done', result.error);
+  assert.equal(maxActive, 2);
+  assert.ok(calls.length >= 3);
+  assert.equal(result.progress.completedRecords, 13);
+  assert.equal(result.progress.completedBatches, calls.length);
+  result.modelCalls.forEach((call, index) => {
+    assert.equal(call.validation.status, 'passed');
+    assert.equal(call.validation.checkedRecords, calls[index].records.length);
+  });
+});
+
 test('AI answer person references must be backed by the answer citations', async t => {
   const { store, ai } = fixture(t, data => ({ answer: `[[person:foreign]]反对，${personReference(data.sources[0].participantId)}建议验证`, inference: '', evidence: [evidence(data.sources[0])], insufficient: false }));
-  const m = store.createMeeting({ title: '回答身份来源' });
+  const m = store.createMeeting({ scenario: 'technical', title: '回答身份来源' });
   store.appendTranscript(m.id, { text: '我建议先验证。', speakerId: 'speaker-1' });
   const job = await finish(store, ai.submit(m.id, 'answer', { question: '有什么建议？' }));
   assert.equal(job.status, 'done', job.error);
@@ -310,4 +500,31 @@ test('manual fields and original transcription are never migration targets', () 
   const records = peopleReviewRecords(m, [source], ['s1'], 'labels');
   assert.deepEqual(records.map(record => record.id), ['topics/t/title']);
   assert.equal(source.text, '孙总是我的原话。');
+});
+
+test('an explicit first-person task keeps its grounded owner without requiring a self-name in the quote', () => {
+  const meeting = baseMeeting();
+  const commitment = line('s1', 'p1', '我明天负责接口联调。');
+  const report = line('s2', 'p2', '接口明天需要联调。');
+  const result = reduceOrganization(meeting, { topics: [{ id: 't', title: '联调', entries: [
+    { type: 'action', text: '负责接口联调', owner: '[[person:p1]]', due: '明天', evidence: [evidence(commitment)] },
+    { type: 'action', text: '另一项待分配联调', owner: '[[person:p2]]', evidence: [evidence(report)] },
+    { type: 'action', text: '错误归属联调', owner: '[[person:p2]]', evidence: [evidence(commitment)] },
+  ] }], followups: [] }, [commitment, report]);
+  const entries = result.topics[0].entries;
+  assert.equal(entries[0].owner, '[[person:p1]]');
+  assert.equal(entries[1].owner, undefined);
+  assert.equal(entries[2].owner, undefined);
+});
+
+
+test('a third-person named assignee remains literal and is not mistaken for the cited speaker', () => {
+  const meeting = baseMeeting();
+  const name = meeting.participants.find(person => person.id === 'p2').name;
+  const source = line('s1', 'p1', `${name}明天整理验收标准。`);
+  const result = reduceOrganization(meeting, { topics: [{ id: 't', title: '验收', entries: [
+    { type: 'action', text: '整理验收标准', owner: '[[person:p2]]', evidence: [evidence(source)] },
+  ] }], followups: [] }, [source]);
+  assert.equal(result.topics[0].entries[0].owner, name);
+  assert.deepEqual(result.topics[0].entries[0].participantIds, []);
 });

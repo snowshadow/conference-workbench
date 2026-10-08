@@ -266,6 +266,50 @@ export function assignTranscriptParticipant(store, meetingId, lineId, participan
   });
 }
 
+export function splitParticipant(store, meetingId, participantId, input = {}) {
+  return store.transaction(() => {
+    const { sourceIds, target, identityRevision, transcriptEditRevision } = input;
+    if (!Array.isArray(sourceIds) || !sourceIds.length || sourceIds.some(id => typeof id !== 'string' || !id) || new Set(sourceIds).size !== sourceIds.length) throw problem('请选择要拆出的发言');
+    if (!target || typeof target !== 'object' || Array.isArray(target) || Object.keys(target).length !== 1 || !['participantId', 'memberId', 'name'].includes(Object.keys(target)[0])) throw problem('请选择这些发言的说话人');
+    if (!Number.isSafeInteger(identityRevision) || !Number.isSafeInteger(transcriptEditRevision)) throw problem('请重新读取发言后再拆分');
+    const meeting = store.getMeeting(meetingId), source = findParticipant(meeting, participantId);
+    if (source.id !== participantId || meeting.identityRevision !== identityRevision || (meeting.transcriptEditRevision || 0) !== transcriptEditRevision) throw problem('发言或说话人已变化，请重新读取后再选择', 409);
+    const byId = new Map(store.rawTranscript(meetingId).map(line => [line.id, line]));
+    const lines = sourceIds.map(id => {
+      const line = byId.get(id);
+      if (!line) throw problem('所选发言不存在或不属于本场会议', 404);
+      if (participantForLine(meeting, line)?.id !== source.id) throw problem('部分发言已不在这一组，请重新读取后再选择', 409);
+      return line;
+    });
+    let destination;
+    if (Object.hasOwn(target, 'participantId')) destination = findParticipant(meeting, target.participantId);
+    else {
+      // Reuse a member already present in this meeting instead of creating a
+      // duplicate identity. A new group must not claim the original ASR label.
+      if (Object.hasOwn(target, 'memberId')) {
+        getMember(store, target.memberId);
+        destination = meeting.participants.find(person => !person.mergedInto && person.memberId === target.memberId);
+      }
+      if (!destination) {
+        destination = { id: `participant_${randomUUID()}`, name: '', memberId: null, speakerIds: [], sourceIds: [] };
+        applyIdentity(store, destination, target);
+        meeting.participants.push(destination);
+      }
+    }
+    if (destination.id === source.id) throw problem('请选择另一位说话人');
+    const editedAt = now();
+    for (const line of lines) {
+      line.history = [...(line.history || []), { text: line.text, speakerId: line.speakerId, participantId: source.id, revision: line.revision, editedAt }];
+      line.participantId = destination.id; line.participantSource = 'host';
+      line.revision++; line.editedAt = editedAt;
+      store.db.prepare('UPDATE transcript SET data=? WHERE id=?').run(JSON.stringify(line), line.id);
+    }
+    meeting.transcriptEditRevision = (meeting.transcriptEditRevision || 0) + 1;
+    identityChanged(meeting); markIdentitySourcesForReview(meeting, sourceIds);
+    return { meeting: store.persistMeeting(syncSpeakerLabels(meeting)), participant: destination, affectedSourceIds: sourceIds };
+  });
+}
+
 export function applyLegacySpeakerLabels(meeting, labels) {
   if (!labels || typeof labels !== 'object' || Array.isArray(labels) || Object.values(labels).some(value => typeof value !== 'string')) throw problem('说话人名称格式无效');
   const known = new Set((meeting.participants || []).flatMap(item => item.speakerIds || []));

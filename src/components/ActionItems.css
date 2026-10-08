@@ -1,0 +1,13 @@
+.action-items { max-width: 960px; margin: 0 auto; padding: 24px; }
+.action-items-intro { color: var(--ink-muted); margin: 0 0 24px; line-height: 1.7; }
+.action-item { padding: 20px 0; border-bottom: 1px solid var(--border); }
+.action-item > span { font-size: 12px; color: var(--ink-muted); }
+.action-item h3 { font-size: 16px; line-height: 1.7; margin: 8px 0 12px; font-weight: 550; }
+.action-item dl { display: flex; flex-wrap: wrap; gap: 24px; margin: 0 0 14px; font-size: 13px; }
+.action-item dl > div { display: flex; gap: 8px; }
+.action-item dt { color: var(--ink-muted); }
+.action-item dd { margin: 0; }
+.action-item.is-stale { opacity: .65; }
+.speaker-confirmation { margin: 12px 24px; padding: 16px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 12px; }
+.speaker-confirmation > div { flex: 1; min-width: 220px; }
+.speaker-confirmation p { font-size: 13px; line-height: 1.6; margin: 6px 0 0; }

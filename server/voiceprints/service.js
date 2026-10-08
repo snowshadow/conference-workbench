@@ -3,7 +3,7 @@ import { mkdirSync, chmodSync, existsSync, readFileSync, readdirSync, writeFileS
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createVoiceprintRuntime } from './runtime.js';
-import { VOICEPRINT_POLICY, isVoiceprintTextEligible, assessAutoMatch, voiceprintIdentityKey } from '../../shared/voiceprint-policy.js';
+import { VOICEPRINT_POLICY, isVoiceprintTextEligible, assessSpeakerConsensus, voiceprintIdentityKey } from '../../shared/voiceprint-policy.js';
 
 const RATE = 16000;
 const MAX_SEGMENTS = 4;
@@ -74,13 +74,19 @@ export function createVoiceprintService({ store, runtime = createVoiceprintRunti
     const participant = getParticipant(meetingId, participantId);
     const transcript = store.allTranscript(meetingId), excluded = new Set(excludeSourceIds), selected = [];
     const candidates = transcript.filter(line => !excluded.has(line.id)).flatMap(line => {
-      try { return [eligibleLine(line, participant, transcript, meetingId, automatic)]; } catch { return []; }
+      try { return [{ ...eligibleLine(line, participant, transcript, meetingId, automatic), time: line.startMs ?? line.startSample / 16 }]; } catch { return []; }
     }).sort((a, b) => b.duration - a.duration || a.startSample - b.startSample);
-    for (const segment of candidates) {
-      if (selected.some(other => other.recordingId === segment.recordingId && other.startSample < segment.endSample && other.endSample > segment.startSample)) continue;
-      selected.push(segment);
-      if (selected.length === MAX_SEGMENTS) break;
-    }
+    const add = segment => {
+      if (selected.length >= MAX_SEGMENTS || selected.some(other => other.sourceId === segment.sourceId || other.recordingId === segment.recordingId && other.startSample < segment.endSample && other.endSample > segment.startSample)) return false;
+      selected.push(segment); return true;
+    };
+    // Check different parts of the ASR group. The longest four utterances can
+    // all come from a later speaker accidentally merged into the same cluster.
+    const times = candidates.map(segment => segment.time), first = Math.min(...times), span = Math.max(...times) - first;
+    const buckets = Array.from({ length: MAX_SEGMENTS }, () => []);
+    for (const segment of candidates) buckets[span > 0 ? Math.min(MAX_SEGMENTS - 1, Math.floor((segment.time - first) / span * MAX_SEGMENTS)) : 0].push(segment);
+    for (const bucket of buckets) bucket.some(add);
+    for (const segment of candidates) add(segment);
     return selected.length < 2 ? [] : selected.map(segment => segment.sourceId);
   }
   function validateSources(input, { enrollment = false } = {}) {
@@ -231,9 +237,9 @@ export function createVoiceprintService({ store, runtime = createVoiceprintRunti
       return { sourceId: validated.segments[index].sourceId, candidates: candidates.slice(0, 3), margin: candidates[0] ? candidates[0].score - (candidates[1]?.score ?? 0) : 0, marginBasis: candidates.length > 1 ? 'runner_up' : 'neutral_cosine' };
     });
     const margin = best ? best.score - (ranked[1]?.score ?? 0) : 0;
-    const autoAccept = assessAutoMatch({ ranked, segmentMatches, consistency });
+    const { autoAccept, ...decision } = assessSpeakerConsensus({ segmentMatches });
     const strongCandidate = best && best.score >= VOICEPRINT_POLICY.candidateMinimumCosine && margin >= VOICEPRINT_POLICY.candidateMinimumMargin && consistency >= 0.5;
-    return { status: strongCandidate ? 'candidate' : 'unknown', candidates: ranked.filter(item => item.score >= VOICEPRINT_POLICY.candidateMinimumCosine).slice(0, 3), segmentMatches, consistency, margin, marginBasis: ranked.length > 1 ? 'runner_up' : 'neutral_cosine', autoAccept, policy: VOICEPRINT_POLICY, calibrated: false, model, scoreKind: 'cosine_similarity', cacheHits: cached.filter(Boolean).length, reason: strongCandidate ? null : !best ? 'no_profiles' : 'ambiguous_or_weak', message: autoAccept ? '多段声音一致，可按试用阈值采用姓名；仍可随时纠正。' : '声音还不够确定，继续积累发言或由主持人确认。相似度不是身份概率。' };
+    return { status: autoAccept || strongCandidate ? 'candidate' : 'unknown', candidates: ranked.filter(item => item.score >= VOICEPRINT_POLICY.candidateMinimumCosine).slice(0, 3), segmentMatches, consistency, margin, marginBasis: ranked.length > 1 ? 'runner_up' : 'neutral_cosine', autoAccept, decision, policy: VOICEPRINT_POLICY, calibrated: false, model, scoreKind: 'cosine_similarity', cacheHits: cached.filter(Boolean).length, reason: !best ? 'no_profiles' : decision.reason, message: autoAccept ? `已有 ${autoAccept.matchingSegmentCount} 段发言可靠地匹配到同一人，可采用姓名；仍可随时纠正。` : decision.reason === 'conflicting_matches' ? '不同片段明确匹配到不同的人，请核对这个说话人分组。' : '可靠匹配的发言还不足两段，等待更多发言或由主持人确认。相似度不是身份概率。' };
   }
   async function pump() {
     if (running || stopped) return;

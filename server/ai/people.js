@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isUnassignedUtterance, participantFor, peopleReferences, personReference } from '../../shared/people.js';
 
 export function sourceParticipantId(line, meeting) {
@@ -82,6 +83,23 @@ export function markPeopleFields(item, fields, meeting) {
 const refs = item => [...new Set([...(item.evidenceIds || []), ...(item.evidence || []).map(source => source.id)])];
 const human = item => item.author && item.author !== 'ai';
 
+// Reuse a review only while the field, its citations and cited identities are
+// unchanged. Edits elsewhere in the meeting do not invalidate this evidence.
+export function peopleReviewSignature(record, byId, meeting) {
+  const identity = id => {
+    const person = participantFor(id, meeting);
+    return person ? [person.id, person.memberId || null, person.name || '', isUnassignedUtterance(person)] : null;
+  };
+  return createHash('sha256').update(JSON.stringify([
+    record.id, record.text, record.participantIds || [], record.question || '', record.entryType || '',
+    record.evidenceIds.map(id => {
+      const line = byId.get(id);
+      return [id, line?.revision, line?.text, line?.speakerId, identity(line?.participantId)];
+    }),
+    peopleReferences(record.text).map(identity),
+  ])).digest('hex');
+}
+
 /** One record per generated field; changes can only be written back to that field. */
 export function peopleReviewRecords(meeting, lines, sourceIds, kind = 'attribution') {
   const affected = new Set(sourceIds), byId = new Map(lines.map(line => [line.id, line]));
@@ -92,7 +110,9 @@ export function peopleReviewRecords(meeting, lines, sourceIds, kind = 'attributi
     if (!ids.some(id => affected.has(id))) return;
     for (const field of fields) {
       if (typeof item[field] !== 'string' || !item[field].trim() || item.manualFields?.includes(field) || kind === 'labels' && item.peopleFields?.[field] === 1 && !hasUnstructuredPeopleName(item[field], meeting)) continue;
-      records.push({ id: `${path.join('/')}/${field}`, path, field, text: item[field], evidenceIds: ids, ...context });
+      const record = { id: `${path.join('/')}/${field}`, path, field, text: item[field], evidenceIds: ids, ...context };
+      if (item.peopleReviewSignatures?.[field] === peopleReviewSignature(record, byId, meeting)) continue;
+      records.push(record);
     }
   };
   for (const topic of meeting.topics || []) {

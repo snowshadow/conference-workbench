@@ -1,3 +1,6 @@
+import { meetingScenarios, meetingScenario, awaitingSpeakers } from '../shared/meeting-scenarios.js';
+import PeopleDialog from './components/PeopleDialog.jsx';
+import ActionItems from './components/ActionItems.jsx';
 import { lazy, Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, AudioLines, Check, CheckCheck, CircleAlert, CircleHelp, GitBranch, LoaderCircle, Mic, Minimize2, MoreHorizontal, Palette, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, RefreshCw, Settings2, Sparkles, Target, Terminal, Upload, X } from 'lucide-react';
 import { api, formatDate, formatTime, meetingPath } from './lib/api.js';
@@ -28,7 +31,7 @@ function layoutSize(value, fallback, min, max) { return Number.isFinite(value) ?
 const statusLabels = { planned: '未开始', active: '进行中', ended: '已结束' };
 const captureLabels = { idle: '未录音', recording: '正在录音', paused: '录音已暂停', interrupted: '录音中断' };
 const asrLabels = { unconfigured: '转录未配置', connecting: '转录连接中', connected: '转录已连接', reconnecting: '转录重连中', error: '转录异常', stopped: '转录已停止' };
-const jobLabels = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入', refresh_speakers: '发言人核对' };
+const jobLabels = { organize: '讨论整理', followup: '澄清检查', answer: '会议问答', minutes: '会议纪要', import: '录音导入', refresh_speakers: 'AI 人物归属更新' };
 
 function initialMeetingId() { const linked = new URLSearchParams(location.search).get('meeting'); if (linked) return linked; try { return localStorage.getItem('meeting-workbench:selected') || null; } catch { return null; } }
 
@@ -243,8 +246,11 @@ export default function App() {
   useEffect(() => { if (meeting && !deepLinkRead.current) { deepLinkRead.current = true; const id = new URLSearchParams(location.search).get('transcript'); if (id) focusEvidence(id); } }, [meeting, focusEvidence]);
 
   const retrospective = meeting?.source === 'recording_import';
-  const focusLabel = retrospective ? '复盘焦点' : '澄清焦点';
-  const progressLabel = retrospective ? '复盘记录' : '讨论进展';
+  const regular = meetingScenario(meeting) === 'regular';
+  const waitingForSpeakers = awaitingSpeakers(meeting);
+  useEffect(() => { setDiscussionView(meetingScenario(meeting) === 'regular' ? 'actions' : 'clarification'); }, [meeting?.id, meeting?.scenario]);
+  const focusLabel = regular ? '待对齐事项' : retrospective ? '复盘焦点' : '澄清焦点';
+  const progressLabel = regular ? '对齐记录' : retrospective ? '复盘记录' : '讨论进展';
   const reanalyzeLabel = retrospective ? '重新复盘整场会议' : '重新分析整场会议';
   const currentJobLabels = retrospective ? { ...jobLabels, organize: '会议复盘', followup: '复盘焦点整理' } : jobLabels;
   const jobs = meeting?.jobs || [];
@@ -267,7 +273,7 @@ export default function App() {
   const pendingAuthorization = command?.status === 'needs_user_action' ? command : null;
   const activeCommand = ['pending', 'running'].includes(command?.status);
   const manualAnalysis = needsManualAnalysis(meeting, { request: discussionRequest, captureState: capture.state, configured: Boolean(settings?.llm?.configured), capturePending: commandBusy || activeCommand || Boolean(pendingAuthorization) });
-  const showTopic = useCallback(id => { setSelectedTopic(id); setTopicsOpened(true); setDiscussionView('topics'); }, []);
+  const showTopic = useCallback(id => { if (retrospective) { setModal('minutes'); return; } setSelectedTopic(id); setTopicsOpened(true); setDiscussionView('topics'); }, [retrospective]);
   const askTopic = useCallback(id => { setAskScope(id); setActiveTool('questions'); requestAnimationFrame(() => questionInput.current?.focus()); }, []);
   const closeTool = useCallback(() => setActiveTool(null), []);
   function toggleTool(tool) { setActiveTool(current => current === tool ? null : tool); }
@@ -277,10 +283,12 @@ export default function App() {
   function onDiscussionKey(event) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const next = event.key === 'Home' ? 'clarification' : event.key === 'End' ? 'topics' : discussionView === 'clarification' ? 'topics' : 'clarification';
+    const tabs = [...(regular ? ['actions'] : []), 'clarification', ...(!retrospective ? ['topics'] : [])];
+    const index = tabs.indexOf(discussionView);
+    const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
     if (next === 'topics') setTopicsOpened(true);
     setDiscussionView(next);
-    document.getElementById(next === 'topics' ? 'topics-tab' : 'clarification-tab')?.focus();
+    document.getElementById(`${next}-tab`)?.focus();
   }
 
 
@@ -289,7 +297,7 @@ export default function App() {
     {!selectedId ? <Welcome create={() => setModal('create')} importRecording={() => setModal('import')} settings={() => setModal('settings')} agent={() => setModal('agent')} /> : !meeting ? <main id="meeting-main" tabIndex={-1} className="meeting-loading">{connectionError ? <EmptyState icon={CircleAlert} title="暂时无法加载会议" action={<Button onClick={refresh}><RefreshCw size={14} />重新连接</Button>}>{connectionError}</EmptyState> : <><LoaderCircle size={24} className="spin" /><p>正在打开会议…</p></>}</main> : <main id="meeting-main" tabIndex={-1} className="main-workspace">
       <header className="meeting-header">
         <div className="meeting-heading">
-          <div className="meeting-overline"><span>{formatDate(meeting.createdAt)}</span><span>{statusLabels[meeting.status]}{meeting.archived ? ' · 已归档' : ''}</span></div>
+          <div className="meeting-overline"><span>{formatDate(meeting.createdAt)}</span><span>{meetingScenarios[meetingScenario(meeting)].label}</span><span>{statusLabels[meeting.status]}{meeting.archived ? ' · 已归档' : ''}</span></div>
           <div className="meeting-title-row"><h1>{meeting.title}</h1></div>
         </div>
         <div className="meeting-header-actions">
@@ -309,14 +317,14 @@ export default function App() {
               </div>
               <div className="meeting-menu-group" role="group" aria-labelledby="meeting-menu-analysis">
                 <div className="meeting-menu-heading"><h3 id="meeting-menu-analysis">{retrospective ? 'AI 复盘' : 'AI 分析'}</h3><span className="meeting-menu-status">{organizeJob ? retrospective ? '复盘中…' : '分析中…' : meeting.processedRevision ? `已${retrospective ? '复盘' : '分析'}至 ${formatTime(meeting.processedThroughMs)}` : meeting.transcriptRevision ? retrospective ? '尚未复盘' : '尚未分析' : '等待原文'}</span></div>
-                <button aria-label={reanalyzeLabel} aria-describedby="meeting-menu-reanalyze-hint" disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('organize', { force: true })}><span>{reanalyzeLabel}</span><small id="meeting-menu-reanalyze-hint">重新核对全部原文，保留手动修改</small></button>
-                <button disabled={Boolean(followupJob) || submitting === 'followup' || !meeting.transcriptRevision || importing} onClick={() => triggerJob('followup')}>{retrospective ? '请 AI 补充复盘焦点' : '请 AI 再提问'}</button>
+                <button aria-label={reanalyzeLabel} aria-describedby="meeting-menu-reanalyze-hint" disabled={Boolean(organizeJob) || submitting === 'organize' || !meeting.transcriptRevision || importing || waitingForSpeakers} onClick={() => triggerJob('organize', { force: true })}><span>{reanalyzeLabel}</span><small id="meeting-menu-reanalyze-hint">重新核对全部原文，保留手动修改</small></button>
+                <button disabled={Boolean(followupJob) || submitting === 'followup' || !meeting.transcriptRevision || importing || waitingForSpeakers} onClick={() => triggerJob('followup')}>{regular ? '检查待对齐事项' : retrospective ? '请 AI 补充复盘焦点' : '请 AI 再提问'}</button>
                 {meeting.status !== 'ended' && !meeting.archived && <button onClick={() => mutate('', 'PATCH', { autoOrganize: !meeting.autoOrganize }).catch(error => notify(error.message))}>{meeting.autoOrganize ? '暂停自动分析' : '开启自动分析'}</button>}
                 <button onClick={() => setModal('processing')}>查看处理记录</button>
               </div>
               <div className="meeting-menu-group" role="group" aria-labelledby="meeting-menu-manage">
                 <h3 id="meeting-menu-manage">会议管理</h3>
-                <button onClick={() => setModal('edit')}>修改名称和目标</button>
+                <button onClick={() => setModal('edit')}>修改名称、场景和目标</button>
                 {['recording', 'paused'].includes(capture.state) && <button disabled={commandBusy || activeCommand} onClick={() => requestCommand('stop')}>停止录音，保留会议</button>}
                 <button disabled={locked} title={locked ? '先停止当前录音，再归档会议' : undefined} onClick={() => archiveMeeting(meeting.id, !meeting.archived)}>{meeting.archived ? '移出归档' : '归档会议'}</button>
               </div>
@@ -325,19 +333,22 @@ export default function App() {
         </div>
       </header>
       {importJob && (importing || importJob.status === 'error' || importJob.result?.analysisState === 'no_transcript' || !settings?.llm?.configured) && <ImportStatus job={importJob} retrying={retryingImport} onRetry={retryImport} onSettings={() => setModal('settings')} llmConfigured={settings?.llm?.configured} />}
+      {waitingForSpeakers && !importing && importJob?.status === 'done' && meeting.transcriptRevision > 0 && <div className="speaker-confirmation" role="status"><div><strong>转录已完成，先确认说话人</strong><p>{meeting.participants?.some(person => ['queued', 'running'].includes(person.recognition?.status)) ? '正在匹配声音，可以先核对已有分组。' : '核对匹配结果；未认出的说话人可以保留未知。'} 确认后按{meetingScenarios[meetingScenario(meeting)].label}生成纪要。</p></div><Button className="primary" onClick={() => setModal('speakers')}>核对说话人</Button></div>}
       {pendingAuthorization && <div className="authorization-banner"><Mic size={18} /><div><strong>{pendingAuthorization.action === 'resume' ? '继续录音需要音频授权' : '已准备好，请选择音频来源'}</strong><p>音频授权由主持人在当前浏览器完成。{audioSource === 'meeting' ? '选择共享来源时，同时勾选共享音频。' : '收到音频并保存后才会显示正在录音。'}</p></div><select aria-label="音频来源" value={audioSource} onChange={event => setAudioSource(event.target.value)}><option value="microphone">麦克风</option><option value="meeting">麦克风 + 会议声音</option></select><Button className="primary small" busy={commandBusy} onClick={async () => { setCommandBusy(true); try { await captureRef.current.startFromGesture(pendingAuthorization.id, audioSource); await refresh(); } catch (error) { notify(error.message); } finally { setCommandBusy(false); } }}>授权并{pendingAuthorization.action === 'resume' ? '继续' : '开始'}录音</Button><Button className="small" disabled={commandBusy} onClick={() => requestCommand('stop')}>取消</Button></div>}
       {activeCommand && <div className="command-progress"><LoaderCircle size={13} className="spin" />{['pause', 'stop', 'end'].includes(command.action) ? '正在保存尾段音频并等待最后一句转录…' : '正在等待实际音频采集…'}</div>}
       {connectionError && <div className="connection-banner" role="alert"><CircleAlert size={15} />数据连接中断：{connectionError}<button onClick={refresh}>重试</button></div>}
       {meeting.source !== 'recording_import' && capture.error && <div className="capture-error" role="alert"><CircleAlert size={14} />{capture.error}</div>}
       {meeting.source !== 'recording_import' && capture.asrError && <div className="asr-error" role="status"><CircleAlert size={14} /><span>转录：{capture.asrError}{capture.state === 'recording' && ' · 录音仍在保存'}</span><button onClick={() => setModal('settings')}>连接设置</button></div>}
-      <section className="discussion-stage" aria-label={retrospective ? '会议复盘' : '当前讨论'}>
+      <section className="discussion-stage" aria-label={regular ? '例会整理' : retrospective ? '会议复盘' : '当前讨论'}>
         <div className="panel-body">
           <div className="discussion-toolbar"><div className="discussion-tabs" role="tablist" aria-label="讨论工作区">
+            {regular && <button id="actions-tab" role="tab" aria-selected={discussionView === 'actions'} aria-controls="actions-view" tabIndex={discussionView === 'actions' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => setDiscussionView('actions')}>TODO</button>}
             <button id="clarification-tab" role="tab" aria-label={unreadClarifications ? `${focusLabel}，${unreadClarifications} 个未读问题` : focusLabel} aria-selected={discussionView === 'clarification'} aria-controls="clarification-view" tabIndex={discussionView === 'clarification' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => setDiscussionView('clarification')}>{focusLabel}{unreadClarifications > 0 && <span className="clarification-unread" aria-hidden="true">{unreadClarifications > 99 ? '99+' : unreadClarifications}</span>}</button>
-            <button id="topics-tab" role="tab" aria-selected={discussionView === 'topics'} aria-controls="topics-view" tabIndex={discussionView === 'topics' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => { setTopicsOpened(true); setDiscussionView('topics'); }}>讨论脉络</button>
-          </div><div className="discussion-toolbar-actions"><DiscussionStatus key={meeting.id} job={discussionJob} request={discussionRequest} retrospective={retrospective} hasTopics={Boolean(meeting.topics?.length)} needsAnalysis={manualAnalysis} onAnalyze={() => triggerJob('organize')} onRetry={triggerJob} onSettings={() => setModal('settings')} onHistory={() => setModal('processing')} /><div className="clarification-toolbar" ref={setClarificationToolbar} /></div></div>
-          <div id="clarification-view" className="discussion-view" role="tabpanel" aria-labelledby="clarification-tab" hidden={discussionView !== 'clarification'}><ClarificationPanel key={meeting.id} meeting={meeting} selected={selectedClarification} setSelected={setSelectedClarification} onEvidence={focusEvidence} onTopic={showTopic} mutate={mutate} job={followupJob} onRequestQuestion={() => triggerJob('followup')} questionRequestBusy={Boolean(followupJob) || submitting === 'followup'} analysisStatus={discussionRequest || discussionJob} pauseFollowing={Boolean(resolutionId)} toolbarTarget={clarificationToolbar} visible={discussionView === 'clarification'} /></div>
-          <div id="topics-view" className="discussion-view" role="tabpanel" aria-labelledby="topics-tab" hidden={discussionView !== 'topics'}>{topicsOpened && <PanelErrorBoundary key={meeting.id} fallback={<EmptyState icon={CircleAlert} title="讨论脉络暂时无法加载" action={<><Button disabled={locked} onClick={() => window.location.reload()}>刷新页面重试</Button><Button onClick={() => setDiscussionView('clarification')}>返回{focusLabel}</Button></>}>显示组件未能加载，会议数据仍保存在本机。{locked ? '请先保存或停止录音，再刷新页面。' : '刷新页面后重试；未发送的输入请先保留。'}</EmptyState>}><Suspense fallback={<div className="panel-loading" role="status"><LoaderCircle size={18} className="spin" />正在打开讨论脉络…</div>}><TopicPanel key={meeting.id} meeting={meeting} selected={selectedTopic} setSelected={setSelectedTopic} onEvidence={focusEvidence} mutate={mutate} onAskTopic={askTopic} /></Suspense></PanelErrorBoundary>}</div>
+            {!retrospective && <button id="topics-tab" role="tab" aria-selected={discussionView === 'topics'} aria-controls="topics-view" tabIndex={discussionView === 'topics' ? 0 : -1} onKeyDown={onDiscussionKey} onClick={() => { setTopicsOpened(true); setDiscussionView('topics'); }}>讨论脉络</button>}
+          </div><div className="discussion-toolbar-actions"><DiscussionStatus key={meeting.id} job={discussionJob} request={discussionRequest} retrospective={retrospective && !regular} hasTopics={Boolean(meeting.topics?.length)} needsAnalysis={manualAnalysis} onAnalyze={() => triggerJob(retrospective ? 'minutes' : 'organize')} onRetry={triggerJob} onSettings={() => setModal('settings')} onHistory={() => setModal('processing')} /><div className="clarification-toolbar" ref={setClarificationToolbar} /></div></div>
+          {regular && <div id="actions-view" className="discussion-view" role="tabpanel" aria-labelledby="actions-tab" hidden={discussionView !== 'actions'}><ActionItems meeting={meeting} onEvidence={focusEvidence} /></div>}
+          <div id="clarification-view" className="discussion-view" role="tabpanel" aria-labelledby="clarification-tab" hidden={discussionView !== 'clarification'}><ClarificationPanel key={meeting.id} meeting={meeting} selected={selectedClarification} setSelected={setSelectedClarification} onEvidence={focusEvidence} onTopic={showTopic} mutate={mutate} job={followupJob} onRequestQuestion={() => triggerJob('followup')} questionRequestBusy={waitingForSpeakers || Boolean(followupJob) || submitting === 'followup'} analysisStatus={discussionRequest || discussionJob} pauseFollowing={Boolean(resolutionId)} toolbarTarget={clarificationToolbar} visible={discussionView === 'clarification'} /></div>
+          {!retrospective && <div id="topics-view" className="discussion-view" role="tabpanel" aria-labelledby="topics-tab" hidden={discussionView !== 'topics'}>{topicsOpened && <PanelErrorBoundary key={meeting.id} fallback={<EmptyState icon={CircleAlert} title="讨论脉络暂时无法加载" action={<><Button disabled={locked} onClick={() => window.location.reload()}>刷新页面重试</Button><Button onClick={() => setDiscussionView('clarification')}>返回{focusLabel}</Button></>}>显示组件未能加载，会议数据仍保存在本机。{locked ? '请先保存或停止录音，再刷新页面。' : '刷新页面后重试；未发送的输入请先保留。'}</EmptyState>}><Suspense fallback={<div className="panel-loading" role="status"><LoaderCircle size={18} className="spin" />正在打开讨论脉络…</div>}><TopicPanel key={meeting.id} meeting={meeting} selected={selectedTopic} setSelected={setSelectedTopic} onEvidence={focusEvidence} mutate={mutate} onAskTopic={askTopic} /></Suspense></PanelErrorBoundary>}</div>}
         </div>
       </section>
       <footer className="meeting-tool-dock" aria-label="会议工具">
@@ -365,6 +376,7 @@ export default function App() {
     {modal === 'edit' && meeting && <MeetingDialog meeting={meeting} onClose={() => setModal(null)} onSave={body => mutate('', 'PATCH', body)} />}
     {modal === 'theme' && <ThemeDialog onClose={() => setModal(null)} />}
     {modal === 'settings' && <SettingsDialog onClose={() => setModal(null)} onSaved={setSettings} />}
+    {modal === 'speakers' && meeting && <PeopleDialog meeting={meeting} onClose={() => setModal(null)} onChanged={refresh} />}
     {modal === 'minutes' && meeting && <MinutesDialog meeting={meeting} onClose={() => setModal(null)} mutate={mutate} submitJob={submitJob} onEvidence={id => { setModal(null); focusEvidence(id); }} />}
     {resolutionId && meeting?.followups?.some(item => item.id === resolutionId) && <ResolutionDialog key={`${meeting.id}:${resolutionId}`} item={meeting.followups.find(item => item.id === resolutionId)} meeting={meeting} lines={lines} mutate={mutate} onClose={() => setResolutionId(null)} />}
     {modal === 'agent' && <AgentDialog onClose={() => setModal(null)} />}

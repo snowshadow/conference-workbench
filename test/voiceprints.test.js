@@ -149,7 +149,7 @@ test('weak or ambiguous matches remain unknown instead of always choosing the hi
   f.runtime.extract = async paths => paths.map(() => [1, 0, 0]);
   const ambiguous = await complete(f.service, f.service.submit('match', query.input));
   assert.equal(ambiguous.result.status, 'unknown');
-  assert.equal(ambiguous.result.reason, 'ambiguous_or_weak');
+  assert.equal(ambiguous.result.reason, 'insufficient_matches');
 });
 
 test('identity and source changes invalidate stale profiles rather than trusting old enrollment', async t => {
@@ -272,7 +272,22 @@ test('automatic match chooses its own qualifying samples and returns per-segment
   assert.equal(query.participant.memberId, null);
 });
 
-test('an excellent aggregate cannot hide one weak utterance during automatic identification', async t => {
+test('sample selection covers the beginning and end rather than only a run of later long utterances', t => {
+  const f = fixture(t), query = f.speaker('meeting', 'query', { manual: false });
+  f.recordings.get(query.lines[0].recordingId).sampleCount = 200 * 16000;
+  const lines = [
+    [0, 4], [40, 5], [80, 6], [120, 20], [141, 19], [161, 18], [180, 17],
+  ].map(([start, duration], index) => ({ ...query.lines[0], id: `line-${index}`, startMs: start * 1000, startSample: start * 16000, endSample: (start + duration) * 16000 }));
+  f.meetings.get('meeting').lines = lines;
+  const selected = f.service.selectSamples('meeting', 'query');
+  assert.equal(selected.length, 4);
+  assert.ok(selected.includes('line-1'));
+  assert.ok(selected.includes('line-2'));
+  assert.ok(selected.includes('line-3'));
+  assert.ok(selected.includes('line-4'));
+});
+
+test('an excellent aggregate cannot replace a second reliable matching utterance', async t => {
   const f = fixture(t), known = f.speaker('first', 'known', { memberId: 'alice' }), query = f.speaker('second', 'query', { manual: false });
   await complete(f.service, f.service.submit('enroll', { ...known.input, scope: 'team' }));
   f.runtime.extract = async () => [[1, 0, 0], [0.79, 0.61, 0]];
@@ -280,6 +295,30 @@ test('an excellent aggregate cannot hide one weak utterance during automatic ide
   assert.ok(matched.result.candidates[0].score > 0.9);
   assert.ok(matched.result.segmentMatches[1].candidates[0].score < 0.8);
   assert.equal(matched.result.autoAccept, null);
+});
+
+test('two reliable matches identify an ASR cluster despite a weak third utterance, but a strong rival blocks it', async t => {
+  for (const conflict of [false, true]) {
+    const f = fixture(t), alice = f.speaker('first', 'alice', { memberId: 'alice' }), bob = f.speaker('first', 'bob', { memberId: 'bob', amplitude: 3000 });
+    await complete(f.service, f.service.submit('enroll', { ...alice.input, scope: 'team' }));
+    await complete(f.service, f.service.submit('enroll', { ...bob.input, scope: 'team' }));
+    const query = f.speaker('second', 'query', { manual: false });
+    const third = { ...query.lines[0], id: 'third', startSample: 7 * 16000, endSample: 10 * 16000 };
+    f.meetings.get('second').lines.push(third);
+    f.runtime.extract = async () => [[1, 0, 0], [1, 0, 0], conflict ? [0, 1, 0] : [0, 0, 1]];
+    const matched = await complete(f.service, f.service.submit('match', { ...query.input, sourceIds: [...query.input.sourceIds, third.id], automatic: true }));
+    assert.equal(matched.status, 'done');
+    assert.equal(matched.result.consistency, 0);
+    if (conflict) {
+      assert.equal(matched.result.autoAccept, null);
+      assert.equal(matched.result.decision.reason, 'conflicting_matches');
+    } else {
+      assert.equal(matched.result.autoAccept.memberId, 'alice');
+      assert.deepEqual(matched.result.autoAccept.matchingSourceIds, query.input.sourceIds);
+      assert.equal(matched.result.autoAccept.matchingSegmentCount, 2);
+    }
+    assert.equal(query.participant.memberId, null);
+  }
 });
 
 test('sample manager exposes playback metadata and unavailable reasons without exposing vectors or paths', async t => {

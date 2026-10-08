@@ -1,3 +1,4 @@
+import { meetingScenarios } from '../../shared/meeting-scenarios.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -55,7 +56,7 @@ function readUpload(req, root, maxUploadBytes) {
   const partialPath = path.join(directory, 'upload.partial');
   return new Promise((resolve, reject) => {
     let parser;
-    try { parser = Busboy({ headers: req.headers, defParamCharset: 'utf8', limits: { fileSize: maxUploadBytes, files: 1, fields: 2, fieldSize: 24000, parts: 4 } }); }
+    try { parser = Busboy({ headers: req.headers, defParamCharset: 'utf8', limits: { fileSize: maxUploadBytes, files: 1, fields: 3, fieldSize: 24000, parts: 5 } }); }
     catch { reject(problem('请以文件上传方式提交录音。')); return; }
     const fields = {}, writes = [];
     let filename = '', received = false, failure = null, settled = false;
@@ -65,7 +66,7 @@ function readUpload(req, root, maxUploadBytes) {
     req.once('aborted', onAbort);
     req.once('error', onAbort);
     parser.on('field', (name, value, info) => {
-      if (!['title', 'goal'].includes(name) || Object.hasOwn(fields, name) || info.valueTruncated) mark(problem('录音上传字段无效或过长。'));
+      if (!['title', 'goal', 'scenario'].includes(name) || Object.hasOwn(fields, name) || info.valueTruncated) mark(problem('录音上传字段无效或过长。'));
       else fields[name] = value;
     });
     parser.on('file', (name, file, info) => {
@@ -93,6 +94,7 @@ function readUpload(req, root, maxUploadBytes) {
       req.off('aborted', onAbort); req.off('error', onAbort);
       if (settled) return;
       if (failure) return fail(failure);
+      if (fields.scenario && !Object.hasOwn(meetingScenarios, fields.scenario)) return fail(problem('请选择有效的会议场景。'));
       if (!received || !fs.existsSync(partialPath) || !fs.statSync(partialPath).size) return fail(problem('请选择一个非空录音文件。'));
       const fd = fs.openSync(partialPath, 'r');
       try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
@@ -101,7 +103,7 @@ function readUpload(req, root, maxUploadBytes) {
       const storedFilename = `original${EXTENSIONS.has(extension) ? extension : '.upload'}`;
       fs.renameSync(partialPath, path.join(directory, storedFilename));
       settled = true;
-      resolve({ uploadId, originalFilename: filename || '导入录音', storedFilename, supported: EXTENSIONS.has(extension), title: fields.title?.trim().slice(0, 200), goal: fields.goal?.trim().slice(0, 6000) || '', uploadMs: Math.round(performance.now() - uploadStarted) });
+      resolve({ uploadId, originalFilename: filename || '导入录音', storedFilename, supported: EXTENSIONS.has(extension), scenario: fields.scenario || 'regular', title: fields.title?.trim().slice(0, 200), goal: fields.goal?.trim().slice(0, 6000) || '', uploadMs: Math.round(performance.now() - uploadStarted) });
       } catch { fail(problem('录音文件保存失败，请检查本机磁盘空间。已接收的内容保留在本机。', 500)); }
     });
     req.pipe(parser);
@@ -133,7 +135,7 @@ function providerLines(response, chunkIndex, startSample, endSample, recordingId
 }
 
 /** File import uses its own persistent queue; a completed upload is never live capture. */
-export function createImportService({ store, ai, onTranscript = () => {}, fetchImpl = globalThis.fetch, decode = decodeAudio, chunkSeconds, maxUploadBytes = 512 * 1024 ** 2, requestTimeoutMs = 300000, ...decodeOptions }) {
+export function createImportService({ store, onTranscript = () => {}, fetchImpl = globalThis.fetch, decode = decodeAudio, chunkSeconds, maxUploadBytes = 512 * 1024 ** 2, requestTimeoutMs = 300000, ...decodeOptions }) {
   const importsDir = path.join(store.dataDir, 'imports'), audioDir = path.join(store.dataDir, 'audio');
   fs.mkdirSync(importsDir, { recursive: true, mode: 0o700 });
   fs.mkdirSync(audioDir, { recursive: true, mode: 0o700 });
@@ -309,16 +311,9 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
       } finally { fs.closeSync(fd); }
       if (controller.signal.aborted || !started) throw interrupted();
       const transcriptCount = store.allTranscript(job.meetingId).filter(line => line.recordingId === recording.id).length;
-      let analysisJobId = job.input.analysisJobId || null;
-      let analysisState = transcriptCount ? 'not_configured' : 'no_transcript';
-      let message = transcriptCount ? '录音和转录已保存。配置大模型后可生成澄清建议与纪要。' : '录音已保存，但未识别出文字；可回听核对，检查文件转录模型。';
-      if (transcriptCount && store.publicSettings().llm?.configured) {
-        try {
-          analysisJobId ||= ai.submit(job.meetingId, 'minutes').id;
-          job = store.updateJob(job.id, { input: { ...job.input, analysisJobId } });
-          analysisState = 'queued'; message = '录音和转录已保存，正在整理主题、澄清建议与纪要。';
-        } catch { analysisState = 'failed'; message = '录音和转录已保存，自动整理未启动，可稍后手动生成纪要。'; }
-      }
+      const analysisJobId = null;
+      const analysisState = transcriptCount ? 'awaiting_speakers' : 'no_transcript';
+      const message = transcriptCount ? '转录已完成，请核对匹配的说话人，确认后生成会议纪要。' : '录音已保存，但未识别出文字；可回听核对，检查文件转录模型。';
       store.updateJob(job.id, { status: 'done', error: null, progress: { ...job.progress, phase: 'done' }, result: { recordingId: recording.id, transcriptCount, durationMs: recording.sampleCount / 16, analysisJobId, analysisState, message } });
     } catch (error) {
       job = store.getJob(initial.id);
@@ -349,13 +344,14 @@ export function createImportService({ store, ai, onTranscript = () => {}, fetchI
       if (!started) throw problem('录音导入服务正在关闭，请稍后重试。', 503);
       const upload = await readUpload(req, importsDir, maxUploadBytes);
       if (!started) throw problem('服务已停止，上传文件保留在本机，请重新导入。', 503);
-      const meeting = store.createMeeting({ title: upload.title || path.parse(upload.originalFilename).name || '导入录音', goal: upload.goal });
+      const meeting = store.createMeeting({ title: upload.title || path.parse(upload.originalFilename).name || '导入录音', goal: upload.goal, scenario: upload.scenario });
       const recording = store.createRecording(meeting.id, { state: 'stopped', timelineStartMs: 0, source: 'recording_import', originalFilename: upload.originalFilename, endedAt: date() });
       const job = store.createJob(meeting.id, 'import', { ...upload, recordingId: recording.id, completedChunks: 0, decoded: false, ...createPlan(store.getSettings().fileAsr) });
       store.updateJob(job.id, { progress: { phase: 'decoding', completedChunks: 0, totalChunks: 0, processedSeconds: 0, totalSeconds: 0 } });
       const updated = store.updateMeeting(meeting.id, { status: 'ended', source: 'recording_import', importJobId: job.id, endedAt: date(), autoOrganize: false });
+      store.mutateMeeting(meeting.id, value => { value.speakersConfirmedAt = null; });
       schedule();
-      return { meeting: updated, job: store.getJob(job.id) };
+      return { meeting: store.getMeeting(updated.id), job: store.getJob(job.id) };
     },
     retry(meetingId) {
       const meeting = store.getMeeting(meetingId);

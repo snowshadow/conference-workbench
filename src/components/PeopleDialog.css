@@ -22,9 +22,19 @@
 .people-identify-action { flex-shrink:0; display:grid; justify-items:end; gap:7px; max-width:190px; }
 .people-identify-action > .people-muted { margin:0; font-size:11px; text-align:right; }
 .people-utterances { margin:0 0 24px; }
-.people-utterances-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }
-.people-utterances-heading h4 { font-size:13px; line-height:1.6; font-weight:500; color:var(--ink-secondary); margin:0; }
+.people-utterances-heading { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.people-utterances-heading h4 { flex:1; font-size:13px; line-height:1.6; font-weight:500; color:var(--ink-secondary); margin:0; }
 .people-utterances-heading > span { font-size:11px; color:var(--ink-muted); }
+.people-utterances-heading > .button { flex-shrink:0; }
+.modal .people-utterance-time { display:flex; flex-direction:row; align-items:center; gap:8px; margin:0; font:inherit; color:inherit; }
+.modal .people-utterance-time input[type="checkbox"] { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:var(--link); }
+.people-utterance.is-selected { background:var(--brand-tint); }
+.people-utterances.is-splitting .people-utterance-list { max-height:380px; }
+.people-split-help .people-muted { margin-bottom:4px; }
+.people-selection-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; margin-bottom:10px; font-size:12px; color:var(--ink-muted); }
+.people-split-form { display:grid; gap:12px; padding:16px; margin-top:12px; border-radius:14px; background:var(--surface-muted); }
+.modal .people-split-form > label { display:grid; gap:7px; margin:0; font-size:13px; }
+.people-split-form > .button { justify-self:start; }
 .people-utterance-list { display:grid; gap:8px; max-height:260px; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
 .people-utterance { padding:10px 12px; border-radius:12px; background:var(--surface-muted); min-width:0; }
 .people-utterance-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:24px; font-size:11px; font-variant-numeric:tabular-nums; color:var(--ink-muted); }

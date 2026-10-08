@@ -1,0 +1,8 @@
+.clarification-share { padding: 8px var(--dialog-inset) 0; }
+.clarification-share-options { display: flex; flex-wrap: wrap; gap: 0 24px; }
+.clarification-share-option { display: flex; flex-direction: row; align-items: center; gap: 8px; width: fit-content; min-height: 36px; margin-bottom: 10px; color: var(--ink-secondary); font-size: 13px; cursor: pointer; }
+.clarification-share-option input { flex-shrink: 0; width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--brand); }
+.clarification-share-preview { display: flex; align-items: center; justify-content: center; min-height: 180px; overflow: hidden; border-radius: 16px; background: var(--surface-muted); }
+.clarification-share-preview > img { display: block; width: 100%; height: auto; }
+.clarification-share-preview > p { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 14px; }
+.clarification-share-status { min-height: 22px; margin: 10px 0 0; color: var(--ink-muted); font-size: 12px; line-height: 1.8; }

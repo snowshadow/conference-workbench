@@ -16,7 +16,8 @@
     "check": "node scripts/check.mjs",
     "mcp": "node mcp/server.mjs",
     "skills:install": "node scripts/install-skills.mjs",
-    "release:check": "npm run check && npm test && npm run build"
+    "release:check": "npm run check && npm test && npm run build",
+    "demo": "node scripts/demo.mjs"
   },
   "overrides": {
     "qs": "^6.16.0"

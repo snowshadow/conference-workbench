@@ -42,8 +42,8 @@ export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://12
     });
   }
   tool('list_meetings','列出会议概况，不载入转录。归档会议可查询和恢复。',{archived:z.boolean().default(false)},input=>request(`/api/meetings?archived=${input.archived?1:0}`),true);
-  tool('create_meeting','创建会议。此操作不会开始录音。',{title:z.string().min(1).max(200),goal:z.string().max(6000).default('')},input=>request('/api/meetings','POST',input));
-  tool('import_recording','将用户指定的本机录音导入为一场已结束的会议。流式上传后返回 meeting 和导入 job，用 get_ai_job 查询转录进度。原文件与可回听音频保存在本机；配置文件 ASR 后执行转录，配置 LLM 后自动整理。无需浏览器麦克风授权。',{filePath:z.string().min(1),title:z.string().max(200).optional(),goal:z.string().max(6000).optional()},async({filePath,title,goal})=>{
+  tool('create_meeting','创建会议。此操作不会开始录音。',{title:z.string().min(1).max(200),goal:z.string().max(6000).default(''),scenario:z.enum(['regular','technical']).default('regular')},input=>request('/api/meetings','POST',input));
+  tool('import_recording','将用户指定的本机录音导入为一场已结束的会议。流式上传后返回 meeting 和导入 job，用 get_ai_job 查询转录进度。原文件与可回听音频保存在本机；配置文件 ASR 后执行转录，核对说话人后用 confirm_meeting_speakers 开始分析和纪要。无需浏览器麦克风授权。',{filePath:z.string().min(1),title:z.string().max(200).optional(),goal:z.string().max(6000).optional(),scenario:z.enum(['regular','technical']).default('regular')},async({filePath,title,goal,scenario})=>{
     if(!path.isAbsolute(filePath))throw new Error('请提供录音文件的绝对路径');
     const file=await stat(filePath);
     if(!file.isFile()||!file.size)throw new Error('请选择非空的录音文件');
@@ -51,15 +51,17 @@ export function createMCPServer({baseUrl=process.env.WORKBENCH_URL || 'http://12
     const form=new FormData();
     if(title)form.append('title',title);
     if(goal)form.append('goal',goal);
+    form.append('scenario',scenario);
     form.append('file',await openAsBlob(filePath),path.basename(filePath));
     const response=await fetch(`${url.origin}/api/meetings/import`,{method:'POST',headers:{Accept:'application/json'},body:form,signal:AbortSignal.timeout(300000)});
     const data=await response.json();if(!response.ok)throw new Error(data.error||`导入失败 ${response.status}`);return data;
   });
   tool('retry_recording_import','继续失败的录音导入，从已完成的分段之后转录。保留原音频、已完成的文字与人工修正；已完成任务直接返回当前状态。',mid,({meetingId})=>request(`/api/meetings/${enc(meetingId)}/import/retry`,'POST',{}));
-  tool('update_meeting','修改会议名称、目标、自动整理或归档状态。结束会议请用 control_recording 的 end。',{...mid,title:z.string().min(1).max(200).optional(),goal:z.string().max(6000).optional(),archived:z.boolean().optional(),autoOrganize:z.boolean().optional(),speakerLabels:z.record(z.string(),z.string()).optional()},({meetingId,...input})=>request(`/api/meetings/${enc(meetingId)}`,'PATCH',input));
+  tool('confirm_meeting_speakers','确认离线导入的说话人并生成纪要。先核对本场说话人；未认出的身份可保留未知。返回 AI job，可用 get_ai_job 查询。',mid,({meetingId})=>request(`/api/meetings/${enc(meetingId)}/speakers/confirm`,'POST',{}));
+  tool('update_meeting','修改会议名称、场景、目标、自动整理或归档状态。结束会议请用 control_recording 的 end。',{...mid,title:z.string().min(1).max(200).optional(),goal:z.string().max(6000).optional(),scenario:z.enum(['regular','technical']).optional(),archived:z.boolean().optional(),autoOrganize:z.boolean().optional(),speakerLabels:z.record(z.string(),z.string()).optional()},({meetingId,...input})=>request(`/api/meetings/${enc(meetingId)}`,'PATCH',input));
   tool('get_meeting_context','读取主题、讨论条目、活跃澄清及已记录的澄清进展、录音真实状态和产物索引。检查 stale 与 author；澄清记录不等于参会者共识。原始转录须分页读取，产物全文用 get_artifact。',mid,async({meetingId})=>{
     const m=await request(`/api/meetings/${enc(meetingId)}`);
-    return {id:m.id,title:m.title,goal:m.goal,status:m.status,source:m.source,importJobId:m.importJobId,archived:m.archived,transcriptRevision:m.transcriptRevision,transcriptEditRevision:m.transcriptEditRevision,processedRevision:m.processedRevision,processedThroughMs:m.processedThroughMs,capture:m.capture,speakerLabels:m.speakerLabels,focusFollowupId:recommendedFocusId(m),
+    return {id:m.id,title:m.title,goal:m.goal,scenario:m.scenario || 'technical',speakersConfirmedAt:m.speakersConfirmedAt,status:m.status,source:m.source,importJobId:m.importJobId,archived:m.archived,transcriptRevision:m.transcriptRevision,transcriptEditRevision:m.transcriptEditRevision,processedRevision:m.processedRevision,processedThroughMs:m.processedThroughMs,capture:m.capture,speakerLabels:m.speakerLabels,focusFollowupId:recommendedFocusId(m),
       participants:m.participants,identityRevision:m.identityRevision,
       topics:m.topics.filter(t=>!t.mergedInto).map(({history,entries,...topic})=>({...topic,entries:entries.map(({history,...entry})=>entry)})),
       followups:m.followups.filter(f=>!f.mergedInto && (f.status==='active'||f.resolution)).map(currentFollowup),recordings:m.recordings,

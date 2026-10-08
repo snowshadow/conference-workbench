@@ -229,3 +229,88 @@ test('legacy projection keeps old names while isolating repeated ASR numbers by 
   assert.equal(store.listParticipants(meeting.id)[0].needsConfirmation, false);
   assert.equal(store.listParticipants(meeting.id)[1].needsConfirmation, true);
 });
+
+test('splitting a mixed ASR group moves only selected utterances and preserves audio, history and manual priority', t => {
+  const { store, meeting } = setup(t);
+  const member = store.createMember({ name: '夏云' });
+  const recording = store.createRecording(meeting.id, { sampleRate: 16000, sampleCount: 160000 });
+  const lines = [0, 1, 2].map(i => store.appendTranscript(meeting.id, { text: `发言 ${i}`, speakerId: 'mixed', recordingId: recording.id, startMs: i * 1000, endMs: (i + 1) * 1000, startSample: i * 16000, endSample: (i + 1) * 16000 }));
+  store.updateParticipant(meeting.id, lines[0].participantId, { name: '龙枭' });
+  store.mutateMeeting(meeting.id, m => {
+    m.processedRevision = m.transcriptRevision;
+    m.topics = [{ id: 'topic', entries: [0, 1].map(i => ({ id: `e${i}`, text: '原有观点', status: 'active', stale: false, evidenceIds: [lines[i].id] })) }];
+    m.artifacts = [{ id: 'minutes', author: 'ai', markdown: '原来的纪要' }];
+  });
+  const before = store.getMeeting(meeting.id), raw = store.rawTranscript(meeting.id);
+  const result = store.splitParticipant(meeting.id, lines[0].participantId, { sourceIds: lines.slice(1).map(line => line.id), target: { memberId: member.id }, identityRevision: before.identityRevision, transcriptEditRevision: before.transcriptEditRevision });
+  assert.equal(result.participant.name, '夏云');
+  assert.equal(result.participant.identitySource, 'manual');
+  assert.deepEqual(result.participant.speakerIds, []);
+  assert.equal(result.meeting.speakerLabels.mixed, '龙枭');
+  assert.equal(result.meeting.identityRevision, before.identityRevision + 1);
+  assert.equal(result.meeting.contentRevision, before.contentRevision + 1);
+  assert.equal(result.meeting.transcriptEditRevision, before.transcriptEditRevision + 1);
+  assert.equal(result.meeting.transcriptRevision, before.transcriptRevision);
+  assert.equal(result.meeting.processedRevision, before.processedRevision);
+  assert.equal(result.meeting.topics[0].entries[0].identityReview, undefined);
+  assert.equal(result.meeting.topics[0].entries[1].identityReview, true);
+  assert.equal(result.meeting.topics[0].entries[1].stale, false);
+  assert.equal(result.meeting.artifacts[0].stale, true);
+  assert.deepEqual(store.rawTranscript(meeting.id)[0], raw[0]);
+  const saved = store.allTranscript(meeting.id);
+  for (const i of [1, 2]) {
+    assert.equal(saved[i].participantId, result.participant.id);
+    assert.equal(saved[i].participantSource, 'host');
+    assert.equal(saved[i].revision, lines[i].revision + 1);
+    assert.equal(saved[i].history.at(-1).participantId, lines[0].participantId);
+    for (const key of ['id', 'text', 'speakerId', 'recordingId', 'startMs', 'endMs', 'startSample', 'endSample', 'origin']) assert.equal(saved[i][key], lines[i][key], key);
+  }
+  const late = store.editTranscript(meeting.id, lines[1].id, { text: '后到的完整转录', speakerId: 'corrected-cluster', origin: 'asr' });
+  assert.equal(late.participantId, result.participant.id);
+  assert.equal(late.participantSource, 'host');
+  assert.equal(store.appendTranscript(meeting.id, { text: '原组后续发言', speakerId: 'mixed' }).participantId, lines[0].participantId);
+});
+
+test('split reuses existing members and can move selected utterances back without merging either group', t => {
+  const { store, meeting } = setup(t);
+  const lines = [0, 1, 2].map(i => store.appendTranscript(meeting.id, { text: `发言 ${i}`, speakerId: 'mixed' }));
+  const member = store.createMember({ name: '夏云' });
+  const { participant } = store.createParticipant(meeting.id, { memberId: member.id });
+  const move = (source, sourceIds, target) => {
+    const { identityRevision, transcriptEditRevision } = store.getMeeting(meeting.id);
+    return store.splitParticipant(meeting.id, source, { sourceIds, target, identityRevision, transcriptEditRevision });
+  };
+  move(lines[0].participantId, [lines[1].id, lines[2].id], { memberId: member.id });
+  assert.equal(store.listParticipants(meeting.id).length, 2);
+  assert.ok(store.allTranscript(meeting.id).slice(1).every(line => line.participantId === participant.id));
+  move(participant.id, [lines[1].id], { participantId: lines[0].participantId });
+  assert.equal(store.allTranscript(meeting.id)[1].participantId, lines[0].participantId);
+  assert.equal(store.allTranscript(meeting.id)[2].participantId, participant.id);
+  const guest = move(lines[0].participantId, [lines[0].id], { name: '访客' });
+  assert.equal(guest.participant.name, '访客');
+  assert.ok(store.listParticipants(meeting.id).every(person => !person.mergedInto));
+});
+
+test('split rejects invalid, foreign or stale selections atomically without creating extra participants', t => {
+  const { store, meeting } = setup(t);
+  const line = store.appendTranscript(meeting.id, { text: '保留发言', speakerId: 'mixed' });
+  const other = store.appendTranscript(meeting.id, { text: '别组发言', speakerId: 'other' });
+  const elsewhere = store.createMeeting({ title: '别场会议' });
+  const foreign = store.appendTranscript(elsewhere.id, { text: '别场发言', speakerId: 'mixed' });
+  const before = store.getMeeting(meeting.id), raw = store.rawTranscript(meeting.id);
+  const input = { sourceIds: [line.id], target: { name: '访客' }, identityRevision: before.identityRevision, transcriptEditRevision: before.transcriptEditRevision };
+  for (const patch of [
+    { sourceIds: [] }, { sourceIds: [line.id, line.id] }, { sourceIds: [line.id, null] },
+    { sourceIds: [line.id, 'missing'] }, { sourceIds: [line.id, foreign.id] }, { sourceIds: [line.id, other.id] },
+    { target: { participantId: foreign.participantId } }, { target: { participantId: line.participantId } },
+    { target: { name: '' } }, { target: { memberId: null } }, { target: { name: '访客', memberId: 'x' } },
+    { target: { memberId: 'missing' } }, { identityRevision: -1 }, { identityRevision: undefined }, { transcriptEditRevision: -1 },
+  ]) {
+    assert.throws(() => store.splitParticipant(meeting.id, line.participantId, { ...input, ...patch }));
+    assert.deepEqual(store.rawTranscript(meeting.id), raw);
+    assert.deepEqual(store.getMeeting(meeting.id), before);
+  }
+  store.editTranscript(meeting.id, line.id, { text: '人工更正的原文', origin: 'host' });
+  assert.throws(() => store.splitParticipant(meeting.id, line.participantId, input), error => error.status === 409);
+  assert.equal(store.listParticipants(meeting.id).length, 2);
+});

@@ -11,7 +11,7 @@ export async function api(path, options = {}) {
   return data;
 }
 
-export function uploadRecording({ file, title, goal }, onProgress) {
+export function uploadRecording({ file, title, goal, scenario }, onProgress) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('POST', '/api/meetings/import');
@@ -29,6 +29,7 @@ export function uploadRecording({ file, title, goal }, onProgress) {
     form.append('file', file);
     form.append('title', title);
     form.append('goal', goal);
+    form.append('scenario', scenario || 'regular');
     request.send(form);
   });
 }

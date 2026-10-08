@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { evidenceFor, normalize, similarQuestion, sourceLines } from './retrieval.js';
-import { attributedPeople, groundedPeopleText, markPeopleFields } from './people.js';
+import { attributedPeople, groundedPeopleText, markPeopleFields, sourceParticipantId } from './people.js';
 import { resolvePeopleText } from '../../shared/people.js';
 import { isActiveFocus, nextFocusId } from '../../shared/discussion-view.js';
 
@@ -222,8 +222,14 @@ export function reduceOrganization(meeting, payload, lines, { sourceRevision = m
       if (type === 'action') {
         const sourceText = evidence.map(item => byId.get(item.id).text).join(' ');
         for (const field of ['owner', 'due']) {
-          const value = clean(groundedPeopleText(input[field], evidence, byId, next), 200);
-          if (value && normalize(sourceText).includes(normalize(resolvePeopleText(value, next)))) { keepManual(entry, field, value); markPeopleFields(entry, [field], next); }
+          let value = clean(groundedPeopleText(input[field], evidence, byId, next), 200);
+          // A named assignee may be mentioned by someone else. Preserve that
+          // literal name without attributing the statement to the assignee.
+          const namedOwner = field === 'owner' && clean(resolvePeopleText(input[field] || '', next), 200);
+          if (namedOwner && normalize(sourceText).includes(normalize(namedOwner))) value = namedOwner;
+          const ownerId = field === 'owner' && /^\[\[person:([^\]]+)\]\]$/.exec(value)?.[1];
+          const selfCommitment = ownerId && evidence.some(item => sourceParticipantId(byId.get(item.id), next) === ownerId && /我(?!们)|\bI\b/.test(item.quote));
+          if (value && (selfCommitment || normalize(sourceText).includes(normalize(resolvePeopleText(value, next))))) { keepManual(entry, field, value); markPeopleFields(entry, [field], next); }
           else if (!manual) delete entry[field];
         }
       }

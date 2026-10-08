@@ -1,10 +1,13 @@
+import { meetingScenario, awaitingSpeakers } from '../../shared/meeting-scenarios.js';
 import { memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass, ImageDown, LoaderCircle, Pencil, Quote, Scale } from 'lucide-react';
 import { Button, EmptyState, Evidence, FormError, IconButton, Modal, useFormAction } from './ui.jsx';
 import { api, formatTime, meetingPath } from '../lib/api.js';
 import { isReadingFocus, orderedFocuses, browseFocusIds, focusPriority, readingFocusId, recommendedFocusId, returnFocusId } from '../../shared/discussion-view.js';
 import { resolutionOutcomes } from '../../shared/resolution-copy.js';
 import { clarificationRecordReview } from '../../shared/clarification-record-state.js';
+import { clarificationContent, questionFor, sameText, textValue } from '../lib/clarification-content.js';
+import { ClarificationShareDialog } from './ClarificationShareDialog.jsx';
 
 export const clarificationKinds = {
   concept: { label: '概念澄清', icon: Quote },
@@ -12,10 +15,6 @@ export const clarificationKinds = {
   criteria: { label: '取舍标准', icon: Scale },
   other: { label: '值得澄清', icon: CircleHelp },
 };
-
-const questionFor = item => !item.stale && !item.resolution?.stale && item.shortQuestion ? item.shortQuestion : item.question;
-const textValue = value => typeof value === 'string' ? value.trim() : '';
-const sameText = (first, second) => textValue(first).replace(/\s+/g, '') === textValue(second).replace(/\s+/g, '');
 
 // One source can support several distinctions. Keep its different excerpts together.
 function questionSources(item) {
@@ -55,7 +54,7 @@ export function ResolutionSummary({ item, onEvidence, onEdit, onRead, compact = 
 }
 
 function ResolutionEditor({ item, meeting, lines = [], mutate, onClose, inline = false }) {
-  const retrospective = meeting.source === 'recording_import';
+  const retrospective = meeting.source === 'recording_import' && meetingScenario(meeting) !== 'regular';
   const [outcome, setOutcome] = useState(item.status === 'active' ? 'recorded' : item.resolution?.outcome || 'recorded');
   const [text, setText] = useState(item.resolution?.text || '');
   const [evidenceIds, setEvidenceIds] = useState(item.resolution?.evidenceIds || []);
@@ -152,13 +151,7 @@ function QuestionEvidence({ item, meeting, onEvidence, onTopic, onRead, showReco
 }
 
 function ClarificationReading({ item, retrospective = false }) {
-  const clarification = item.clarification?.stale ? null : item.clarification;
-  const explanation = textValue(clarification?.explanation);
-  const distinctions = (clarification?.distinctions || []).filter(value => !value.stale && textValue(value.title) && textValue(value.text));
-  const manualReason = item.manualFields?.includes('discussionValue') || ['host', 'agent'].includes(item.author);
-  const reason = (manualReason ? textValue(item.discussionValue) : '') || textValue(item.rationale) || textValue(item.discussionValue) || (!explanation ? textValue(item.impact) : '');
-  const impact = textValue(item.impact);
-  const separateImpact = impact && !sameText(impact, reason) && !sameText(impact, explanation);
+  const { explanation, distinctions, reason, impact, separateImpact } = clarificationContent(item);
   return <>
     {reason && <p className="focus-value">{reason}</p>}
     {distinctions.length > 0 && <div className={`focus-meanings ${distinctions.length === 2 ? 'has-two' : distinctions.length === 3 ? 'has-three' : 'is-list'}`}>
@@ -196,7 +189,7 @@ function PrioritySignal({ item, meeting, compact = false }) {
 }
 
 function FocusNavigator({ meeting, items, availableCount, current, readingId, recommendedId, returnTarget, disabled, onMove, onSelect, onOpenList, onReturn, onSources, requestQuestion }) {
-  const retrospective = meeting.source === 'recording_import';
+  const retrospective = meeting.source === 'recording_import' && meetingScenario(meeting) !== 'regular';
   const [open, setOpen] = useState(null);
   const navigation = useRef(null), popover = useRef(null), listTrigger = useRef(null), priorityTrigger = useRef(null);
   const popoverId = useId(), titleId = useId();
@@ -263,10 +256,11 @@ function FocusNavigator({ meeting, items, availableCount, current, readingId, re
 }
 
 function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopic, mutate, job, analysisStatus, onRequestQuestion, questionRequestBusy = false, pauseFollowing = false, visible = true }) {
-  const retrospective = meeting.source === 'recording_import';
+  const retrospective = meeting.source === 'recording_import' && meetingScenario(meeting) !== 'regular';
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState('');
   const [editingItem, setEditingItem] = useState(null);
+  const [sharing, setSharing] = useState(null);
   const recordTrigger = useRef(null);
   const focusHeading = useRef(null);
   const readingScroll = useRef(null);
@@ -320,6 +314,11 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   useEffect(() => { readingScroll.current?.scrollTo({ top: 0, behavior: 'instant' }); }, [readingId]);
   function showEvidence(id) { holdReading(); onEvidence(id); }
   function editResult(item) { setSelected(readingId); setEditingItem(item); }
+  function shareQuestion(item) {
+    holdReading();
+    // Freeze the text being shared while live analysis continues underneath.
+    setSharing({ item: structuredClone(item), meeting: { title: meeting.title, source: meeting.source, transcriptRevision: meeting.transcriptRevision } });
+  }
   function returnToRecommended() {
     if (!returnTarget) return;
     setFollowing(true);
@@ -341,7 +340,8 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   const staleResult = selectedResult && clarificationRecordReview(selectedItem) === 'source_changed';
   const importing = meeting.jobs?.some(item => item.type === 'import' && ['queued', 'running'].includes(item.status));
   const analyzing = ['submitting', 'queued', 'running'].includes(analysisStatus?.status) || job || meeting.jobs?.some(item => ['organize', 'followup', 'minutes'].includes(item.type) && ['queued', 'running'].includes(item.status));
-  const emptyState = importing || !meeting.transcriptRevision ? {
+  const regular = meetingScenario(meeting) === 'regular';
+  const emptyState = awaitingSpeakers(meeting) && !importing ? { title: '先确认说话人', text: '确认说话人后，再分析成员之间是否有未对齐的事项。' } : importing || !meeting.transcriptRevision ? {
     title: '等待录音转录', text: retrospective ? '录音转录完成后，再回看整场讨论。' : importing ? '录音正在处理，获得原文后开始分析。' : '开始录音或导入录音后，从实际发言中寻找值得讨论的问题。',
   } : analysisStatus?.status === 'error' ? {
     title: retrospective ? '本次复盘未完成' : '本次分析未完成', text: retrospective ? `${meeting.topics?.length ? '已完成的主题整理、原文和人工修正' : '原文和人工修正'}已保留，可以重试继续复盘。` : '可以根据上方提示重试，原文和人工修正会保留。',
@@ -352,9 +352,9 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
   } : meeting.processedRevision < meeting.transcriptRevision ? {
     title: retrospective ? '原文有更新，等待重新复盘' : '有新原文，等待更新分析', text: retrospective ? '复盘完成后再查看更新后的焦点。' : '整理完成后再查看新的问题。',
   } : {
-    title: retrospective ? '暂时没有复盘焦点' : '可以继续讨论', text: retrospective ? '可以先回看讨论脉络，了解会上如何得出结论。' : '暂时没有需要停下来澄清的问题。',
+    title: regular ? '暂无有依据的未对齐事项' : retrospective ? '暂时没有复盘焦点' : '可以继续讨论', text: regular ? '可以继续核对 TODO 中的负责人、时间和依赖。' : retrospective ? '可以查看会议纪要，核对结论与原文。' : '暂时没有需要停下来澄清的问题。',
   };
-  const requestQuestion = onRequestQuestion && <Button className="text-button focus-request" onClick={onRequestQuestion} disabled={questionRequestBusy || !meeting.transcriptRevision} busy={questionRequestBusy}>{retrospective ? '请 AI 补充复盘焦点' : '请 AI 再提问'}</Button>;
+  const requestQuestion = onRequestQuestion && <Button className="text-button focus-request" onClick={onRequestQuestion} disabled={awaitingSpeakers(meeting) || questionRequestBusy || !meeting.transcriptRevision} busy={questionRequestBusy}>{regular ? '检查待对齐事项' : retrospective ? '请 AI 补充复盘焦点' : '请 AI 再提问'}</Button>;
   const closeEditor = () => { setEditingItem(null); requestAnimationFrame(() => (recordTrigger.current || focusHeading.current)?.focus({ preventScroll: true })); };
   const readingState = current ? 'active' : selectedResult ? (staleResult ? 'saved-stale' : 'saved') : selectedItem ? 'previous' : 'empty';
   return <div className="clarification-content reading-focus">
@@ -368,18 +368,19 @@ function ClarificationPanel({ meeting, selected, setSelected, onEvidence, onTopi
         <ClarificationReading item={current} retrospective={retrospective} />
         {retrospective && <RetrospectiveOutcome item={current} />}
         <QuestionEvidence key={current.id} item={current} meeting={meeting} onEvidence={showEvidence} onTopic={onTopic} onRead={holdReading} showRecord={!retrospective} />
-        {!editingItem && <div className="focus-actions"><Button ref={recordTrigger} className="primary" onClick={() => editResult(current)}>{retrospective ? '补充复盘记录' : '记下讨论结果'}</Button><Button className="text-button" disabled={updating === current.id} onClick={() => ignore(current.id)}>{retrospective ? '暂不关注' : '先放下'}</Button></div>}
+        {!editingItem && <div className="focus-actions"><Button ref={recordTrigger} className="primary" onClick={() => editResult(current)}>{retrospective ? '补充复盘记录' : '记下讨论结果'}</Button><Button onClick={() => shareQuestion(current)}><ImageDown size={16} aria-hidden="true" />生成分享图</Button><Button className="text-button" disabled={updating === current.id} onClick={() => ignore(current.id)}>{retrospective ? '暂不关注' : '先放下'}</Button></div>}
       </article> : selectedResult ? <article className={`focus-saved${staleResult ? ' is-stale' : ''}`}><p className="focus-origin" role="status">{staleResult ? '此前的问题' : retrospective ? '复盘记录已保留' : selectedItem.attention?.needed === false ? '已退出当前提示，讨论记录已保留' : '已保存到讨论进展'}</p><h3 ref={focusHeading} tabIndex={-1}>{questionFor(selectedItem)}</h3><ResolutionSummary item={selectedItem} retrospective={retrospective} onEvidence={showEvidence} onEdit={editingItem ? undefined : () => editResult(selectedItem)} /></article> : selectedItem && (selectedItem.stale || selectedItem.status !== 'active' || selectedItem.attention?.needed === false) ? <div className="clarification-transition"><h3>{selectedItem.stale ? '刚才的问题需要重新核对' : selectedItem.status === 'ignored' ? retrospective ? '这条焦点已暂不关注' : '这条问题已先放下' : selectedItem.attention?.needed === false ? '这条问题暂时不需要继续提示' : '刚才的问题已处理'}</h3><p>{selectedItem.stale ? '原文已修正，更新后再查看。' : selectedItem.attention?.needed === false ? textValue(selectedItem.attention.reason) || (retrospective ? '可以回看其他复盘焦点。' : '可以回到当前讨论。') : retrospective ? '可以回看其他复盘焦点。' : '可以回到当前讨论。'}</p></div> : <EmptyState title={emptyState.title} action={!active.length && !importing && !analyzing && meeting.processedRevision ? requestQuestion : null}>{emptyState.text}</EmptyState>}
       </div>
       {editingItem && <ResolutionEditor key={editingItem.id} inline item={(meeting.followups || []).find(item => item.id === editingItem.id) || editingItem} meeting={meeting} mutate={mutate} onClose={closeEditor} />}
 
     </div>
+    {sharing && <ClarificationShareDialog item={sharing.item} meeting={sharing.meeting} onClose={() => setSharing(null)} />}
     {job && <div className="working-line"><LoaderCircle size={13} className="spin" />{retrospective ? '正在整理复盘焦点…' : '正在寻找新的问题…'}</div>}
   </div>;
 }
 
 function ProgressPanel({ meeting, onEvidence, onResolve }) {
-  const retrospective = meeting.source === 'recording_import';
+  const retrospective = meeting.source === 'recording_import' && meetingScenario(meeting) !== 'regular';
   const records = (meeting.followups || []).filter(item => !item.mergedInto && ['active', 'resolved', 'recorded'].includes(item.status) && item.resolution);
   const unrecorded = (meeting.followups || []).filter(item => !item.mergedInto && item.status === 'resolved' && !item.resolution);
   const ignored = (meeting.followups || []).filter(item => !item.mergedInto && item.status === 'ignored');

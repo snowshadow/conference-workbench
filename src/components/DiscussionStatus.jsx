@@ -1,9 +1,10 @@
 import { useEffect, useId, useState } from 'react';
 import { Check, CircleAlert, Clock3, LoaderCircle, RefreshCw, Settings2 } from 'lucide-react';
 import { Button, Modal } from './ui.jsx';
+import { speakerReviewProgress } from '../../shared/discussion-status.js';
 
-const labels = { organize: '讨论分析', followup: '澄清检查', minutes: '讨论整理与纪要' };
-const retrospectiveLabels = { organize: '会议复盘', followup: '复盘焦点整理', minutes: '会议复盘与纪要' };
+const labels = { organize: '讨论分析', followup: '澄清检查', minutes: '讨论整理与纪要', refresh_speakers: 'AI 人物归属更新' };
+const retrospectiveLabels = { organize: '会议复盘', followup: '复盘焦点整理', minutes: '会议复盘与纪要', refresh_speakers: 'AI 人物归属更新' };
 const retrospectivePhases = { retrospective_extract: '梳理整场讨论', retrospective_topics: '梳理整场讨论', retrospective_focus: '整理复盘焦点' };
 
 export default function DiscussionStatus({ job, request, retrospective = false, hasTopics = false, needsAnalysis = false, onAnalyze, onRetry, onSettings, onHistory }) {
@@ -41,7 +42,7 @@ export default function DiscussionStatus({ job, request, retrospective = false, 
   const noSource = current.result?.skipped === 'no_transcript';
   const unchanged = current.result?.skipped === 'no_new_transcript';
   const status = current.status === 'submitting' ? retrospective ? '正在提交复盘请求' : '正在提交分析请求' : current.status === 'queued' ? `${label}已排队` : current.status === 'running' ? phaseLabel || `${label}进行中` : failed ? `${label}失败` : cancelled ? retrospective ? '本次复盘未应用' : '本次分析未应用' : noSource ? '暂无可分析原文' : unchanged ? '没有新增原文需要整理' : `${label}已完成`;
-  const shortStatus = current.status === 'submitting' ? '提交中' : current.status === 'queued' ? retrospective ? '等待复盘' : '等待分析' : failed ? retrospective ? '复盘未完成' : '分析失败' : cancelled ? retrospective ? '复盘未应用' : '分析未应用' : current.status === 'done' ? (noSource ? '暂无原文' : unchanged ? '无需更新' : '已更新') : phaseLabel || (retrospective ? '复盘中' : phase === 'clarify' || current.type === 'followup' ? '检查中' : current.type === 'minutes' ? '整理中' : '分析中');
+  const shortStatus = current.type === 'refresh_speakers' ? busy ? current.status === 'queued' ? '待同步' : '同步中' : failed ? '同步未完成' : cancelled ? '同步未应用' : '已同步' : current.status === 'submitting' ? '提交中' : current.status === 'queued' ? retrospective ? '等待复盘' : '等待分析' : failed ? retrospective ? '复盘未完成' : '分析失败' : cancelled ? retrospective ? '复盘未应用' : '分析未应用' : current.status === 'done' ? (noSource ? '暂无原文' : unchanged ? '无需更新' : '已更新') : phaseLabel || (retrospective ? '复盘中' : phase === 'clarify' || current.type === 'followup' ? '检查中' : current.type === 'minutes' ? '整理中' : '分析中');
   const visible = busy || failed || cancelled || current.status === 'done' && completedId === current.id;
   const showProgress = current.status === 'running' && total > 0 && !['clarify', 'retrospective_focus'].includes(phase);
   const count = showProgress ? `${completed}/${total}` : '';
@@ -56,7 +57,7 @@ export default function DiscussionStatus({ job, request, retrospective = false, 
     {detailsOpen && <Modal title="处理详情" onClose={() => setDetailsOpen(false)}>
       <div className="discussion-status-details">
         <strong className={failed ? 'discussion-status-error' : ''}>{status}</strong>
-        {current.status === 'running' && <p>{retrospective && phase === 'retrospective_focus' ? '回看不同理解、隐含前提，以及会上最后说清了什么。' : retrospective && phase === 'retrospective_topics' ? '将整场发言组织成主题，保留讨论如何展开。' : phase === 'clarify' ? '正在检查尚未说清的问题' : total ? `已完成 ${completed} / ${total} 段整理` : '正在阅读会议原文'}</p>}
+        {(current.status === 'running' || current.type === 'refresh_speakers' && current.status === 'queued') && <p>{speakerReviewProgress(current) || (retrospective && phase === 'retrospective_focus' ? '回看不同理解、隐含前提，以及会上最后说清了什么。' : retrospective && phase === 'retrospective_topics' ? '将整场发言组织成主题，保留讨论如何展开。' : phase === 'clarify' ? '正在检查尚未说清的问题' : total ? `已完成 ${completed} / ${total} 段整理` : '正在阅读会议原文')}</p>}
         {showProgress && <progress max={total} value={completed} aria-label={retrospective ? '会议复盘进度' : '讨论分析进度'} />}
         {failed && <p className="discussion-status-error">{current.error || '处理未完成，请重试或检查 AI 连接设置。'}</p>}
         {failed && retrospective && hasTopics && <p>已完成的主题整理会保留，可重试继续复盘。</p>}

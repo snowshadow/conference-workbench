@@ -1,810 +1,54 @@
 {
   "version": 1,
-  "description": "固定证据回放：语义质量由人工评分，scriptedReply 只用于管线回归，不代表真实模型通过。expected 与 scriptedReply 不进入模型请求。",
-  "sourcesNote": "真实案例默认是截止时刻之前的证据节选，不声称覆盖整场。可用脚本 --full-prefix 加载原文件截至每阶段的完整前缀；每日例会仅保留固定只读节选。",
+  "description": "公开合成案例。scriptedReply 只用于管线回归，不代表真实模型通过；expected 与 scriptedReply 不进入模型请求。",
+  "sourcesNote": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。",
   "cases": [
     {
-      "id": "profile-stability-before-015755",
-      "title": "画像稳定与主动更新：在澄清前解释歧义",
+      "id": "synthetic-template-stability",
+      "title": "合成测试：模板稳定与内容更新",
       "provenance": {
-        "kind": "transcript_file",
-        "name": "09-07 记忆系统架构设计.txt",
-        "localPath": "/Users/alfred/Downloads/09-07 记忆系统架构设计.txt",
-        "sha256": "945a47b686e410cb316c61b7ace2eee5b97755f211d5378a8885677b281d793e",
-        "coverage": "prefix_excerpt",
-        "note": "逐字保留原转录；可能含 ASR 错字。每阶段仅使用截至 cutoff 的片段与更早锚点，不把后文定义作为早期已知事实。endMs 是下一发言起点，仅用于文本前缀界限，不用于音频回听。"
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
       },
       "sources": [
         {
-          "id": "kickoff-L45",
-          "speakerId": "常大鹏",
-          "text": "就是针对于画像这块，中期记忆跟长期记忆都分别保存是吗？",
-          "startMs": 339000,
-          "endMs": 344000,
+          "id": "synthetic-template-1",
+          "speakerId": "主持人",
+          "text": "活动报名表要保持稳定，志愿者已经按这张表培训了。",
+          "startMs": 0,
+          "endMs": 10000,
           "provenance": {
-            "lineStart": 45,
-            "lineEnd": 47,
-            "time": "00:05:39"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L48",
-          "speakerId": "刘晨星",
-          "text": "嗯，对，画像，是这样的，就是嗯，它对于中期和长期来讲，是有一个呃流程指导和突出指导的。就比如说举个例子，嗯，它你肯定会涉及到两个概念，第一个是画。画像内的内容，第二个是画像外的内容。那么我们默认画像内的内容是产品和我们呃自己更关注的方向，然后画像外的内容是不可控的方向。",
-          "startMs": 344000,
-          "endMs": 372000,
+          "id": "synthetic-template-2",
+          "speakerId": "产品",
+          "text": "参加者改了联系电话，我们应该能更新，不然现场联系不上。",
+          "startMs": 10000,
+          "endMs": 20000,
           "provenance": {
-            "lineStart": 48,
-            "lineEnd": 50,
-            "time": "00:05:44"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L51",
-          "speakerId": "刘晨星",
-          "text": "那从这个角度出发的话，我们优先要考虑的就是呃画像内的内容，我们是不是能够准确的提取出来，然后准确的留存成记忆，然后画像外的内容那就是一些额外的统计了，它可能有利于我们模型的推理，有利于我们长期话题的联动。但是他肯定会有一个准入的过程，就比如说我们发现一个很有用的画像外的记忆点，但是的话呃产品侧或者是我们自己的策略上面并没有呃让他快速晋升，那么我们在挖掘的过程当中是可以发现的，然后我们就可以去，要么我们自己主动的去推他晋升，要么我们就跟产品去打和，然后确定是不是要晋升，然后下一次就可以把它。",
-          "startMs": 372000,
-          "endMs": 420000,
+          "id": "synthetic-template-3",
+          "speakerId": "开发",
+          "text": "我们说的稳定，是栏目不变，还是填好的每个值也不能改？",
+          "startMs": 20000,
+          "endMs": 30000,
           "provenance": {
-            "lineStart": 51,
-            "lineEnd": 53,
-            "time": "00:06:12"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L54",
-          "speakerId": "刘晨星",
-          "text": "直接放在画像里，而不是放在记忆里。然后为什么要做这个区别呢？是这样子，就是画像就是画像圈选出来的范围，它是更容易通过那个中期和长期记忆给出来的。但是我们自己发现的内容，它就会有一个很严格的标准。像举个例子，我们中期呃限制了，就一共有五个主题，那这五个主题我们圈选的画像可能占四个。",
-          "startMs": 420000,
-          "endMs": 447000,
+          "id": "synthetic-template-4",
+          "speakerId": "主持人",
+          "text": "现在说清楚：固定的是栏目，参加者确认的新电话可以更新。",
+          "startMs": 30000,
+          "endMs": 40000,
           "provenance": {
-            "lineStart": 54,
-            "lineEnd": 56,
-            "time": "00:07:00"
-          }
-        },
-        {
-          "id": "kickoff-L57",
-          "speakerId": "刘晨星",
-          "text": "然后自己发现的可能就只占一个，那他在呃记忆的表达或者用户的画像的表达上面就会有一个明显的差别嘛。然后如果我们希望我们挖掘的记忆更有效，那我们就肯定是推动能够留存成画像的或者晋升成画像的记忆，呃能够囊括在呃产品化的那个画像范围内。才呃，所以才会做这样一个区分。",
-          "startMs": 447000,
-          "endMs": 473000,
-          "provenance": {
-            "lineStart": 57,
-            "lineEnd": 59,
-            "time": "00:07:27"
-          }
-        },
-        {
-          "id": "kickoff-L60",
-          "speakerId": "刘晨星",
-          "text": "因为举个例子，比如说我们只允许呃产品化的那个画像提供一个内容，然后剩下四个主题都是我们。自己挖掘出来的，那我们对这个挖掘出来的内容是不可把控的，因为它是自动化，根据数据滚出来的，它可能涉及到的主题我们并不清楚，然后它可能导致模型产生的一些负向的结果我们也拿不准，所以在这一部分我们要做严格的管控，尽量减少它在中期和长期当中出暴露的情况。",
-          "startMs": 473000,
-          "endMs": 502000,
-          "provenance": {
-            "lineStart": 60,
-            "lineEnd": 62,
-            "time": "00:07:53"
-          }
-        },
-        {
-          "id": "kickoff-L63",
-          "speakerId": "刘晨星",
-          "text": "嗯，是这样的一个概念。",
-          "startMs": 502000,
-          "endMs": 504000,
-          "provenance": {
-            "lineStart": 63,
-            "lineEnd": 65,
-            "time": "00:08:22"
-          }
-        },
-        {
-          "id": "kickoff-L66",
-          "speakerId": "常大鹏",
-          "text": "还有一个问题，就是我们现在区分画像跟记忆两部分，那么从他们涵盖的内容来讲，按理说应该是记忆是包含于画像是吧？从涵盖的这种记忆的范围。从直播",
-          "startMs": 504000,
-          "endMs": 515000,
-          "provenance": {
-            "lineStart": 66,
-            "lineEnd": 68,
-            "time": "00:08:24"
-          }
-        },
-        {
-          "id": "kickoff-L69",
-          "speakerId": "刘晨星",
-          "text": "应该是应该是画像包含于记忆，记忆包含画像。",
-          "startMs": 515000,
-          "endMs": 521000,
-          "provenance": {
-            "lineStart": 69,
-            "lineEnd": 71,
-            "time": "00:08:35"
-          }
-        },
-        {
-          "id": "kickoff-L72",
-          "speakerId": "常大鹏",
-          "text": "啊对，记忆包含画像的。",
-          "startMs": 521000,
-          "endMs": 523000,
-          "provenance": {
-            "lineStart": 72,
-            "lineEnd": 74,
-            "time": "00:08:41"
-          }
-        },
-        {
-          "id": "kickoff-L75",
-          "speakerId": "刘晨星",
-          "text": "啊对，是的是的是的。",
-          "startMs": 523000,
-          "endMs": 526000,
-          "provenance": {
-            "lineStart": 75,
-            "lineEnd": 77,
-            "time": "00:08:43"
-          }
-        },
-        {
-          "id": "kickoff-L96",
-          "speakerId": "王福盛",
-          "text": "是的。就中期记忆来讲，它其实就或者长期记忆，它它们用到的类别是统一一致的吗？",
-          "startMs": 562000,
-          "endMs": 574000,
-          "provenance": {
-            "lineStart": 96,
-            "lineEnd": 98,
-            "time": "00:09:22"
-          }
-        },
-        {
-          "id": "kickoff-L99",
-          "speakerId": "刘晨星",
-          "text": "嗯记忆的类别画像的类别。",
-          "startMs": 574000,
-          "endMs": 577000,
-          "provenance": {
-            "lineStart": 99,
-            "lineEnd": 101,
-            "time": "00:09:34"
-          }
-        },
-        {
-          "id": "kickoff-L102",
-          "speakerId": "王福盛",
-          "text": "呃这里",
-          "startMs": 577000,
-          "endMs": 578000,
-          "provenance": {
-            "lineStart": 102,
-            "lineEnd": 104,
-            "time": "00:09:37"
-          }
-        },
-        {
-          "id": "kickoff-L105",
-          "speakerId": "刘晨星",
-          "text": "就是这样的，要区分一个东西，就是首先我们说画像指导记忆是因为画像是由我们算法跟产品拍出来的，然后对对我们整体A准有益的部分，然后这一部分呢用来圈定什么呢？圈定我们记忆的主要方向。然后圈定我们流程的主要内容，嗯。嗯，这些东西呢，它有两种体现方式。第一种就是关键词，然后第二种就是主题。",
-          "startMs": 578000,
-          "endMs": 607000,
-          "provenance": {
-            "lineStart": 105,
-            "lineEnd": 107,
-            "time": "00:09:38"
-          }
-        },
-        {
-          "id": "kickoff-L108",
-          "speakerId": "刘晨星",
-          "text": "主题它可能是多个关键词的聚合，它也可能是一个呃完整的描述，对吧？然后用这这个东西来去限制了记忆留存的内容。除此之外，还做了一个区呃那个界限的划分，哪些是我们认为合理的，哪些我们是认为可能。可能合理的，对吧？呃不合理的那一部分我们暂时不谈，这个要穷举很多。",
-          "startMs": 607000,
-          "endMs": 631000,
-          "provenance": {
-            "lineStart": 108,
-            "lineEnd": 110,
-            "time": "00:10:07"
-          }
-        },
-        {
-          "id": "kickoff-L111",
-          "speakerId": "王福盛",
-          "text": "嗯。",
-          "startMs": 631000,
-          "endMs": 632000,
-          "provenance": {
-            "lineStart": 111,
-            "lineEnd": 113,
-            "time": "00:10:31"
-          }
-        },
-        {
-          "id": "kickoff-L114",
-          "speakerId": "刘晨星",
-          "text": "对吧？我们尽可能去规避它就行了。",
-          "startMs": 632000,
-          "endMs": 635000,
-          "provenance": {
-            "lineStart": 114,
-            "lineEnd": 116,
-            "time": "00:10:32"
-          }
-        },
-        {
-          "id": "kickoff-L2412",
-          "speakerId": "刘晨星",
-          "text": "中长期画像有什么区别呢？中长期画像只有主就是覆盖面的区别。长期方向，比如说长期方向一般会留存什么人物关系，几乎长期不动，然后呃一一些基基础的呃用户呃比如说健健康描述，然后一些背景，这种都是长期不动的，甚至可就是通过用户一次性配置存下来的。然后，中期的是啥呢？",
-          "startMs": 6441000,
-          "endMs": 6471000,
-          "provenance": {
-            "lineStart": 2412,
-            "lineEnd": 2414,
-            "time": "01:47:21"
-          }
-        },
-        {
-          "id": "kickoff-L2415",
-          "speakerId": "刘晨星",
-          "text": "中期的就是呃，我们通过长期发现可以升级用用画像的，然后产生一定变动的中期。的变化，像比如说我观点发生了一些改变，然后呃我的情感极性发生了一些调呃一一些演进，我可能从中性的变成了积极的，或者从消极的变成中性的，啊这这个只是阶段内的。",
-          "startMs": 6471000,
-          "endMs": 6497000,
-          "provenance": {
-            "lineStart": 2415,
-            "lineEnd": 2417,
-            "time": "01:47:51"
-          }
-        },
-        {
-          "id": "kickoff-L2418",
-          "speakerId": "常大鹏",
-          "text": "就是跟就是按时间范围中期更接更更接近当前时间上面。就是更容易过期一点。",
-          "startMs": 6497000,
-          "endMs": 6505000,
-          "provenance": {
-            "lineStart": 2418,
-            "lineEnd": 2420,
-            "time": "01:48:17"
-          }
-        },
-        {
-          "id": "kickoff-L2421",
-          "speakerId": "王福盛",
-          "text": "对吧？",
-          "startMs": 6505000,
-          "endMs": 6506000,
-          "provenance": {
-            "lineStart": 2421,
-            "lineEnd": 2423,
-            "time": "01:48:25"
-          }
-        },
-        {
-          "id": "kickoff-L2424",
-          "speakerId": "刘晨星",
-          "text": "它没有过期的概念，它只是一个阶段性表达。",
-          "startMs": 6506000,
-          "endMs": 6509000,
-          "provenance": {
-            "lineStart": 2424,
-            "lineEnd": 2426,
-            "time": "01:48:26"
-          }
-        },
-        {
-          "id": "kickoff-L2427",
-          "speakerId": "王福盛",
-          "text": "啊对。就是",
-          "startMs": 6509000,
-          "endMs": 6510000,
-          "provenance": {
-            "lineStart": 2427,
-            "lineEnd": 2429,
-            "time": "01:48:29"
-          }
-        },
-        {
-          "id": "kickoff-L2430",
-          "speakerId": "常大鹏",
-          "text": "对。",
-          "startMs": 6510000,
-          "endMs": 6511000,
-          "provenance": {
-            "lineStart": 2430,
-            "lineEnd": 2432,
-            "time": "01:48:30"
-          }
-        },
-        {
-          "id": "kickoff-L2433",
-          "speakerId": "刘晨星",
-          "text": "不要考虑过期过期的限制。不是",
-          "startMs": 6511000,
-          "endMs": 6513000,
-          "provenance": {
-            "lineStart": 2433,
-            "lineEnd": 2435,
-            "time": "01:48:31"
-          }
-        },
-        {
-          "id": "kickoff-L2436",
-          "speakerId": "王福盛",
-          "text": "不是，我说的过期不是那什么。就是说",
-          "startMs": 6513000,
-          "endMs": 6515000,
-          "provenance": {
-            "lineStart": 2436,
-            "lineEnd": 2438,
-            "time": "01:48:33"
-          }
-        },
-        {
-          "id": "kickoff-L2439",
-          "speakerId": "刘晨星",
-          "text": "它就是它是阶段，就",
-          "startMs": 6515000,
-          "endMs": 6517000,
-          "provenance": {
-            "lineStart": 2439,
-            "lineEnd": 2441,
-            "time": "01:48:35"
-          }
-        },
-        {
-          "id": "kickoff-L2442",
-          "speakerId": "王福盛",
-          "text": "只",
-          "startMs": 6517000,
-          "endMs": 6517000,
-          "provenance": {
-            "lineStart": 2442,
-            "lineEnd": 2444,
-            "time": "01:48:37"
-          }
-        },
-        {
-          "id": "kickoff-L2445",
-          "speakerId": "刘晨星",
-          "text": "表达我们圈选出来的时间阶段内用户的画画像内容。",
-          "startMs": 6517000,
-          "endMs": 6523000,
-          "provenance": {
-            "lineStart": 2445,
-            "lineEnd": 2447,
-            "time": "01:48:37"
-          }
-        },
-        {
-          "id": "kickoff-L2586",
-          "speakerId": "常大鹏",
-          "text": "嗯嗯，其实你刚才说这种属于事实，重要重要时间点的事实，它是不会变化的。但是有一些它时间范围可能覆盖到长期，但可能会变化的，就比如说一个人的性格跟喜好，它其实我们也是会落到长期记忆或者长期画像的，但是它可能就是说长时间是有效，但也有可能会变。",
-          "startMs": 6876000,
-          "endMs": 6899000,
-          "provenance": {
-            "lineStart": 2586,
-            "lineEnd": 2588,
-            "time": "01:54:36"
-          }
-        },
-        {
-          "id": "kickoff-L2589",
-          "speakerId": "刘晨星",
-          "text": "所以。所以在这种做长期画像眼镜的，就做画像眼镜，或者说长期记忆更新的时候是很谨慎的。就是比如说呃举个例子，你不能因为用户在某个时间段频繁跟你聊一个内容，你就认为他是一个很乐观的人，他只能表达那段时间是乐观的。然后你不能因为用户一一直跟你在抱怨，你就认为他是一个消极的人。",
-          "startMs": 6899000,
-          "endMs": 6928000,
-          "provenance": {
-            "lineStart": 2589,
-            "lineEnd": 2591,
-            "time": "01:54:59"
-          }
-        },
-        {
-          "id": "kickoff-L2592",
-          "speakerId": "刘晨星",
-          "text": "就类似这样的一个。因为这些就比如说像情感直性，然后观点表达喜喜好的表达，这种它永远都是有时时就是有有时效性的，有状态的，它这状态会演变的。",
-          "startMs": 6928000,
-          "endMs": 6945000,
-          "provenance": {
-            "lineStart": 2592,
-            "lineEnd": 2594,
-            "time": "01:55:28"
-          }
-        },
-        {
-          "id": "kickoff-L2595",
-          "speakerId": "龙枭",
-          "text": "哎，那你刚刚说那个主动记忆。它是能直接改场景。我理解场景应该是更稳定的是吧？",
-          "startMs": 6945000,
-          "endMs": 6949000,
-          "provenance": {
-            "lineStart": 2595,
-            "lineEnd": 2597,
-            "time": "01:55:45"
-          }
-        },
-        {
-          "id": "kickoff-L2598",
-          "speakerId": "刘晨星",
-          "text": "主动记忆",
-          "startMs": 6949000,
-          "endMs": 6951000,
-          "provenance": {
-            "lineStart": 2598,
-            "lineEnd": 2600,
-            "time": "01:55:49"
-          }
-        },
-        {
-          "id": "kickoff-L2601",
-          "speakerId": "龙枭",
-          "text": "啊，",
-          "startMs": 6951000,
-          "endMs": 6951000,
-          "provenance": {
-            "lineStart": 2601,
-            "lineEnd": 2603,
-            "time": "01:55:51"
-          }
-        },
-        {
-          "id": "kickoff-L2604",
-          "speakerId": "刘晨星",
-          "text": "直接触达的是画像。",
-          "startMs": 6951000,
-          "endMs": 6953000,
-          "provenance": {
-            "lineStart": 2604,
-            "lineEnd": 2606,
-            "time": "01:55:51"
-          }
-        },
-        {
-          "id": "kickoff-L2607",
-          "speakerId": "龙枭",
-          "text": "画像。",
-          "startMs": 6953000,
-          "endMs": 6953000,
-          "provenance": {
-            "lineStart": 2607,
-            "lineEnd": 2609,
-            "time": "01:55:53"
-          }
-        },
-        {
-          "id": "kickoff-L2610",
-          "speakerId": "刘晨星",
-          "text": "因为主动记忆是靠呃我们跟产品圈出来的，用来专门圈用户。表达呃内容的重点，比如说我们专门跟呃产品去约束说，用户只要说了我喜欢吃西瓜，那我们就触发主动记忆，把他喜欢吃西瓜这样的一个喜好状态记下来。",
-          "startMs": 6953000,
-          "endMs": 6974000,
-          "provenance": {
-            "lineStart": 2610,
-            "lineEnd": 2612,
-            "time": "01:55:53"
-          }
-        },
-        {
-          "id": "kickoff-L2613",
-          "speakerId": "龙枭",
-          "text": "那那我们长期的话，那他是不是也是有有稳定性，也确保是稳定。那如果说他也能通过主动去改的话，就会影响他的稳定性。",
-          "startMs": 6974000,
-          "endMs": 6982000,
-          "provenance": {
-            "lineStart": 2613,
-            "lineEnd": 2615,
-            "time": "01:56:14"
-          }
-        },
-        {
-          "id": "kickoff-L2616",
-          "speakerId": "刘晨星",
-          "text": "不，就是他会涉及到一个晋升的概念。",
-          "startMs": 6982000,
-          "endMs": 6985000,
-          "provenance": {
-            "lineStart": 2616,
-            "lineEnd": 2618,
-            "time": "01:56:22"
-          }
-        },
-        {
-          "id": "kickoff-L2619",
-          "speakerId": "龙枭",
-          "text": "啊。",
-          "startMs": 6985000,
-          "endMs": 6986000,
-          "provenance": {
-            "lineStart": 2619,
-            "lineEnd": 2621,
-            "time": "01:56:25"
-          }
-        },
-        {
-          "id": "kickoff-L2622",
-          "speakerId": "刘晨星",
-          "text": "你比如说我呃我我最近在学Python",
-          "startMs": 6986000,
-          "endMs": 6990000,
-          "provenance": {
-            "lineStart": 2622,
-            "lineEnd": 2624,
-            "time": "01:56:26"
-          }
-        },
-        {
-          "id": "kickoff-L2625",
-          "speakerId": "龙枭",
-          "text": "啊，",
-          "startMs": 6990000,
-          "endMs": 6990000,
-          "provenance": {
-            "lineStart": 2625,
-            "lineEnd": 2627,
-            "time": "01:56:30"
-          }
-        },
-        {
-          "id": "kickoff-L2628",
-          "speakerId": "刘晨星",
-          "text": "那我到一段时间我变成Python大师了，",
-          "startMs": 6990000,
-          "endMs": 6993000,
-          "provenance": {
-            "lineStart": 2628,
-            "lineEnd": 2630,
-            "time": "01:56:30"
-          }
-        },
-        {
-          "id": "kickoff-L2631",
-          "speakerId": "龙枭",
-          "text": "对",
-          "startMs": 6993000,
-          "endMs": 6993000,
-          "provenance": {
-            "lineStart": 2631,
-            "lineEnd": 2633,
-            "time": "01:56:33"
-          }
-        },
-        {
-          "id": "kickoff-L2634",
-          "speakerId": "刘晨星",
-          "text": "对吧？但是学Python这种学习状态是用呃是产品和我们想要圈选出来的画像的部分。那这一一开始或者很长一个阶段，我们表达的就是用户是一个Python初学者，",
-          "startMs": 6993000,
-          "endMs": 7007000,
-          "provenance": {
-            "lineStart": 2634,
-            "lineEnd": 2636,
-            "time": "01:56:33"
-          }
-        },
-        {
-          "id": "kickoff-L2637",
-          "speakerId": "龙枭",
-          "text": "对，我说后面我发现",
-          "startMs": 7007000,
-          "endMs": 7008000,
-          "provenance": {
-            "lineStart": 2637,
-            "lineEnd": 2639,
-            "time": "01:56:47"
-          }
-        },
-        {
-          "id": "kickoff-L2640",
-          "speakerId": "刘晨星",
-          "text": "他变成大师了，那他就演变成就是在什么时间段是初学者，在",
-          "startMs": 7008000,
-          "endMs": 7013000,
-          "provenance": {
-            "lineStart": 2640,
-            "lineEnd": 2642,
-            "time": "01:56:48"
-          }
-        },
-        {
-          "id": "kickoff-L2643",
-          "speakerId": "龙枭",
-          "text": "什么时间段",
-          "startMs": 7013000,
-          "endMs": 7013000,
-          "provenance": {
-            "lineStart": 2643,
-            "lineEnd": 2645,
-            "time": "01:56:53"
-          }
-        },
-        {
-          "id": "kickoff-L2646",
-          "speakerId": "刘晨星",
-          "text": "开始变成",
-          "startMs": 7013000,
-          "endMs": 7014000,
-          "provenance": {
-            "lineStart": 2646,
-            "lineEnd": 2648,
-            "time": "01:56:53"
-          }
-        },
-        {
-          "id": "kickoff-L2649",
-          "speakerId": "龙枭",
-          "text": "大师。因为你刚刚之前说了一句，就是说。主动用户主动去提需求的时候，比如我，我。我的女朋友是谁是吧？嗯。她会她要更新到这个画像里面去，我当时听到是长期画像。",
-          "startMs": 7014000,
-          "endMs": 7025000,
-          "provenance": {
-            "lineStart": 2649,
-            "lineEnd": 2651,
-            "time": "01:56:54"
-          }
-        },
-        {
-          "id": "kickoff-L2652",
-          "speakerId": "刘晨星",
-          "text": "嗯。",
-          "startMs": 7025000,
-          "endMs": 7025000,
-          "provenance": {
-            "lineStart": 2652,
-            "lineEnd": 2654,
-            "time": "01:57:05"
-          }
-        },
-        {
-          "id": "kickoff-L2655",
-          "speakerId": "龙枭",
-          "text": "就就所有的有点冲突嘛，就不理解说，因为你刚刚那个长期记忆就包括什么画像都是保又又稳定嘛是吧？稳定稳定的话那他。",
-          "startMs": 7025000,
-          "endMs": 7034000,
-          "provenance": {
-            "lineStart": 2655,
-            "lineEnd": 2657,
-            "time": "01:57:05"
-          }
-        },
-        {
-          "id": "kickoff-L2658",
-          "speakerId": "刘晨星",
-          "text": "嗯，这两个为什么会冲突呢？",
-          "startMs": 7034000,
-          "endMs": 7036000,
-          "provenance": {
-            "lineStart": 2658,
-            "lineEnd": 2660,
-            "time": "01:57:14"
-          }
-        },
-        {
-          "id": "kickoff-L2661",
-          "speakerId": "龙枭",
-          "text": "因为因为你用主动记忆绝对能改，因为我理解说他要通过。因为主动",
-          "startMs": 7036000,
-          "endMs": 7039000,
-          "provenance": {
-            "lineStart": 2661,
-            "lineEnd": 2663,
-            "time": "01:57:16"
-          }
-        },
-        {
-          "id": "kickoff-L2664",
-          "speakerId": "刘晨星",
-          "text": "记忆改的是画像。",
-          "startMs": 7039000,
-          "endMs": 7040000,
-          "provenance": {
-            "lineStart": 2664,
-            "lineEnd": 2666,
-            "time": "01:57:19"
-          }
-        },
-        {
-          "id": "kickoff-L2667",
-          "speakerId": "龙枭",
-          "text": "画像的画画像不也长期记忆画像吗？长期画像。",
-          "startMs": 7040000,
-          "endMs": 7043000,
-          "provenance": {
-            "lineStart": 2667,
-            "lineEnd": 2669,
-            "time": "01:57:20"
-          }
-        },
-        {
-          "id": "kickoff-L2670",
-          "speakerId": "刘晨星",
-          "text": "不，这是两个东西哦，你长期记忆想要升级成画像，你是必须要做相应的竞争考核的。",
-          "startMs": 7043000,
-          "endMs": 7050000,
-          "provenance": {
-            "lineStart": 2670,
-            "lineEnd": 2672,
-            "time": "01:57:23"
-          }
-        },
-        {
-          "id": "kickoff-L2673",
-          "speakerId": "龙枭",
-          "text": "你是",
-          "startMs": 7050000,
-          "endMs": 7051000,
-          "provenance": {
-            "lineStart": 2673,
-            "lineEnd": 2675,
-            "time": "01:57:30"
-          }
-        },
-        {
-          "id": "kickoff-L2676",
-          "speakerId": "刘晨星",
-          "text": "会有一套标准吗？",
-          "startMs": 7051000,
-          "endMs": 7053000,
-          "provenance": {
-            "lineStart": 2676,
-            "lineEnd": 2678,
-            "time": "01:57:31"
-          }
-        },
-        {
-          "id": "kickoff-L2679",
-          "speakerId": "龙枭",
-          "text": "哦。",
-          "startMs": 7053000,
-          "endMs": 7055000,
-          "provenance": {
-            "lineStart": 2679,
-            "lineEnd": 2681,
-            "time": "01:57:33"
-          }
-        },
-        {
-          "id": "kickoff-L2682",
-          "speakerId": "刘晨星",
-          "text": "因为举个例子，比如说你在t0时间讲你有女朋友，",
-          "startMs": 7055000,
-          "endMs": 7059000,
-          "provenance": {
-            "lineStart": 2682,
-            "lineEnd": 2684,
-            "time": "01:57:35"
-          }
-        },
-        {
-          "id": "kickoff-L2685",
-          "speakerId": "龙枭",
-          "text": "对，",
-          "startMs": 7059000,
-          "endMs": 7059000,
-          "provenance": {
-            "lineStart": 2685,
-            "lineEnd": 2687,
-            "time": "01:57:39"
-          }
-        },
-        {
-          "id": "kickoff-L2688",
-          "speakerId": "刘晨星",
-          "text": "很长一段时间你没有表达过你有没有的时候，但是我通过记忆挖掘发现你没有了，那我是不是要考虑这个喜好，就这个信息更新的时候，我要不要很谨慎？",
-          "startMs": 7059000,
-          "endMs": 7071000,
-          "provenance": {
-            "lineStart": 2688,
-            "lineEnd": 2690,
-            "time": "01:57:39"
-          }
-        },
-        {
-          "id": "kickoff-L2691",
-          "speakerId": "龙枭",
-          "text": "对，我刚刚听那工具那工具箱的那块，就是说我们通过这个。对，",
-          "startMs": 7071000,
-          "endMs": 7075000,
-          "provenance": {
-            "lineStart": 2691,
-            "lineEnd": 2693,
-            "time": "01:57:51"
+            "kind": "synthetic"
           }
         }
       ],
@@ -812,84 +56,73 @@
       "stages": [
         {
           "id": "unresolved",
-          "cutoff": "01:57:55",
-          "cutoffMs": 7075000,
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
           "expected": {
             "focus": "explanation",
             "minimumMeanings": 2,
             "quality": [
-              "解释固定的关注范围、变化的用户情况以及更新依据的区别；措辞可以不同。",
-              "建议的拆分明确是 AI 理解，不宣称会上已统一这些概念。",
-              "不能声称已知 02:28 才明确说出的“画像是固定的标签”。",
-              "给出能帮助当前设计推进的解释，不只反问。"
-            ],
-            "failures": [
-              "把主动记录等同于无需核对就强制覆盖任何长期信息。",
-              "只复述双方存在分歧，没有解释为何可以兼容或在哪仍不兼容。"
+              "分清栏目与值，解释作为建议。",
+              "不能用 30 秒后才说清的定义解释此前已经形成共识。"
             ]
           },
           "scriptedReply": {
             "topics": [],
             "followups": [
               {
-                "id": "new_profile",
-                "topicId": null,
+                "id": "f_template",
                 "kind": "concept",
-                "question": "这里说画像要稳定，指固定要记录哪些信息，还是用户信息也不能随新事实改变？",
-                "rationale": "长期稳定、主动更新和晋升规则交替出现，约束对象尚需分开。",
-                "impact": "决定主动记忆能否写入用户新情况，以及何时需要核对。",
+                "question": "报名表保持稳定，是否也意味着联系电话不能更新？",
+                "rationale": "同一个说法可能指向不同的对象。",
+                "impact": "影响当前方案的范围与后续操作。",
                 "evidence": [
                   {
-                    "id": "kickoff-L2613",
-                    "quote": "那那我们长期的话，那他是不是也是有有稳定性，也确保是稳定。那如果说他也能通过主动去改的话，就会影响他的稳定性。"
+                    "id": "synthetic-template-1",
+                    "quote": "活动报名表要保持稳定，志愿者已经按这张表培训了。"
                   },
                   {
-                    "id": "kickoff-L2610",
-                    "quote": "因为主动记忆是靠呃我们跟产品圈出来的，用来专门圈用户。表达呃内容的重点，比如说我们专门跟呃产品去约束说，用户只要说了我喜欢吃西瓜，那我们就触发主动记忆，把他喜欢吃西瓜这样的一个喜好状态记下来。"
+                    "id": "synthetic-template-2",
+                    "quote": "参加者改了联系电话，我们应该能更新，不然现场联系不上。"
                   },
                   {
-                    "id": "kickoff-L2688",
-                    "quote": "很长一段时间你没有表达过你有没有的时候，但是我通过记忆挖掘发现你没有了，那我是不是要考虑这个喜好，就这个信息更新的时候，我要不要很谨慎？"
+                    "id": "synthetic-template-3",
+                    "quote": "我们说的稳定，是栏目不变，还是填好的每个值也不能改？"
                   }
                 ],
                 "clarification": {
-                  "explanation": "可以先分开看：产品约定关注哪些画像内容，是一层；用户在这些内容上的当前情况，是另一层。用户主动说出新情况与系统从零散发言推测变化，依据强弱也不同。“长期稳定”未必等于所有内容都不能改；这里还需要确认它具体约束哪一层。",
+                  "explanation": "可以先分开看表的栏目与填写的内容。栏目变更会影响培训，联系电话更新是在原栏目内修正事实；目前还需要确认大家所说的稳定约束哪一层。",
                   "evidence": [
                     {
-                      "id": "kickoff-L105",
-                      "quote": "就是这样的，要区分一个东西，就是首先我们说画像指导记忆是因为画像是由我们算法跟产品拍出来的，然后对对我们整体A准有益的部分，然后这一部分呢用来圈定什么呢？圈定我们记忆的主要方向。然后圈定我们流程的主要内容，嗯。嗯，这些东西呢，它有两种体现方式。第一种就是关键词，然后第二种就是主题。"
+                      "id": "synthetic-template-1",
+                      "quote": "活动报名表要保持稳定，志愿者已经按这张表培训了。"
                     },
                     {
-                      "id": "kickoff-L2610",
-                      "quote": "因为主动记忆是靠呃我们跟产品圈出来的，用来专门圈用户。表达呃内容的重点，比如说我们专门跟呃产品去约束说，用户只要说了我喜欢吃西瓜，那我们就触发主动记忆，把他喜欢吃西瓜这样的一个喜好状态记下来。"
+                      "id": "synthetic-template-2",
+                      "quote": "参加者改了联系电话，我们应该能更新，不然现场联系不上。"
                     },
                     {
-                      "id": "kickoff-L2688",
-                      "quote": "很长一段时间你没有表达过你有没有的时候，但是我通过记忆挖掘发现你没有了，那我是不是要考虑这个喜好，就这个信息更新的时候，我要不要很谨慎？"
+                      "id": "synthetic-template-3",
+                      "quote": "我们说的稳定，是栏目不变，还是填好的每个值也不能改？"
                     }
                   ],
                   "distinctions": [
                     {
-                      "title": "关注哪些内容",
-                      "text": "产品圈定画像的主要方向；这与某个用户当前的值不是同一件事。",
+                      "title": "栏目结构",
+                      "text": "志愿者依照既定栏目处理报名。",
                       "evidence": [
                         {
-                          "id": "kickoff-L105",
-                          "quote": "就是这样的，要区分一个东西，就是首先我们说画像指导记忆是因为画像是由我们算法跟产品拍出来的，然后对对我们整体A准有益的部分，然后这一部分呢用来圈定什么呢？圈定我们记忆的主要方向。然后圈定我们流程的主要内容，嗯。嗯，这些东西呢，它有两种体现方式。第一种就是关键词，然后第二种就是主题。"
+                          "id": "synthetic-template-1",
+                          "quote": "活动报名表要保持稳定，志愿者已经按这张表培训了。"
                         }
                       ]
                     },
                     {
-                      "title": "用户信息的变化",
-                      "text": "主动表达喜欢西瓜会触发记录；对女朋友状态的推测更新则被要求谨慎。",
+                      "title": "填写内容",
+                      "text": "参加者的联系方式可能需要更新。",
                       "evidence": [
                         {
-                          "id": "kickoff-L2610",
-                          "quote": "因为主动记忆是靠呃我们跟产品圈出来的，用来专门圈用户。表达呃内容的重点，比如说我们专门跟呃产品去约束说，用户只要说了我喜欢吃西瓜，那我们就触发主动记忆，把他喜欢吃西瓜这样的一个喜好状态记下来。"
-                        },
-                        {
-                          "id": "kickoff-L2688",
-                          "quote": "很长一段时间你没有表达过你有没有的时候，但是我通过记忆挖掘发现你没有了，那我是不是要考虑这个喜好，就这个信息更新的时候，我要不要很谨慎？"
+                          "id": "synthetic-template-2",
+                          "quote": "参加者改了联系电话，我们应该能更新，不然现场联系不上。"
                         }
                       ]
                     }
@@ -897,353 +130,67 @@
                 }
               }
             ],
-            "focusFollowupId": "new_profile"
+            "focusFollowupId": "f_template"
           }
         }
       ]
     },
     {
-      "id": "profile-promotion-after-023146",
-      "title": "不是删掉，是画像维度呈现：旧问题退出",
+      "id": "synthetic-pin-retains-source",
+      "title": "合成测试：显示变化不等于删除，旧问题退出",
       "provenance": {
-        "kind": "transcript_file",
-        "name": "09-07 记忆系统架构设计.txt",
-        "localPath": "/Users/alfred/Downloads/09-07 记忆系统架构设计.txt",
-        "sha256": "945a47b686e410cb316c61b7ace2eee5b97755f211d5378a8885677b281d793e",
-        "coverage": "prefix_excerpt",
-        "note": "逐字保留原转录；可能含 ASR 错字。每阶段仅使用截至 cutoff 的片段与更早锚点，不把后文定义作为早期已知事实。endMs 是下一发言起点，仅用于文本前缀界限，不用于音频回听。"
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
       },
       "sources": [
         {
-          "id": "kickoff-L3732",
-          "speakerId": "龙枭",
-          "text": "哎，那个基础你是固定的，是吧？长记忆跟那个固定记忆。",
-          "startMs": 8877000,
-          "endMs": 8881000,
+          "id": "synthetic-pin-1",
+          "speakerId": "主持人",
+          "text": "把公告置顶后，原来的列表里是不是就删掉了？",
+          "startMs": 0,
+          "endMs": 10000,
           "provenance": {
-            "lineStart": 3732,
-            "lineEnd": 3734,
-            "time": "02:27:57"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L3735",
-          "speakerId": "刘晨星",
-          "text": "记忆不固定，但是。画像是固定的，画像是我们跟产品一起圈出来的标签。现在",
-          "startMs": 8881000,
-          "endMs": 8889000,
+          "id": "synthetic-pin-2",
+          "speakerId": "产品",
+          "text": "置顶只改变排序，公告原文和附件都保留。",
+          "startMs": 10000,
+          "endMs": 20000,
           "provenance": {
-            "lineStart": 3735,
-            "lineEnd": 3737,
-            "time": "02:28:01"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L3738",
-          "speakerId": "王福盛",
-          "text": "又来了，就是因为你之前不是说标签数、画象跟记忆是是共享的嘛，对吧？然后呃记忆相当于是对画象的细细细力度化，对吧？",
-          "startMs": 8889000,
-          "endMs": 8902000,
+          "id": "synthetic-pin-3",
+          "speakerId": "开发",
+          "text": "明白了，我们决定只调整显示顺序，不删除公告。",
+          "startMs": 20000,
+          "endMs": 30000,
           "provenance": {
-            "lineStart": 3738,
-            "lineEnd": 3740,
-            "time": "02:28:09"
-          }
-        },
-        {
-          "id": "kickoff-L3741",
-          "speakerId": "刘晨星",
-          "text": "啥？抽象。是画象对记忆的高度",
-          "startMs": 8902000,
-          "endMs": 8905000,
-          "provenance": {
-            "lineStart": 3741,
-            "lineEnd": 3743,
-            "time": "02:28:22"
-          }
-        },
-        {
-          "id": "kickoff-L3744",
-          "speakerId": "王福盛",
-          "text": "抽象",
-          "startMs": 8905000,
-          "endMs": 8905000,
-          "provenance": {
-            "lineStart": 3744,
-            "lineEnd": 3746,
-            "time": "02:28:25"
-          }
-        },
-        {
-          "id": "kickoff-L3747",
-          "speakerId": "刘晨星",
-          "text": "的。",
-          "startMs": 8905000,
-          "endMs": 8906000,
-          "provenance": {
-            "lineStart": 3747,
-            "lineEnd": 3749,
-            "time": "02:28:25"
-          }
-        },
-        {
-          "id": "kickoff-L3750",
-          "speakerId": "王福盛",
-          "text": "啊对对，画象是画象是记忆的高度抽象的，对吧？那么他们共享同一套标签数，然后之前你又说呃就是说记忆如果时间上画象之后要把记忆去清除掉。对吧。",
-          "startMs": 8906000,
-          "endMs": 8919000,
-          "provenance": {
-            "lineStart": 3750,
-            "lineEnd": 3752,
-            "time": "02:28:26"
-          }
-        },
-        {
-          "id": "kickoff-L3753",
-          "speakerId": "刘晨星",
-          "text": "我我从来没有说清楚记忆这个东西。",
-          "startMs": 8919000,
-          "endMs": 8922000,
-          "provenance": {
-            "lineStart": 3753,
-            "lineEnd": 3755,
-            "time": "02:28:39"
-          }
-        },
-        {
-          "id": "kickoff-L3756",
-          "speakerId": "王福盛",
-          "text": "不是就是删掉程序的东西。",
-          "startMs": 8922000,
-          "endMs": 8924000,
-          "provenance": {
-            "lineStart": 3756,
-            "lineEnd": 3758,
-            "time": "02:28:42"
-          }
-        },
-        {
-          "id": "kickoff-L3759",
-          "speakerId": "刘晨星",
-          "text": "我我也没有说要删掉。",
-          "startMs": 8924000,
-          "endMs": 8926000,
-          "provenance": {
-            "lineStart": 3759,
-            "lineEnd": 3761,
-            "time": "02:28:44"
-          }
-        },
-        {
-          "id": "kickoff-L3762",
-          "speakerId": "王福盛",
-          "text": "对那就没有。你还在找呢，你不是没有，不",
-          "startMs": 8926000,
-          "endMs": 8930000,
-          "provenance": {
-            "lineStart": 3762,
-            "lineEnd": 3764,
-            "time": "02:28:46"
-          }
-        },
-        {
-          "id": "kickoff-L3765",
-          "speakerId": "刘晨星",
-          "text": "记忆流程的规则在这，记忆流程的规则在这，筛选切换或每20有效。",
-          "startMs": 8930000,
-          "endMs": 8936000,
-          "provenance": {
-            "lineStart": 3765,
-            "lineEnd": 3767,
-            "time": "02:28:50"
-          }
-        },
-        {
-          "id": "kickoff-L3768",
-          "speakerId": "王福盛",
-          "text": "不是你之前说就是。自动画成画像这个。",
-          "startMs": 8936000,
-          "endMs": 8939000,
-          "provenance": {
-            "lineStart": 3768,
-            "lineEnd": 3770,
-            "time": "02:28:56"
-          }
-        },
-        {
-          "id": "kickoff-L3771",
-          "speakerId": "刘晨星",
-          "text": "进进化。化成了他在记忆当中的表现还是一样的，只是他进化成画像了之后，画像内容发生了改变。你在记忆当中存在的状态是不会变的，你能理解啊？就举个例子，比如说你喜欢赵又廷，这个东西他在画像里面体现不出来，但是这个是不是永远存在你的记忆里？只有有一有一个我们认为你喜欢赵又廷，你喜欢明星的这样的一个画像，需要展现在你的画像当中的时候，你画像中才出现，但是需代表的是需要删掉这个记忆吗？",
-          "startMs": 8939000,
-          "endMs": 8975000,
-          "provenance": {
-            "lineStart": 3771,
-            "lineEnd": 3773,
-            "time": "02:28:59"
-          }
-        },
-        {
-          "id": "kickoff-L3774",
-          "speakerId": "刘晨星",
-          "text": "不需要，他在你的记忆场合当中，就是就是那一颗石头还还是存在河底。出，它不会因为既就是河河水流了之后，就因为它上升成画像了之后，我们从河里捞出来把它丢掉。只是它形成了画像了，在下一次使用或者在下一次曝光的时候，它就会以画像的方式存在了。还有吗？还还有吗？主要是没想到的是我还没有讲完吧。",
-          "startMs": 8975000,
-          "endMs": 9020000,
-          "provenance": {
-            "lineStart": 3774,
-            "lineEnd": 3776,
-            "time": "02:29:35"
-          }
-        },
-        {
-          "id": "kickoff-L3777",
-          "speakerId": "常大鹏",
-          "text": "早我已经早讲完了。",
-          "startMs": 9020000,
-          "endMs": 9023000,
-          "provenance": {
-            "lineStart": 3777,
-            "lineEnd": 3779,
-            "time": "02:30:20"
-          }
-        },
-        {
-          "id": "kickoff-L3780",
-          "speakerId": "王福盛",
-          "text": "不是，我不知道是谁传的，大鹏传的吧，就不是说那啥了，你看这块是不是写的晋升为发酵内容要从中信息中删除。",
-          "startMs": 9023000,
-          "endMs": 9036000,
-          "provenance": {
-            "lineStart": 3780,
-            "lineEnd": 3782,
-            "time": "02:30:23"
-          }
-        },
-        {
-          "id": "kickoff-L3783",
-          "speakerId": "常大鹏",
-          "text": "可能是我传的。那是我传的。",
-          "startMs": 9036000,
-          "endMs": 9039000,
-          "provenance": {
-            "lineStart": 3783,
-            "lineEnd": 3785,
-            "time": "02:30:36"
-          }
-        },
-        {
-          "id": "kickoff-L3786",
-          "speakerId": "王福盛",
-          "text": "那作者肯定不能是我。",
-          "startMs": 9039000,
-          "endMs": 9041000,
-          "provenance": {
-            "lineStart": 3786,
-            "lineEnd": 3788,
-            "time": "02:30:39"
-          }
-        },
-        {
-          "id": "kickoff-L3789",
-          "speakerId": "常大鹏",
-          "text": "你吗？对。你拍着我就下市场。不是他这个",
-          "startMs": 9041000,
-          "endMs": 9049000,
-          "provenance": {
-            "lineStart": 3789,
-            "lineEnd": 3791,
-            "time": "02:30:41"
-          }
-        },
-        {
-          "id": "kickoff-L3792",
-          "speakerId": "刘晨星",
-          "text": "总结出来，我觉得这个他说的删除的概念应该是随着记记忆的那个更迭，他就直接从记忆里面给摘。拍出来了，就它不是一个，比如说它不会是你在这个中西记忆当中，然后它形成画像了之后，你直接在中西记忆里面找到这个内容，然后直接把它删掉。",
-          "startMs": 9049000,
-          "endMs": 9070000,
-          "provenance": {
-            "lineStart": 3792,
-            "lineEnd": 3794,
-            "time": "02:30:49"
-          }
-        },
-        {
-          "id": "kickoff-L3795",
-          "speakerId": "常大鹏",
-          "text": "你是说就是根据晋升法则，可能新招回来的把它给挤掉了是吧？",
-          "startMs": 9070000,
-          "endMs": 9075000,
-          "provenance": {
-            "lineStart": 3795,
-            "lineEnd": 3797,
-            "time": "02:31:10"
-          }
-        },
-        {
-          "id": "kickoff-L3798",
-          "speakerId": "刘晨星",
-          "text": "就根据晋升法则，他就应该优他优先跟在画像上体验了，他就不会再出现在记忆里了，不是从记忆里面删掉了，是他用画像的维度去呈现了。",
-          "startMs": 9075000,
-          "endMs": 9087000,
-          "provenance": {
-            "lineStart": 3798,
-            "lineEnd": 3800,
-            "time": "02:31:15"
-          }
-        },
-        {
-          "id": "kickoff-L3801",
-          "speakerId": "王福盛",
-          "text": "嗯。",
-          "startMs": 9087000,
-          "endMs": 9088000,
-          "provenance": {
-            "lineStart": 3801,
-            "lineEnd": 3803,
-            "time": "02:31:27"
-          }
-        },
-        {
-          "id": "kickoff-L3804",
-          "speakerId": "刘晨星",
-          "text": "所以可我我觉得可能是他总结成就。嗯，能确认的肯定就是它形成画像了之后，它是以画像维度呈现的。那它它已经形成画像了之后，它在记忆当中的表述就会，就如果它真能召回，它表达的就不不是这个意思了。",
-          "startMs": 9088000,
-          "endMs": 9105000,
-          "provenance": {
-            "lineStart": 3804,
-            "lineEnd": 3806,
-            "time": "02:31:28"
-          }
-        },
-        {
-          "id": "kickoff-L3807",
-          "speakerId": "王福盛",
-          "text": "嗯。",
-          "startMs": 9105000,
-          "endMs": 9106000,
-          "provenance": {
-            "lineStart": 3807,
-            "lineEnd": 3809,
-            "time": "02:31:45"
+            "kind": "synthetic"
           }
         }
       ],
       "seedFollowups": [
         {
-          "id": "f_promotion",
-          "status": "active",
-          "author": "ai",
+          "id": "f_pin",
           "kind": "concept",
-          "question": "记忆晋升为画像后，会从记忆存储里删掉吗？",
-          "rationale": "这里存在尚需核对的理解。",
-          "impact": "影响当前方案边界。",
+          "question": "置顶会删除原公告吗？",
+          "rationale": "同一个说法可能指向不同的对象。",
+          "impact": "影响当前方案的范围与后续操作。",
           "evidence": [
             {
-              "id": "kickoff-L3750",
-              "quote": "啊对对，画象是画象是记忆的高度抽象的，对吧？那么他们共享同一套标签数，然后之前你又说呃就是说记忆如果时间上画象之后要把记忆去清除掉。对吧。"
+              "id": "synthetic-pin-1",
+              "quote": "把公告置顶后，原来的列表里是不是就删掉了？"
             }
           ],
+          "status": "active",
+          "author": "ai",
           "evidenceIds": [
-            "kickoff-L3750"
+            "synthetic-pin-1"
           ],
           "manualFields": []
         }
@@ -1251,16 +198,15 @@
       "stages": [
         {
           "id": "resolved",
-          "cutoff": "02:31:46",
-          "cutoffMs": 9106000,
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
           "expected": {
             "focus": "quiet",
-            "trackedId": "f_promotion",
+            "trackedId": "f_pin",
             "tracked": "resolved_or_retired",
             "quality": [
-              "明确不因晋升就删除原记忆，区别存储保留与呈现。",
-              "旧问题退出；不要换个问法再次要求确认是否删除。",
-              "不扩成具体召回排序、去重或清理策略均已定案。"
+              "承认显示与存储已区分，不继续重复追问。",
+              "不把其他删除或归档策略也说成已经决定。"
             ]
           },
           "scriptedReply": {
@@ -1269,20 +215,20 @@
             "focusFollowupId": null,
             "resolvedFollowups": [
               {
-                "id": "f_promotion",
+                "id": "f_pin",
                 "resolution": {
                   "outcome": "clarified",
                   "complete": true,
-                  "text": "这里的删除指呈现方式变化。记忆晋升后优先以画像维度呈现，并不从记忆存储里删除。"
+                  "text": "置顶只改变顺序，原公告及附件保留。"
                 },
                 "evidence": [
                   {
-                    "id": "kickoff-L3798",
-                    "quote": "就根据晋升法则，他就应该优他优先跟在画像上体验了，他就不会再出现在记忆里了，不是从记忆里面删掉了，是他用画像的维度去呈现了。"
+                    "id": "synthetic-pin-2",
+                    "quote": "置顶只改变排序，公告原文和附件都保留。"
                   },
                   {
-                    "id": "kickoff-L3804",
-                    "quote": "所以可我我觉得可能是他总结成就。嗯，能确认的肯定就是它形成画像了之后，它是以画像维度呈现的。那它它已经形成画像了之后，它在记忆当中的表述就会，就如果它真能召回，它表达的就不不是这个意思了。"
+                    "id": "synthetic-pin-3",
+                    "quote": "明白了，我们决定只调整显示顺序，不删除公告。"
                   }
                 ]
               }
@@ -1292,736 +238,86 @@
       ]
     },
     {
-      "id": "record-memory-reference-evolution",
-      "title": "记录与记忆：从具体事实丢失疑问转到引用已明确",
+      "id": "synthetic-summary-reference-evolution",
+      "title": "合成测试：从引用未定到误解解除",
       "provenance": {
-        "kind": "transcript_file",
-        "name": "09-07 记忆系统架构设计.txt",
-        "localPath": "/Users/alfred/Downloads/09-07 记忆系统架构设计.txt",
-        "sha256": "945a47b686e410cb316c61b7ace2eee5b97755f211d5378a8885677b281d793e",
-        "coverage": "prefix_excerpt",
-        "note": "逐字保留原转录；可能含 ASR 错字。每阶段仅使用截至 cutoff 的片段与更早锚点，不把后文定义作为早期已知事实。endMs 是下一发言起点，仅用于文本前缀界限，不用于音频回听。"
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
       },
       "sources": [
         {
-          "id": "kickoff-L3909",
-          "speakerId": "刘晨星",
-          "text": "那就那就有问题啊，你为什么要原封不动的复述我这句话，这叫记忆吗？你长期记忆里面不会也有一个节点说说用户表达喜欢赵耀婷。那不会啊，那是，这这是原封不动的历史，他关他关联，他",
-          "startMs": 9331000,
-          "endMs": 9350000,
+          "id": "synthetic-summary-1",
+          "speakerId": "主持人",
+          "text": "活动复盘首页只放摘要，长段的访谈另存。",
+          "startMs": 0,
+          "endMs": 10000,
           "provenance": {
-            "lineStart": 3909,
-            "lineEnd": 3911,
-            "time": "02:35:31"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L3912",
-          "speakerId": "王福盛",
-          "text": "如果这，如果。如果说呃，如果说不这样写，那么。不是",
-          "startMs": 9350000,
-          "endMs": 9355000,
+          "id": "synthetic-summary-2",
+          "speakerId": "产品",
+          "text": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。",
+          "startMs": 10000,
+          "endMs": 20000,
           "provenance": {
-            "lineStart": 3912,
-            "lineEnd": 3914,
-            "time": "02:35:50"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L3915",
-          "speakerId": "刘晨星",
-          "text": "不是，如果说不这样写，是你认为记忆抽取是怎么样？就这句话，你在中期和长期记忆当中的眼镜没有任何变化的时候，你告诉我你的记忆抽取在哪？你你应该是你考虑的维度应该是这样，就是我要对这句话做记忆抽取的时候，我应该抽取什么样的内容，然后它在中期和长期当中应该以怎样的一个表现形式存在。",
-          "startMs": 9355000,
-          "endMs": 9380000,
+          "id": "synthetic-summary-3",
+          "speakerId": "开发",
+          "text": "摘要怎么写与能否追溯到访谈，是两个需要分别约定的问题。",
+          "startMs": 20000,
+          "endMs": 30000,
           "provenance": {
-            "lineStart": 3915,
-            "lineEnd": 3917,
-            "time": "02:35:55"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L3918",
-          "speakerId": "刘晨星",
-          "text": "首先这句话我说完了之后，它绝对会在日志里面存最原始的状态，包括时间戳。对，但是我不可能在中期记忆里面说前天用户说他喜欢赵又廷这样的一个概念嘛。",
-          "startMs": 9380000,
-          "endMs": 9395000,
+          "id": "synthetic-summary-4",
+          "speakerId": "主持人",
+          "text": "每条摘要会保留对应访谈的引用链接，点击可以看原话。",
+          "startMs": 30000,
+          "endMs": 40000,
           "provenance": {
-            "lineStart": 3918,
-            "lineEnd": 3920,
-            "time": "02:36:20"
+            "kind": "synthetic"
           }
         },
         {
-          "id": "kickoff-L3921",
-          "speakerId": "王福盛",
-          "text": "这个",
-          "startMs": 9395000,
-          "endMs": 9395000,
+          "id": "synthetic-summary-5",
+          "speakerId": "产品",
+          "text": "那我明白了，原话没有丢；首页一次显示多少条以后再讨论。",
+          "startMs": 40000,
+          "endMs": 50000,
           "provenance": {
-            "lineStart": 3921,
-            "lineEnd": 3923,
-            "time": "02:36:35"
-          }
-        },
-        {
-          "id": "kickoff-L3924",
-          "speakerId": "刘晨星",
-          "text": "不是中期记忆。",
-          "startMs": 9395000,
-          "endMs": 9397000,
-          "provenance": {
-            "lineStart": 3924,
-            "lineEnd": 3926,
-            "time": "02:36:35"
-          }
-        },
-        {
-          "id": "kickoff-L3927",
-          "speakerId": "王福盛",
-          "text": "我明白，就是你肯定是有一个 tag 对吧？就是如果说。",
-          "startMs": 9397000,
-          "endMs": 9400000,
-          "provenance": {
-            "lineStart": 3927,
-            "lineEnd": 3929,
-            "time": "02:36:37"
-          }
-        },
-        {
-          "id": "kickoff-L3930",
-          "speakerId": "刘晨星",
-          "text": "哦，不是不是跟数据结构无关，是跟你的这个记忆概念有关。",
-          "startMs": 9400000,
-          "endMs": 9405000,
-          "provenance": {
-            "lineStart": 3930,
-            "lineEnd": 3932,
-            "time": "02:36:40"
-          }
-        },
-        {
-          "id": "kickoff-L3933",
-          "speakerId": "罗松涛",
-          "text": "我我我我。我举个例子啊，就是中经济中经济你造不出来，就是就是说我积极的，我在比如最近20轮，我积极的讨论了赵月婷20次，可能是是不是这种概念，然后抽象成画像以后就是我。感兴趣的明星赵又廷。可能会就是这种出现。",
-          "startMs": 9405000,
-          "endMs": 9425000,
-          "provenance": {
-            "lineStart": 3933,
-            "lineEnd": 3935,
-            "time": "02:36:45"
-          }
-        },
-        {
-          "id": "kickoff-L3936",
-          "speakerId": "刘晨星",
-          "text": "嗯是有可能的，这是有可能的，这是一个正式的演进路线。对的，",
-          "startMs": 9425000,
-          "endMs": 9429000,
-          "provenance": {
-            "lineStart": 3936,
-            "lineEnd": 3938,
-            "time": "02:37:05"
-          }
-        },
-        {
-          "id": "kickoff-L3939",
-          "speakerId": "罗松涛",
-          "text": "就是这样的中心化的一些表现，可能就是就是刚刚提到你提到我们急性那个词。",
-          "startMs": 9429000,
-          "endMs": 9434000,
-          "provenance": {
-            "lineStart": 3939,
-            "lineEnd": 3941,
-            "time": "02:37:09"
-          }
-        },
-        {
-          "id": "kickoff-L3942",
-          "speakerId": "刘晨星",
-          "text": "嗯。",
-          "startMs": 9434000,
-          "endMs": 9435000,
-          "provenance": {
-            "lineStart": 3942,
-            "lineEnd": 3944,
-            "time": "02:37:14"
-          }
-        },
-        {
-          "id": "kickoff-L3945",
-          "speakerId": "罗松涛",
-          "text": "他对这个这个态度的一个呃急性是什么样的程度，然后可能会会通过一个量化就是次数，然后。",
-          "startMs": 9435000,
-          "endMs": 9443000,
-          "provenance": {
-            "lineStart": 3945,
-            "lineEnd": 3947,
-            "time": "02:37:15"
-          }
-        },
-        {
-          "id": "kickoff-L3948",
-          "speakerId": "刘晨星",
-          "text": "但具体到赵又廷这个状态的话，会在长期上面落下来，因为长期的标签就更大。因为在短期里面可能只会说频繁的提到了喜欢的明，聊起了喜欢的明星，或者说喜欢的那那个娱乐圈的话题，或者频繁提到某个娱娱乐圈的话题，类似这样子的。",
-          "startMs": 9443000,
-          "endMs": 9464000,
-          "provenance": {
-            "lineStart": 3948,
-            "lineEnd": 3950,
-            "time": "02:37:23"
-          }
-        },
-        {
-          "id": "kickoff-L3951",
-          "speakerId": "罗松涛",
-          "text": "嗯。",
-          "startMs": 9464000,
-          "endMs": 9465000,
-          "provenance": {
-            "lineStart": 3951,
-            "lineEnd": 3953,
-            "time": "02:37:44"
-          }
-        },
-        {
-          "id": "kickoff-L3954",
-          "speakerId": "刘晨星",
-          "text": "中期大概就到这了，长期才会专门去把它拆分出来，谈了什么呃赵又廷他的作品，谈了他的人物关系，对吧？长期才会把这些拆分出来。",
-          "startMs": 9465000,
-          "endMs": 9477000,
-          "provenance": {
-            "lineStart": 3954,
-            "lineEnd": 3956,
-            "time": "02:37:45"
-          }
-        },
-        {
-          "id": "kickoff-L3957",
-          "speakerId": "罗松涛",
-          "text": "他其实描述的是一个行为上的概念。",
-          "startMs": 9477000,
-          "endMs": 9481000,
-          "provenance": {
-            "lineStart": 3957,
-            "lineEnd": 3959,
-            "time": "02:37:57"
-          }
-        },
-        {
-          "id": "kickoff-L3960",
-          "speakerId": "刘晨星",
-          "text": "还是回到刚才那句话，我我现在说当前query，我喜欢赵又廷，你觉得周期记忆会录什么？你希望你的记忆系统，中心记忆落成什么？用户在这个时间点说了喜欢赵又廷这句话绝对不是记忆，它是记录，因为你在底表里面绝对能查到这句话。时间点。",
-          "startMs": 9481000,
-          "endMs": 9503000,
-          "provenance": {
-            "lineStart": 3960,
-            "lineEnd": 3962,
-            "time": "02:38:01"
-          }
-        },
-        {
-          "id": "kickoff-L3963",
-          "speakerId": "王福盛",
-          "text": "在底表能这句话能查到这句话我没错，我我承认，但是就我就想回就是想问大家想想知道的是说如果用户下次提问的时候，我最喜欢的明星是谁，他这个检索链路是什么样的，就是在底表是能查，但是说我是怎么通过召回中期自己来体体现这一点的。",
-          "startMs": 9503000,
-          "endMs": 9525000,
-          "provenance": {
-            "lineStart": 3963,
-            "lineEnd": 3965,
-            "time": "02:38:23"
-          }
-        },
-        {
-          "id": "kickoff-L4197",
-          "speakerId": "刘晨星",
-          "text": "如果我说了我喜欢赵又廷，喜欢胡兵，喜欢胡歌，喜欢喜欢呃福盛，喜欢大鹏，你告诉我你应该召回什么？你是不是应该先召回一个主题，我谈论过喜欢的人，然后再去看到底应该用哪个去回答他，这个是不是这是是不是才是正常的一个抽象层级？",
-          "startMs": 9851000,
-          "endMs": 9874000,
-          "provenance": {
-            "lineStart": 4197,
-            "lineEnd": 4199,
-            "time": "02:44:11"
-          }
-        },
-        {
-          "id": "kickoff-L4200",
-          "speakerId": "王福盛",
-          "text": "不是，就是你的意思是说当我召回这个长期的时候，还要下探一层到原始绘画层。",
-          "startMs": 9874000,
-          "endMs": 9880000,
-          "provenance": {
-            "lineStart": 4200,
-            "lineEnd": 4202,
-            "time": "02:44:34"
-          }
-        },
-        {
-          "id": "kickoff-L4203",
-          "speakerId": "罗松涛",
-          "text": "不是。",
-          "startMs": 9880000,
-          "endMs": 9881000,
-          "provenance": {
-            "lineStart": 4203,
-            "lineEnd": 4205,
-            "time": "02:44:40"
-          }
-        },
-        {
-          "id": "kickoff-L4206",
-          "speakerId": "刘晨星",
-          "text": "你长期记忆就不是原始绘画的记录呀。你长期记忆不是做过一次抽取吗？",
-          "startMs": 9881000,
-          "endMs": 9888000,
-          "provenance": {
-            "lineStart": 4206,
-            "lineEnd": 4208,
-            "time": "02:44:41"
-          }
-        },
-        {
-          "id": "kickoff-L4236",
-          "speakerId": "刘晨星",
-          "text": "例子，我喜欢赵又廷，他对应的主题词是什么？明星，对不对？对应的情感即兴组。题是什么？喜欢或者积极，对不对？那这两个东西它都没有体现在记忆里。你告诉我这个东西叫记忆抽取，抽在哪了？首先，赵又廷这个人，这这个是个名字，这个名字的抽取都没来，你连这个赵又廷是什么都没有定义。",
-          "startMs": 9952000,
-          "endMs": 9980000,
-          "provenance": {
-            "lineStart": 4236,
-            "lineEnd": 4238,
-            "time": "02:45:52"
-          }
-        },
-        {
-          "id": "kickoff-L4239",
-          "speakerId": "刘晨星",
-          "text": "你原封不动的留下了这个记录，抽取的概念从哪来？没有吧。你总不能说我转我我把代词改写了，对吧？我我把我改成了用户，然后叫做记忆抽取。你抽取了什么元素，我就问抽取了什么元素，没有，你就做了一个代词的转换，你识别出来了用户，呃，我代表的是用户。",
-          "startMs": 9980000,
-          "endMs": 10007000,
-          "provenance": {
-            "lineStart": 4239,
-            "lineEnd": 4241,
-            "time": "02:46:20"
-          }
-        },
-        {
-          "id": "kickoff-L4251",
-          "speakerId": "刘晨星",
-          "text": "他如果只有这一条记录，我真要抽取。从记忆那抽取成了啥？讨论了喜欢的明星，明星是赵又廷的抽象。或者人是赵又廷的抽象，然后这个事件因为是讨，因为是喜欢，就跟我交流嘛，所以是讨论。因为只有喜欢，然后只他只讲了这一句话，没有其他即兴的变化了。喜欢足够表述了，有重复，有语义重复，这是合理的。",
-          "startMs": 10017000,
-          "endMs": 10047000,
-          "provenance": {
-            "lineStart": 4251,
-            "lineEnd": 4253,
-            "time": "02:46:57"
-          }
-        },
-        {
-          "id": "kickoff-L4254",
-          "speakerId": "刘晨星",
-          "text": "人是赵又廷的抽象，讨论喜欢的人，这这个才是长期记忆可能存在的状态。他索引到的对话记录有啥？喜欢赵又廷，可能下面会说喜欢福盛，",
-          "startMs": 10047000,
-          "endMs": 10060000,
-          "provenance": {
-            "lineStart": 4254,
-            "lineEnd": 4256,
-            "time": "02:47:27"
-          }
-        },
-        {
-          "id": "kickoff-L4257",
-          "speakerId": "王福盛",
-          "text": "喜欢大鹏，对",
-          "startMs": 10060000,
-          "endMs": 10062000,
-          "provenance": {
-            "lineStart": 4257,
-            "lineEnd": 4259,
-            "time": "02:47:40"
-          }
-        },
-        {
-          "id": "kickoff-L4260",
-          "speakerId": "刘晨星",
-          "text": "吧？",
-          "startMs": 10062000,
-          "endMs": 10062000,
-          "provenance": {
-            "lineStart": 4260,
-            "lineEnd": 4262,
-            "time": "02:47:42"
-          }
-        },
-        {
-          "id": "kickoff-L4263",
-          "speakerId": "王福盛",
-          "text": "那我明白了。好，",
-          "startMs": 10062000,
-          "endMs": 10064000,
-          "provenance": {
-            "lineStart": 4263,
-            "lineEnd": 4265,
-            "time": "02:47:42"
-          }
-        },
-        {
-          "id": "kickoff-L4281",
-          "speakerId": "王福盛",
-          "text": "啊对，就是那我只能说我理解，因为我的理解不一定是。在你构建体系。其实我们需要",
-          "startMs": 10106000,
-          "endMs": 10113000,
-          "provenance": {
-            "lineStart": 4281,
-            "lineEnd": 4283,
-            "time": "02:48:26"
-          }
-        },
-        {
-          "id": "kickoff-L4284",
-          "speakerId": "刘晨星",
-          "text": "的就是你得理解，因为我们。",
-          "startMs": 10113000,
-          "endMs": 10115000,
-          "provenance": {
-            "lineStart": 4284,
-            "lineEnd": 4286,
-            "time": "02:48:33"
-          }
-        },
-        {
-          "id": "kickoff-L4287",
-          "speakerId": "王福盛",
-          "text": "对，但是但是。在我在被你确认之前只是我的理解，所以我得说如果。",
-          "startMs": 10115000,
-          "endMs": 10122000,
-          "provenance": {
-            "lineStart": 4287,
-            "lineEnd": 4289,
-            "time": "02:48:35"
-          }
-        },
-        {
-          "id": "kickoff-L4290",
-          "speakerId": "刘晨星",
-          "text": "那就是或者。没有，或者这样，那呃你先把你所有的理解都对应到中长中长，还有工作实际的呈呈现形式写出来。因为你这是一个高度抽象的一个转变嘛，如果是吧，有一。点啊你中期跟长期完全一样，那你自己也要考虑一下",
-          "startMs": 10122000,
-          "endMs": 10143000,
-          "provenance": {
-            "lineStart": 4290,
-            "lineEnd": 4292,
-            "time": "02:48:42"
-          }
-        },
-        {
-          "id": "kickoff-L4293",
-          "speakerId": "王福盛",
-          "text": "你到底",
-          "startMs": 10143000,
-          "endMs": 10144000,
-          "provenance": {
-            "lineStart": 4293,
-            "lineEnd": 4295,
-            "time": "02:49:03"
-          }
-        },
-        {
-          "id": "kickoff-L4296",
-          "speakerId": "刘晨星",
-          "text": "做没做",
-          "startMs": 10144000,
-          "endMs": 10144000,
-          "provenance": {
-            "lineStart": 4296,
-            "lineEnd": 4298,
-            "time": "02:49:04"
-          }
-        },
-        {
-          "id": "kickoff-L4299",
-          "speakerId": "王福盛",
-          "text": "清楚。就是根据我根据我对你刚才这个就是说呃其实我们好奇是找回方式的，因为但但是刚才已经解答了，就是说在这个呃中在长期的这个园区里，它是会索引这个就是reference的嘛。对吧？就是说当你做账的时候，实际上是会附着这个呃原原文的。",
-          "startMs": 10144000,
-          "endMs": 10169000,
-          "provenance": {
-            "lineStart": 4299,
-            "lineEnd": 4301,
-            "time": "02:49:04"
-          }
-        },
-        {
-          "id": "kickoff-L4302",
-          "speakerId": "刘晨星",
-          "text": "不，这个东西我我觉得从理解的角度来讲，你先不要假设要不要付，你自己先看需不需要",
-          "startMs": 10169000,
-          "endMs": 10177000,
-          "provenance": {
-            "lineStart": 4302,
-            "lineEnd": 4304,
-            "time": "02:49:29"
-          }
-        },
-        {
-          "id": "kickoff-L4305",
-          "speakerId": "王福盛",
-          "text": "付。那肯定需要。",
-          "startMs": 10177000,
-          "endMs": 10179000,
-          "provenance": {
-            "lineStart": 4305,
-            "lineEnd": 4307,
-            "time": "02:49:37"
-          }
-        },
-        {
-          "id": "kickoff-L4308",
-          "speakerId": "刘晨星",
-          "text": "那需要的话，那就不用假设了。",
-          "startMs": 10179000,
-          "endMs": 10181000,
-          "provenance": {
-            "lineStart": 4308,
-            "lineEnd": 4310,
-            "time": "02:49:39"
-          }
-        },
-        {
-          "id": "kickoff-L4311",
-          "speakerId": "王福盛",
-          "text": "嗯。对，呃然后就是回到这个周期这块，就是可能是说呃用户谈",
-          "startMs": 10181000,
-          "endMs": 10190000,
-          "provenance": {
-            "lineStart": 4311,
-            "lineEnd": 4313,
-            "time": "02:49:41"
-          }
-        },
-        {
-          "id": "kickoff-L4314",
-          "speakerId": "罗松涛",
-          "text": "嗯",
-          "startMs": 10190000,
-          "endMs": 10191000,
-          "provenance": {
-            "lineStart": 4314,
-            "lineEnd": 4316,
-            "time": "02:49:50"
-          }
-        },
-        {
-          "id": "kickoff-L4317",
-          "speakerId": "王福盛",
-          "text": "谈论喜欢的男演员，男男男演员。就是N次这种，因为它是有时时效的嘛，对吧？或者他他会明确表示他他也不是说像就是说。这这个他他可能是没有那个近期的概念，或者说他已经不需要次数这种东西，他可能比他更抽象一点。",
-          "startMs": 10191000,
-          "endMs": 10218000,
-          "provenance": {
-            "lineStart": 4317,
-            "lineEnd": 4319,
-            "time": "02:49:51"
-          }
-        },
-        {
-          "id": "kickoff-L4320",
-          "speakerId": "罗松涛",
-          "text": "嗯。",
-          "startMs": 10218000,
-          "endMs": 10218000,
-          "provenance": {
-            "lineStart": 4320,
-            "lineEnd": 4322,
-            "time": "02:50:18"
-          }
-        },
-        {
-          "id": "kickoff-L4323",
-          "speakerId": "王福盛",
-          "text": "对吧？这是我理解的中心。",
-          "startMs": 10218000,
-          "endMs": 10220000,
-          "provenance": {
-            "lineStart": 4323,
-            "lineEnd": 4325,
-            "time": "02:50:18"
-          }
-        },
-        {
-          "id": "kickoff-L4326",
-          "speakerId": "罗松涛",
-          "text": "嗯。",
-          "startMs": 10220000,
-          "endMs": 10221000,
-          "provenance": {
-            "lineStart": 4326,
-            "lineEnd": 4328,
-            "time": "02:50:20"
-          }
-        },
-        {
-          "id": "kickoff-L4329",
-          "speakerId": "王福盛",
-          "text": "嗯。然后那个。可能就是working member就是就是原始的用户表示。",
-          "startMs": 10221000,
-          "endMs": 10230000,
-          "provenance": {
-            "lineStart": 4329,
-            "lineEnd": 4331,
-            "time": "02:50:21"
-          }
-        },
-        {
-          "id": "kickoff-L4332",
-          "speakerId": "刘晨星",
-          "text": "嗯。",
-          "startMs": 10230000,
-          "endMs": 10231000,
-          "provenance": {
-            "lineStart": 4332,
-            "lineEnd": 4334,
-            "time": "02:50:30"
-          }
-        },
-        {
-          "id": "kickoff-L4335",
-          "speakerId": "王福盛",
-          "text": "嗯。现在更新了。",
-          "startMs": 10231000,
-          "endMs": 10233000,
-          "provenance": {
-            "lineStart": 4335,
-            "lineEnd": 4337,
-            "time": "02:50:31"
-          }
-        },
-        {
-          "id": "kickoff-L4338",
-          "speakerId": "刘晨星",
-          "text": "你你觉得呢？主要是看你觉得。",
-          "startMs": 10233000,
-          "endMs": 10236000,
-          "provenance": {
-            "lineStart": 4338,
-            "lineEnd": 4340,
-            "time": "02:50:33"
-          }
-        },
-        {
-          "id": "kickoff-L4341",
-          "speakerId": "王福盛",
-          "text": "我我我我。我觉得",
-          "startMs": 10236000,
-          "endMs": 10238000,
-          "provenance": {
-            "lineStart": 4341,
-            "lineEnd": 4343,
-            "time": "02:50:36"
-          }
-        },
-        {
-          "id": "kickoff-L4344",
-          "speakerId": "刘晨星",
-          "text": "就是这个逻辑跟跟你刚才想提出来的那个问题一不一致，然后如果一致的话，你可能你需要点出问题的关键在哪。如果不一致的话。",
-          "startMs": 10238000,
-          "endMs": 10250000,
-          "provenance": {
-            "lineStart": 4344,
-            "lineEnd": 4346,
-            "time": "02:50:38"
-          }
-        },
-        {
-          "id": "kickoff-L4347",
-          "speakerId": "王福盛",
-          "text": "关键就是刚才我对这个reference的意思，就是说我原来以为周期性召回只要只需要返回去就好了。这个这个片段本身可能不需要引用。就现在我我对我对其实是说他们每个都要附上一个原始的绘画。他作为上文返回到这个。",
-          "startMs": 10250000,
-          "endMs": 10275000,
-          "provenance": {
-            "lineStart": 4347,
-            "lineEnd": 4349,
-            "time": "02:50:50"
-          }
-        },
-        {
-          "id": "kickoff-L4350",
-          "speakerId": "刘晨星",
-          "text": "对吧？反上下文的返回。",
-          "startMs": 10275000,
-          "endMs": 10279000,
-          "provenance": {
-            "lineStart": 4350,
-            "lineEnd": 4352,
-            "time": "02:51:15"
-          }
-        },
-        {
-          "id": "kickoff-L4353",
-          "speakerId": "王福盛",
-          "text": "啊就是。如果没有",
-          "startMs": 10279000,
-          "endMs": 10280000,
-          "provenance": {
-            "lineStart": 4353,
-            "lineEnd": 4355,
-            "time": "02:51:19"
-          }
-        },
-        {
-          "id": "kickoff-L4356",
-          "speakerId": "刘晨星",
-          "text": "原始对话啊，原始对话怎么可能会出现在长期记忆里？",
-          "startMs": 10280000,
-          "endMs": 10286000,
-          "provenance": {
-            "lineStart": 4356,
-            "lineEnd": 4358,
-            "time": "02:51:20"
-          }
-        },
-        {
-          "id": "kickoff-L4359",
-          "speakerId": "王福盛",
-          "text": "他不会出现在长期，但是他是他，就是说，相当于长期有保存着他的一个。",
-          "startMs": 10286000,
-          "endMs": 10292000,
-          "provenance": {
-            "lineStart": 4359,
-            "lineEnd": 4361,
-            "time": "02:51:26"
-          }
-        },
-        {
-          "id": "kickoff-L4362",
-          "speakerId": "刘晨星",
-          "text": "对，是的。嗯。",
-          "startMs": 10292000,
-          "endMs": 10294000,
-          "provenance": {
-            "lineStart": 4362,
-            "lineEnd": 4364,
-            "time": "02:51:32"
+            "kind": "synthetic"
           }
         }
       ],
       "seedFollowups": [
         {
-          "id": "f_retrieval",
-          "status": "active",
-          "author": "ai",
+          "id": "f_reference",
           "kind": "concept",
-          "question": "概括后的记忆还能关联到具体是谁、说了什么，还是只能返回概括片段？",
-          "rationale": "这里存在尚需核对的理解。",
-          "impact": "影响当前方案边界。",
+          "question": "摘要能否追溯到具体访谈，还是只能看到概括？",
+          "rationale": "同一个说法可能指向不同的对象。",
+          "impact": "影响当前方案的范围与后续操作。",
           "evidence": [
             {
-              "id": "kickoff-L3960",
-              "quote": "还是回到刚才那句话，我我现在说当前query，我喜欢赵又廷，你觉得周期记忆会录什么？你希望你的记忆系统，中心记忆落成什么？用户在这个时间点说了喜欢赵又廷这句话绝对不是记忆，它是记录，因为你在底表里面绝对能查到这句话。时间点。"
+              "id": "synthetic-summary-1",
+              "quote": "活动复盘首页只放摘要，长段的访谈另存。"
             },
             {
-              "id": "kickoff-L3963",
-              "quote": "在底表能这句话能查到这句话我没错，我我承认，但是就我就想回就是想问大家想想知道的是说如果用户下次提问的时候，我最喜欢的明星是谁，他这个检索链路是什么样的，就是在底表是能查，但是说我是怎么通过召回中期自己来体体现这一点的。"
+              "id": "synthetic-summary-2",
+              "quote": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。"
             }
           ],
+          "status": "active",
+          "author": "ai",
           "evidenceIds": [
-            "kickoff-L3960",
-            "kickoff-L3963"
+            "synthetic-summary-1",
+            "synthetic-summary-2"
           ],
           "manualFields": []
         }
@@ -2029,90 +325,71 @@
       "stages": [
         {
           "id": "unresolved",
-          "cutoff": "02:38:45",
-          "cutoffMs": 9525000,
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
           "expected": {
             "focus": "explanation",
-            "trackedId": "f_retrieval",
+            "trackedId": "f_reference",
             "quality": [
-              "解释记忆表述与召回返回内容是不同问题；不能以换成更粗词语作为提炼成功的唯一标准。",
-              "具体事实不应为抽象而被丢弃；可提出关联原话的理解建议，但不能把后文 reference 确认当成已有决定。"
+              "解释概括与可追溯性的区别。",
+              "不能把下一阶段的引用方案当作已知。"
             ]
           },
           "scriptedReply": {
             "topics": [],
             "followups": [
               {
-                "id": "f_retrieval",
+                "id": "f_reference",
                 "kind": "concept",
-                "question": "概括后的记忆还能关联到具体是谁、说了什么，还是只能返回概括片段？",
-                "rationale": "一方在说提炼后的表述，另一方在问如何回答具体问题。",
-                "impact": "影响记忆要保存什么、检索要返回什么。",
+                "question": "摘要能否追溯到具体访谈，还是只能看到概括？",
+                "rationale": "同一个说法可能指向不同的对象。",
+                "impact": "影响当前方案的范围与后续操作。",
                 "evidence": [
                   {
-                    "id": "kickoff-L3960",
-                    "quote": "还是回到刚才那句话，我我现在说当前query，我喜欢赵又廷，你觉得周期记忆会录什么？你希望你的记忆系统，中心记忆落成什么？用户在这个时间点说了喜欢赵又廷这句话绝对不是记忆，它是记录，因为你在底表里面绝对能查到这句话。时间点。"
+                    "id": "synthetic-summary-1",
+                    "quote": "活动复盘首页只放摘要，长段的访谈另存。"
                   },
                   {
-                    "id": "kickoff-L3963",
-                    "quote": "在底表能这句话能查到这句话我没错，我我承认，但是就我就想回就是想问大家想想知道的是说如果用户下次提问的时候，我最喜欢的明星是谁，他这个检索链路是什么样的，就是在底表是能查，但是说我是怎么通过召回中期自己来体体现这一点的。"
+                    "id": "synthetic-summary-2",
+                    "quote": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。"
+                  },
+                  {
+                    "id": "synthetic-summary-3",
+                    "quote": "摘要怎么写与能否追溯到访谈，是两个需要分别约定的问题。"
                   }
                 ],
                 "clarification": {
-                  "explanation": "这里混在一起的是记忆如何组织，以及回答时如何拿到具体依据。归成主题有助于检索，但不能据此认为具体对象必须丢掉。可以把主题表述与它所关联的事实、原话分开约定；目前这只是理解建议，引用如何返回还需要核对。",
+                  "explanation": "摘要让首页容易浏览，引用让读者能核对具体依据。可以把两者分开设计；当前材料还没有说明引用链接是否保留。",
                   "evidence": [
                     {
-                      "id": "kickoff-L3960",
-                      "quote": "还是回到刚才那句话，我我现在说当前query，我喜欢赵又廷，你觉得周期记忆会录什么？你希望你的记忆系统，中心记忆落成什么？用户在这个时间点说了喜欢赵又廷这句话绝对不是记忆，它是记录，因为你在底表里面绝对能查到这句话。时间点。"
+                      "id": "synthetic-summary-1",
+                      "quote": "活动复盘首页只放摘要，长段的访谈另存。"
                     },
                     {
-                      "id": "kickoff-L3963",
-                      "quote": "在底表能这句话能查到这句话我没错，我我承认，但是就我就想回就是想问大家想想知道的是说如果用户下次提问的时候，我最喜欢的明星是谁，他这个检索链路是什么样的，就是在底表是能查，但是说我是怎么通过召回中期自己来体体现这一点的。"
-                    }
-                  ],
-                  "distinctions": [
-                    {
-                      "title": "保存什么",
-                      "text": "从发言里整理有用的内容，不只是复制原话。",
-                      "evidence": [
-                        {
-                          "id": "kickoff-L3960",
-                          "quote": "还是回到刚才那句话，我我现在说当前query，我喜欢赵又廷，你觉得周期记忆会录什么？你希望你的记忆系统，中心记忆落成什么？用户在这个时间点说了喜欢赵又廷这句话绝对不是记忆，它是记录，因为你在底表里面绝对能查到这句话。时间点。"
-                        }
-                      ]
+                      "id": "synthetic-summary-2",
+                      "quote": "我担心只看摘要时，就找不到是哪位参与者提出了无障碍需求。"
                     },
                     {
-                      "title": "回答时拿到什么",
-                      "text": "需要能够回答最喜欢的明星是谁，而不只返回泛化话题。",
-                      "evidence": [
-                        {
-                          "id": "kickoff-L3963",
-                          "quote": "在底表能这句话能查到这句话我没错，我我承认，但是就我就想回就是想问大家想想知道的是说如果用户下次提问的时候，我最喜欢的明星是谁，他这个检索链路是什么样的，就是在底表是能查，但是说我是怎么通过召回中期自己来体体现这一点的。"
-                        }
-                      ]
+                      "id": "synthetic-summary-3",
+                      "quote": "摘要怎么写与能否追溯到访谈，是两个需要分别约定的问题。"
                     }
                   ]
                 }
               }
             ],
-            "focusFollowupId": "f_retrieval",
-            "keepFollowupIds": [
-              "f_retrieval"
-            ]
+            "focusFollowupId": "f_reference"
           }
         },
         {
           "id": "reference-understood",
-          "cutoff": "02:51:34",
-          "cutoffMs": 10294000,
+          "cutoff": "00:00:50",
+          "cutoffMs": 50000,
           "expected": {
             "focus": "quiet_or_new_residual",
-            "trackedId": "f_retrieval",
+            "trackedId": "f_reference",
             "tracked": "resolved_or_retired",
             "quality": [
-              "承认对 reference 的误解已得到解释，记忆与其关联的原始对话不是同一个对象。",
-              "不要继续原样追问具体事实是否完全丢失。",
-              "不能宣称所有原文无条件全部返回或抽取粒度、召回接口已完全定案；尚未说到的后续原文压缩问题也不要写成已确认。"
+              "承认引用已明确，同时保留展示数量未定。"
             ]
           },
           "scriptedReply": {
@@ -2121,24 +398,20 @@
             "focusFollowupId": null,
             "resolvedFollowups": [
               {
-                "id": "f_retrieval",
+                "id": "f_reference",
                 "resolution": {
                   "outcome": "clarified",
                   "complete": true,
-                  "text": "已说明概括后的记忆可以关联原始对话。具体对象不只靠概括文字恢复；记忆表述与它关联的原文需要分开理解。"
+                  "text": "每条摘要保留访谈引用链接，可以回到具体原话。首页的展示数量尚未确定。"
                 },
                 "evidence": [
                   {
-                    "id": "kickoff-L4347",
-                    "quote": "关键就是刚才我对这个reference的意思，就是说我原来以为周期性召回只要只需要返回去就好了。这个这个片段本身可能不需要引用。就现在我我对我对其实是说他们每个都要附上一个原始的绘画。他作为上文返回到这个。"
+                    "id": "synthetic-summary-4",
+                    "quote": "每条摘要会保留对应访谈的引用链接，点击可以看原话。"
                   },
                   {
-                    "id": "kickoff-L4359",
-                    "quote": "他不会出现在长期，但是他是他，就是说，相当于长期有保存着他的一个。"
-                  },
-                  {
-                    "id": "kickoff-L4362",
-                    "quote": "对，是的。嗯。"
+                    "id": "synthetic-summary-5",
+                    "quote": "那我明白了，原话没有丢；首页一次显示多少条以后再讨论。"
                   }
                 ]
               }
@@ -2148,285 +421,66 @@
       ]
     },
     {
-      "id": "daily-parameters-out-of-scope",
-      "title": "每日例会：范围已划清，剩余参数细节不继续占焦点",
+      "id": "synthetic-export-scope",
+      "title": "合成测试：范围明确，未完成工作退出焦点",
       "provenance": {
-        "kind": "meeting_database",
-        "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-        "coverage": "prefix_excerpt",
-        "note": "从本地数据库只读提取，speaker 编号仅代表该会议内 ASR 分组，不推断真实姓名。未修复转录原文。"
+        "kind": "synthetic",
+        "note": "完全虚构的测试对话，无真实会议、姓名、路径或录音来源。"
       },
       "sources": [
         {
-          "id": "25f31500-40d7-4a9b-8c71-453beb5cc76e",
-          "speakerId": "speaker-9",
-          "text": "我我觉得我今天呃几个事吧，一个是那个升级那个链路，链路我今天测一下调一下，那个其实只能做到100%对。然后还有一个工具调用，工具空间现在不是该走那个 rag 嘛，是吧？现在走的 top k 的接入方式，但是是有固定 top 三的嘛。今天是走了，呃 query 时间，一个是一个 task 一个，不是一个",
-          "startMs": 579461,
-          "endMs": 599971,
+          "id": "synthetic-export-1",
+          "speakerId": "主持人",
+          "text": "文本导出的十个样例都检查过了。",
+          "startMs": 0,
+          "endMs": 10000,
           "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "25f31500-40d7-4a9b-8c71-453beb5cc76e",
-            "revision": 1,
-            "transcriptIndex": 155
+            "kind": "synthetic"
           }
         },
         {
-          "id": "119b6599-900f-4f28-a7fd-b4726c5c9eb9",
-          "speakerId": "speaker-9",
-          "text": "就是 topone 就是几乎就是百分百了。",
-          "startMs": 696212,
-          "endMs": 699182,
+          "id": "synthetic-export-2",
+          "speakerId": "产品",
+          "text": "附件导出还没实现，不能说整套导出功能都通过。",
+          "startMs": 10000,
+          "endMs": 20000,
           "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "119b6599-900f-4f28-a7fd-b4726c5c9eb9",
-            "revision": 1,
-            "transcriptIndex": 176
+            "kind": "synthetic"
           }
         },
         {
-          "id": "20aadb6d-25f6-4283-9deb-334dcbc34d46",
-          "speakerId": "speaker-6",
-          "text": "嗯，对。尽量不要 top 吧，因为有些。",
-          "startMs": 699182,
-          "endMs": 701862,
+          "id": "synthetic-export-3",
+          "speakerId": "开发",
+          "text": "本次只验收文字，附件安排下一次做，今天先不展开。",
+          "startMs": 20000,
+          "endMs": 30000,
           "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "20aadb6d-25f6-4283-9deb-334dcbc34d46",
-            "revision": 2,
-            "transcriptIndex": 177
-          }
-        },
-        {
-          "id": "35cd3a63-c17e-408e-97ea-e22e5ff69650",
-          "speakerId": "speaker-9",
-          "text": "呃，呃，是，不是故意 top 吧，就是我是拿那个区分度很高的，区分度很高的就是那那个 top 把把那些拿出来，那拿出来就是。",
-          "startMs": 702062,
-          "endMs": 709742,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "35cd3a63-c17e-408e-97ea-e22e5ff69650",
-            "revision": 1,
-            "transcriptIndex": 178
-          }
-        },
-        {
-          "id": "196c3c48-ef10-492d-a663-de07a27b0c26",
-          "speakerId": "speaker-6",
-          "text": "他平均可能也就是一个数。",
-          "startMs": 709862,
-          "endMs": 711382,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "196c3c48-ef10-492d-a663-de07a27b0c26",
-            "revision": 2,
-            "transcriptIndex": 179
-          }
-        },
-        {
-          "id": "3f8a16e8-b87d-418b-8743-7add2f977613",
-          "speakerId": "speaker-9",
-          "text": "对，基本就是一个数。",
-          "startMs": 711582,
-          "endMs": 712382,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "3f8a16e8-b87d-418b-8743-7add2f977613",
-            "revision": 1,
-            "transcriptIndex": 180
-          }
-        },
-        {
-          "id": "25049645-2c1e-4811-85bd-c2a01d468781",
-          "speakerId": "speaker-6",
-          "text": "嗯。",
-          "startMs": 712622,
-          "endMs": 712742,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "25049645-2c1e-4811-85bd-c2a01d468781",
-            "revision": 2,
-            "transcriptIndex": 181
-          }
-        },
-        {
-          "id": "bc6d24ca-043c-4ff0-b7e3-e4fb420a542e",
-          "speakerId": "speaker-9",
-          "text": "对，一个数，然后那那个时候基本上放在我们的室内发，然后现在基本上，呃，我去现在测试场景的话，现在是基本上。",
-          "startMs": 712862,
-          "endMs": 719572,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "bc6d24ca-043c-4ff0-b7e3-e4fb420a542e",
-            "revision": 1,
-            "transcriptIndex": 182
-          }
-        },
-        {
-          "id": "fab926a4-65af-4aa5-ace1-1382b64b2021",
-          "speakerId": "speaker-9",
-          "text": "要在一秒以内吧。嗯P九五P九五在一秒上下，P五一定要快，要大概七百毫秒。",
-          "startMs": 719572,
-          "endMs": 726772,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "fab926a4-65af-4aa5-ace1-1382b64b2021",
-            "revision": 1,
-            "transcriptIndex": 183
-          }
-        },
-        {
-          "id": "ef1ccf0f-faa6-497a-8301-b747bdad8086",
-          "speakerId": "speaker-6",
-          "text": "然后就就是，但是这个只是函数头的。",
-          "startMs": 727532,
-          "endMs": 729932,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "ef1ccf0f-faa6-497a-8301-b747bdad8086",
-            "revision": 2,
-            "transcriptIndex": 184
-          }
-        },
-        {
-          "id": "595b2e6e-1b86-45a0-ae5a-199c83f3642d",
-          "speakerId": "speaker-5",
-          "text": "嗯。",
-          "startMs": 729972,
-          "endMs": 730172,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "595b2e6e-1b86-45a0-ae5a-199c83f3642d",
-            "revision": 1,
-            "transcriptIndex": 185
-          }
-        },
-        {
-          "id": "e45d5f6c-8e0c-4e91-8dcd-354def1ed342",
-          "speakerId": "speaker-6",
-          "text": "函数头参数有一些，它是呃定义还没有改，所以呃参数的准确率它不可信。",
-          "startMs": 730332,
-          "endMs": 737172,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "e45d5f6c-8e0c-4e91-8dcd-354def1ed342",
-            "revision": 2,
-            "transcriptIndex": 186
-          }
-        },
-        {
-          "id": "e8656821-1317-4671-beb6-ce93d9724cb1",
-          "speakerId": "speaker-5",
-          "text": "嗯嗯。",
-          "startMs": 737332,
-          "endMs": 737692,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "e8656821-1317-4671-beb6-ce93d9724cb1",
-            "revision": 1,
-            "transcriptIndex": 187
-          }
-        },
-        {
-          "id": "002d71ac-65f5-4f9b-b928-5c97b7bcb7e0",
-          "speakerId": "speaker-9",
-          "text": "对对，因为他之前他们那个定义的。",
-          "startMs": 737692,
-          "endMs": 739581,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "002d71ac-65f5-4f9b-b928-5c97b7bcb7e0",
-            "revision": 1,
-            "transcriptIndex": 188
-          }
-        },
-        {
-          "id": "bf256473-7e5b-4be9-97e0-58f29906edc7",
-          "speakerId": "speaker-9",
-          "text": "工具的参数，反正其实还随意。",
-          "startMs": 739581,
-          "endMs": 741141,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "bf256473-7e5b-4be9-97e0-58f29906edc7",
-            "revision": 1,
-            "transcriptIndex": 189
-          }
-        },
-        {
-          "id": "92bbfa6f-d233-4171-b8d7-9a9acf9ebc5a",
-          "speakerId": "speaker-5",
-          "text": "嗯。",
-          "startMs": 741341,
-          "endMs": 741541,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "92bbfa6f-d233-4171-b8d7-9a9acf9ebc5a",
-            "revision": 1,
-            "transcriptIndex": 190
-          }
-        },
-        {
-          "id": "2a3bcfa8-2718-44ea-b71a-1c03e52acf56",
-          "speakerId": "speaker-9",
-          "text": "那那肯定是后面我们得改的，现在应该不在范围内。",
-          "startMs": 741621,
-          "endMs": 744061,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "2a3bcfa8-2718-44ea-b71a-1c03e52acf56",
-            "revision": 1,
-            "transcriptIndex": 191
-          }
-        },
-        {
-          "id": "3ac558c8-b8ca-466c-9054-53d5fa0aa4cd",
-          "speakerId": "speaker-5",
-          "text": "嗯嗯。",
-          "startMs": 744181,
-          "endMs": 744541,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "3ac558c8-b8ca-466c-9054-53d5fa0aa4cd",
-            "revision": 1,
-            "transcriptIndex": 192
-          }
-        },
-        {
-          "id": "536647a2-3649-4d14-beb8-a6d3a6900f74",
-          "speakerId": "speaker-9",
-          "text": "对。",
-          "startMs": 744781,
-          "endMs": 744821,
-          "provenance": {
-            "meetingId": "abfd8124-3a36-457a-8883-3c70496df9f8",
-            "sourceId": "536647a2-3649-4d14-beb8-a6d3a6900f74",
-            "revision": 1,
-            "transcriptIndex": 193
+            "kind": "synthetic"
           }
         }
       ],
       "seedFollowups": [
         {
-          "id": "f_parameter_followthrough",
-          "status": "active",
-          "author": "ai",
+          "id": "f_export",
           "kind": "concept",
-          "question": "参数后续按什么完整标准验证，今天说的100%对是否包含参数？",
-          "rationale": "这里存在尚需核对的理解。",
-          "impact": "影响当前方案边界。",
+          "question": "当前导出验收是否也覆盖附件？",
+          "rationale": "同一个说法可能指向不同的对象。",
+          "impact": "影响当前方案的范围与后续操作。",
           "evidence": [
             {
-              "id": "25f31500-40d7-4a9b-8c71-453beb5cc76e",
-              "quote": "我我觉得我今天呃几个事吧，一个是那个升级那个链路，链路我今天测一下调一下，那个其实只能做到100%对。然后还有一个工具调用，工具空间现在不是该走那个 rag 嘛，是吧？现在走的 top k 的接入方式，但是是有固定 top 三的嘛。今天是走了，呃 query 时间，一个是一个 task 一个，不是一个"
+              "id": "synthetic-export-1",
+              "quote": "文本导出的十个样例都检查过了。"
             },
             {
-              "id": "e45d5f6c-8e0c-4e91-8dcd-354def1ed342",
-              "quote": "函数头参数有一些，它是呃定义还没有改，所以呃参数的准确率它不可信。"
+              "id": "synthetic-export-2",
+              "quote": "附件导出还没实现，不能说整套导出功能都通过。"
             }
           ],
+          "status": "active",
+          "author": "ai",
           "evidenceIds": [
-            "25f31500-40d7-4a9b-8c71-453beb5cc76e",
-            "e45d5f6c-8e0c-4e91-8dcd-354def1ed342"
+            "synthetic-export-1",
+            "synthetic-export-2"
           ],
           "manualFields": []
         }
@@ -2434,17 +488,15 @@
       "stages": [
         {
           "id": "deferred",
-          "cutoff": "00:12:24.821",
-          "cutoffMs": 744821,
+          "cutoff": "00:00:30",
+          "cutoffMs": 30000,
           "expected": {
             "focus": "quiet",
-            "trackedId": "f_parameter_followthrough",
-            "tracked": "resolved_or_retired",
+            "trackedId": "f_export",
+            "tracked": "retired_not_resolved",
             "quality": [
-              "函数头与参数的验证范围已区分；参数定义和准确率仍不完整，但明确留待后续。",
-              "可以记录这个限制并退出当前焦点；不能把参数准确率也写成100%。",
-              "不要因为参数未来还要完善，就继续提出验收分母、参数完整标准等主屏问题。",
-              "以记录的实际含义评审：本次范围已明确可记为 resolved；剩余事项被安排到以后也可 retired。两者都不能把参数工作说成已经完成，不以某一种状态写法替代语义判断。"
+              "当前不再讨论附件，不代表附件已经完成。",
+              "记录限制后退出焦点，不把部分检查扩大到整套功能。"
             ]
           },
           "scriptedReply": {
@@ -2453,40 +505,40 @@
             "focusFollowupId": null,
             "resolvedFollowups": [
               {
-                "id": "f_parameter_followthrough",
+                "id": "f_export",
                 "resolution": {
                   "outcome": "needs_verification",
                   "complete": false,
-                  "text": "当前只谈函数头，参数定义尚未改完、准确率不可信，明确不在当前范围，后续再改。"
+                  "text": "文字导出的样例已检查；附件仍未实现，留到下一次。"
                 },
                 "evidence": [
                   {
-                    "id": "ef1ccf0f-faa6-497a-8301-b747bdad8086",
-                    "quote": "然后就就是，但是这个只是函数头的。"
+                    "id": "synthetic-export-1",
+                    "quote": "文本导出的十个样例都检查过了。"
                   },
                   {
-                    "id": "e45d5f6c-8e0c-4e91-8dcd-354def1ed342",
-                    "quote": "函数头参数有一些，它是呃定义还没有改，所以呃参数的准确率它不可信。"
+                    "id": "synthetic-export-2",
+                    "quote": "附件导出还没实现，不能说整套导出功能都通过。"
                   },
                   {
-                    "id": "2a3bcfa8-2718-44ea-b71a-1c03e52acf56",
-                    "quote": "那那肯定是后面我们得改的，现在应该不在范围内。"
+                    "id": "synthetic-export-3",
+                    "quote": "本次只验收文字，附件安排下一次做，今天先不展开。"
                   }
                 ]
               }
             ],
             "retiredFollowups": [
               {
-                "id": "f_parameter_followthrough",
-                "reason": "当前范围与后续安排已说清，参数完善留待后续，不需要继续占用这次例会的焦点。",
+                "id": "f_export",
+                "reason": "本次验收范围已说清，附件明确留待后续，不再占当前焦点。",
                 "evidence": [
                   {
-                    "id": "e45d5f6c-8e0c-4e91-8dcd-354def1ed342",
-                    "quote": "函数头参数有一些，它是呃定义还没有改，所以呃参数的准确率它不可信。"
+                    "id": "synthetic-export-2",
+                    "quote": "附件导出还没实现，不能说整套导出功能都通过。"
                   },
                   {
-                    "id": "2a3bcfa8-2718-44ea-b71a-1c03e52acf56",
-                    "quote": "那那肯定是后面我们得改的，现在应该不在范围内。"
+                    "id": "synthetic-export-3",
+                    "quote": "本次只验收文字，附件安排下一次做，今天先不展开。"
                   }
                 ]
               }

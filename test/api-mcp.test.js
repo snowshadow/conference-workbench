@@ -24,6 +24,16 @@ async function fixture(t,options={}) {
 }
 async function until(fn){const end=Date.now()+5000;while(Date.now()<end){const result=await fn();if(result)return result;await new Promise(r=>setTimeout(r,20));}throw new Error('Timed out');}
 
+test('HTTP speaker review retry retains the requested source scope and review kind', async t => {
+  const { workbench: { store }, request } = await fixture(t);
+  const meeting = store.createMeeting({ title: '重试身份核对' });
+  const source = store.appendTranscript(meeting.id, { text: '周五交付。' });
+  const reply = await request(`/api/meetings/${meeting.id}/jobs`, 'POST', { type: 'refresh_speakers', sourceIds: [source.id], kind: 'labels' });
+  assert.equal(reply.status, 202);
+  assert.deepEqual(reply.data.input, { sourceIds: [source.id], kind: 'labels' });
+  assert.equal((await request(`/api/meetings/${meeting.id}/jobs`, 'POST', { type: 'refresh_speakers' })).status, 400);
+});
+
 test('export distinguishes a retired focus from a resolved fact', async t => {
   const { workbench, base } = await fixture(t);
   const meeting = workbench.store.createMeeting({ title: '当前不必展开' });
@@ -131,8 +141,12 @@ test('MCP streams a local recording into a separate import job and reads playabl
   const imported=await call('import_recording',{filePath,title:'录音导入核验',goal:'对齐实时含义'});
   assert.equal(imported.meeting.status,'ended');assert.equal(imported.meeting.source,'recording_import');assert.equal(imported.job.type,'import');
   const done=await until(async()=>{const j=await call('get_ai_job',{jobId:imported.job.id});return ['done','error'].includes(j.status)?j:false;});
-  assert.equal(done.status,'done',done.error);assert.equal(done.result.transcriptCount,1);assert.equal(done.result.analysisState,'not_configured');
+  assert.equal(done.status,'done',done.error);assert.equal(done.result.transcriptCount,1);assert.equal(done.result.analysisState,'awaiting_speakers');
   const context=await call('get_meeting_context',{meetingId:imported.meeting.id});assert.equal(context.source,'recording_import');assert.equal(context.importJobId,done.id);assert.notEqual(context.capture.state,'recording');assert.equal(context.jobs[0].progress.phase,'done');
+  assert.equal(context.scenario,'regular');assert.equal(context.speakersConfirmedAt,null);
+  workbench.store.saveSettings({llm:{baseUrl:'http://localhost:1234/v1',model:'fixture'}});
+  const confirmed=await call('confirm_meeting_speakers',{meetingId:imported.meeting.id});assert.equal(confirmed.type,'minutes');
+  assert.equal((await call('confirm_meeting_speakers',{meetingId:imported.meeting.id})).id,confirmed.id);
   const transcript=await call('get_transcript_chunk',{meetingId:imported.meeting.id});
   assert.equal(transcript.lines[0].origin,'asr');assert.equal(transcript.lines[0].timing,'chunk');assert.equal(transcript.lines[0].endSample,3200);
   const audio=await fetch(`${base}/api/recordings/${done.result.recordingId}/audio?startSample=1600&endSample=3200`);

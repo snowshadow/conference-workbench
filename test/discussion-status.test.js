@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { latestDiscussionJob, needsManualAnalysis } from '../shared/discussion-status.js';
+import { speakerReviewProgress, latestDiscussionJob, needsManualAnalysis } from '../shared/discussion-status.js';
 
 const meeting = (overrides = {}) => ({
   status: 'active', archived: false, autoOrganize: false, capture: { state: 'idle' },
@@ -90,4 +90,16 @@ test('discussion status keeps active job priority and ignores unrelated work wit
   assert.equal(latestDiscussionJob([job('import', 'done')]), null);
   assert.equal(latestDiscussionJob(), null);
   assert.deepEqual(jobs, original);
+});
+
+ test('speaker review progress distinguishes checked fields, retry and publication', () => {
+  const job = { type: 'refresh_speakers', status: 'running', progress: { totalRecords: 129, completedRecords: 28, totalBatches: 9, completedBatches: 2 } };
+  assert.match(speakerReviewProgress(job), /已核对 28 \/ 129 项/);
+  assert.match(speakerReviewProgress(job), /已完成 2 \/ 9 批/);
+  assert.match(speakerReviewProgress({ ...job, progress: { ...job.progress, activeBatches: 2 } }), /同时处理 2 批/);
+  assert.match(speakerReviewProgress({ ...job, status: 'queued' }), /已保存.*合并处理.*继续操作/);
+  assert.match(speakerReviewProgress({ ...job, progress: { ...job.progress, retrying: true, pendingRecords: 1 } }), /重新核对 1 项/);
+  assert.match(speakerReviewProgress(job), /全部通过后更新/);
+  assert.equal(speakerReviewProgress({ ...job, status: 'done' }), '');
+  assert.equal(speakerReviewProgress({ ...job, status: 'error' }), '');
 });

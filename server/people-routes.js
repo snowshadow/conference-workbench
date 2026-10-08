@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fail } from './store.js';
 import { resolveParticipant } from './people/store.js';
 import { isVoiceprintTextEligible } from '../shared/voiceprint-policy.js';
+import { participantIdentityChangeKind } from '../shared/people.js';
 
 const route = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res)).catch(next);
 
@@ -51,7 +52,8 @@ export function registerPeopleRoutes({ app, store, ai, voiceprints, automatic, d
   app.get('/api/meetings/:id/participants/:participantId/utterances', (req, res) => {
     const cursor = Number(req.query.cursor ?? 0), limit = Number(req.query.limit ?? 20);
     if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw fail('发言分页范围无效');
-    const person = resolveParticipant(store.getMeeting(req.params.id), req.params.participantId);
+    const meeting = store.getMeeting(req.params.id);
+    const person = resolveParticipant(meeting, req.params.participantId);
     if (!person) throw fail('这位说话人不在本场会议中', 404);
     const sources = store.allTranscript(req.params.id).filter(line => line.participantId === person.id).sort((a, b) => a.startMs - b.startMs);
     const recordings = new Map();
@@ -73,19 +75,22 @@ export function registerPeopleRoutes({ app, store, ai, voiceprints, automatic, d
       if (endSample - startSample > 16000 * 3600) return { ...result, playbackReason: '这段录音超过一小时，请在“录音与原文”中分段回听。' };
       return { ...result, playbackAvailable: true, playbackLabel: line.timing === 'chunk' ? '回听所在录音段' : '回听' };
     });
-    res.json({ lines, total: sources.length, nextCursor: cursor + limit < sources.length ? cursor + limit : null });
+    res.json({ lines, total: sources.length, nextCursor: cursor + limit < sources.length ? cursor + limit : null, identityRevision: meeting.identityRevision, transcriptEditRevision: meeting.transcriptEditRevision || 0 });
   });
   app.post('/api/meetings/:id/participants', (req, res) => res.status(201).json(store.createParticipant(req.params.id, req.body).participant));
   app.patch('/api/meetings/:id/participants/:participantId', (req, res) => {
-    const previous = resolveParticipant(store.getMeeting(req.params.id), req.params.participantId);
+    const previous = store.getMeeting(req.params.id);
     const result = store.updateParticipant(req.params.id, req.params.participantId, req.body);
-    const current = resolveParticipant(result.meeting, req.params.participantId);
     const changedSources = result.affectedSourceIds?.length ? result.affectedSourceIds : store.allTranscript(req.params.id).filter(line => line.participantId === req.params.participantId).map(line => line.id);
-    const kind = (previous?.memberId || null) !== (current?.memberId || null) ? 'attribution' : 'labels';
+    const kind = participantIdentityChangeKind(previous, result.meeting, req.params.participantId);
     const job = refresh(req.params.id, changedSources, kind);
     res.json({ meeting: detail(req.params.id), refreshJob: job });
   });
   app.post('/api/meetings/:id/participants/:participantId/merge', (req, res) => res.json(identityResult(req.params.id, store.mergeParticipants(req.params.id, req.params.participantId, req.body.targetId))));
+  app.post('/api/meetings/:id/participants/:participantId/split', (req, res) => {
+    const result = store.splitParticipant(req.params.id, req.params.participantId, req.body);
+    res.json({ ...identityResult(req.params.id, result), participantId: result.participant.id, affectedSourceIds: result.affectedSourceIds });
+  });
   app.patch('/api/meetings/:id/transcript/:lineId/participant', (req, res) => {
     if (typeof req.body.participantId !== 'string' || !req.body.participantId) throw fail('请选择这段发言的说话人');
     res.json(identityResult(req.params.id, store.assignTranscriptParticipant(req.params.id, req.params.lineId, req.body.participantId, { author: req.body.author === 'agent' ? 'agent' : 'host' })));

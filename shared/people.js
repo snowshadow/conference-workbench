@@ -21,6 +21,17 @@ export function participantFor(id, meeting) {
   return person && !person.mergedInto ? person : null;
 }
 
+// Naming a group preserves who said each line. A membership change needs
+// semantic review only when it joins or separates identities across groups.
+export function participantIdentityChangeKind(before, after, participantId) {
+  const peers = meeting => {
+    const person = participantFor(participantId, meeting);
+    return (meeting.participants || []).filter(other => !other.mergedInto && other.id !== person?.id &&
+      person?.memberId && other.memberId === person.memberId).map(other => other.id).sort();
+  };
+  return JSON.stringify(peers(before)) === JSON.stringify(peers(after)) ? 'labels' : 'attribution';
+}
+
 export function speakerName(participantId, meeting) {
   const person = participantFor(participantId, meeting);
   if (!person || isUnassignedUtterance(person)) return '未知说话人';

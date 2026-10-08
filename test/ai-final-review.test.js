@@ -26,7 +26,7 @@ async function finish(store, submitted) {
   assert.fail('job timeout');
 }
 function seed(store) {
-  const m = store.createMeeting({ title: '参数验证范围' });
+  const m = store.createMeeting({ scenario: 'technical', title: '参数验证范围' });
   const q = store.appendTranscript(m.id, { text: '我们这次是否验证参数？', startMs: 0, endMs: 4000 });
   const a = store.appendTranscript(m.id, { text: '本次仅验证函数入口，参数不在范围内。', startMs: 60000, endMs: 65000 });
   store.mutateMeeting(m.id, draft => {

@@ -1,3 +1,4 @@
+import { awaitingSpeakers } from '../../shared/meeting-scenarios.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, LoaderCircle } from 'lucide-react';
 import { api, formatTime, meetingPath } from '../lib/api.js';
@@ -19,6 +20,7 @@ function recognitionText(person) {
   if (person?.identitySource === 'voiceprint') return '声音自动识别';
   const recognition = person?.recognition;
   if (!recognition) return '';
+  if (['candidate', 'unknown', 'exhausted'].includes(recognition.status) && recognition.decision?.reason === 'conflicting_matches') return '片段认出了不同的人，请核对这个分组';
   const labels = {
     waiting: '再等几句清晰发言', queued: '等待识别', running: '正在识别声音',
     matched: '声音自动识别', candidate: '有待确认的人选', unknown: '暂时没认出',
@@ -28,10 +30,13 @@ function recognitionText(person) {
   return labels[recognition.status] || '';
 }
 
-function ParticipantUtterances({ meetingId, participantId, lineCount, identityRevision, transcriptEditRevision, onPlaybackInfo }) {
+function ParticipantUtterances({ meetingId, participantId, lineCount, identityRevision, transcriptEditRevision, onPlaybackInfo, personMeeting, participants, members, busy, onSplit }) {
   const [page, setPage] = useState(null), [loading, setLoading] = useState(true);
   const [error, setError] = useState(''), [playingId, setPlayingId] = useState(null);
   const [audioError, setAudioError] = useState(null);
+  const [splitting, setSplitting] = useState(false), [selectedIds, setSelectedIds] = useState([]);
+  const [destination, setDestination] = useState(''), [guestName, setGuestName] = useState('');
+  const selectionAnchor = useRef(null);
   const requestRef = useRef(null), pageRef = useRef(null), previousCount = useRef(lineCount);
   const latestCount = useRef(lineCount);
   latestCount.current = lineCount;
@@ -50,17 +55,25 @@ function ParticipantUtterances({ meetingId, participantId, lineCount, identityRe
     visibleLimit.current = Math.max(visibleLimit.current, Number(cursor) + limit);
     setLoading(true); setError('');
     try {
-      let result, offset = cursor;
+      let result, snapshot, offset = cursor;
       const refreshed = [];
       do {
         result = await api(`${meetingPath(meetingId, `/participants/${encodeURIComponent(participantId)}/utterances`)}?cursor=${encodeURIComponent(offset)}&limit=${Math.min(100, limit - refreshed.length)}`, { signal: request.signal });
         if (requestRef.current !== request || request.signal.aborted || currentEdit.current !== editAtRequest) return;
+        const revision = `${result.identityRevision}:${result.transcriptEditRevision}`;
+        snapshot ??= revision;
+        if (snapshot !== revision || append && pageRef.current && `${pageRef.current.identityRevision}:${pageRef.current.transcriptEditRevision}` !== revision) {
+          setSelectedIds([]); selectionAnchor.current = null;
+          lastRequest.current = { cursor: 0, limit: visibleLimit.current, append: false };
+          throw new Error('发言或说话人已变化，请重新读取后再选择。');
+        }
         refreshed.push(...result.lines);
         offset = result.nextCursor;
       } while (offset != null && refreshed.length < limit && result.lines.length);
       result = { ...result, lines: refreshed };
       if (latestCount.current < countAtRequest) { loadPage(0, visibleLimit.current); return; }
       const previous = pageRef.current;
+      if (previous && (previous.identityRevision !== result.identityRevision || previous.transcriptEditRevision !== result.transcriptEditRevision)) { setSelectedIds([]); selectionAnchor.current = null; }
       const seen = new Set(append ? previous?.lines.map(line => line.id) : []);
       const next = { ...result, lines: append ? [...(previous?.lines || []), ...result.lines.filter(line => !seen.has(line.id))] : result.lines };
       if (latestCount.current > countAtRequest && latestCount.current > next.total) {
@@ -78,6 +91,7 @@ function ParticipantUtterances({ meetingId, participantId, lineCount, identityRe
     // Corrections and attribution changes refresh only the range already open.
     // The scroll container and its existing rows stay mounted while it loads.
     loadPage(0, visibleLimit.current);
+    setSelectedIds([]); selectionAnchor.current = null;
     return () => { requestRef.current?.abort(); requestRef.current = null; };
   }, [loadPage, editKey]);
   useEffect(() => {
@@ -94,12 +108,33 @@ function ParticipantUtterances({ meetingId, participantId, lineCount, identityRe
   useEffect(() => {
     onPlaybackInfo({ meetingId, participantId, loaded: Boolean(page), count: page?.lines.length || 0, playable: page?.lines.filter(line => line.playbackAvailable).length || 0 });
   }, [page, meetingId, participantId, onPlaybackInfo]);
-  return <section className="people-utterances" aria-label="这位说过什么">
-    <div className="people-utterances-heading"><h4>这位说过什么</h4>{page && <span>{page.total} 段发言</span>}</div>
+  const targetPeople = participants.filter(person => person.id !== participantId);
+  const presentMembers = new Set(participants.map(person => person.memberId).filter(Boolean));
+  const otherMembers = members.filter(member => !presentMembers.has(member.id));
+  const selectionDisabled = busy || loading || Boolean(error);
+  function toggleSelection(lineId, checked, range) {
+    const anchorIndex = page.lines.findIndex(line => line.id === selectionAnchor.current);
+    const index = page.lines.findIndex(line => line.id === lineId);
+    const ids = range && anchorIndex >= 0 ? page.lines.slice(Math.min(anchorIndex, index), Math.max(anchorIndex, index) + 1).map(line => line.id) : [lineId];
+    setSelectedIds(previous => checked ? [...new Set([...previous, ...ids])] : previous.filter(id => !ids.includes(id)));
+    selectionAnchor.current = lineId;
+  }
+  async function split(event) {
+    event.preventDefault();
+    if (selectionDisabled || !selectedIds.length || !destination) return;
+    const target = destination === 'new' ? { name: guestName.trim() } : destination.startsWith('member:') ? { memberId: destination.slice(7) } : { participantId: destination.slice(7) };
+    const targetName = target.name || (target.memberId ? members.find(member => member.id === target.memberId)?.name : speakerName(target.participantId, personMeeting));
+    const result = await onSplit({ sourceIds: page.lines.filter(line => selectedIds.includes(line.id)).map(line => line.id), target, identityRevision: page.identityRevision, transcriptEditRevision: page.transcriptEditRevision }, targetName);
+    if (result) { setSelectedIds([]); selectionAnchor.current = null; setSplitting(false); setDestination(''); setGuestName(''); }
+    await loadPage(0, visibleLimit.current);
+  }
+  return <section className={`people-utterances ${splitting ? 'is-splitting' : ''}`} aria-label="这位说过什么">
+    <div className="people-utterances-heading"><h4>这位说过什么</h4>{page && <span>{page.total} 段发言</span>}{lineCount > 0 && <Button className="text-button small" disabled={busy} onClick={() => { setSplitting(!splitting); setSelectedIds([]); selectionAnchor.current = null; if (!splitting && (page?.lines.length || 0) < 20) loadPage(0, Math.max(20, visibleLimit.current)); }}>{splitting ? '取消拆分' : '拆分发言'}</Button>}</div>
+    {splitting && <div className="people-split-help"><p className="people-muted">勾选混入的发言，移给另一位说话人。按住 Shift 点击可连续选择。</p><div className="people-selection-actions"><span role="status">已选 {selectedIds.length} 段</span><Button className="text-button small" disabled={selectionDisabled || !page?.lines.length} onClick={() => setSelectedIds(page.lines.map(line => line.id))}>选择已显示的发言</Button><Button className="text-button small" disabled={busy || !selectedIds.length} onClick={() => { setSelectedIds([]); selectionAnchor.current = null; }}>清空选择</Button></div></div>}
     {!page && loading && <p className="people-muted" role="status">正在读取发言…</p>}
     {page && !page.lines.length && <p className="people-muted">还没有这位说话人的原文。</p>}
-    {page?.lines.length > 0 && <div className="people-utterance-list">{page.lines.map(line => <div className="people-utterance" key={line.id}>
-      <div className="people-utterance-meta"><span>{formatTime(line.startMs)}{line.playbackAvailable && ` · ${segmentSeconds(line) < 3 ? `${Number(segmentSeconds(line).toFixed(2))} 秒` : durationLabel(segmentSeconds(line))}`}</span>{line.playbackAvailable && <button type="button" className="people-listen" aria-expanded={playingId === line.id} onClick={() => { setPlayingId(playingId === line.id ? null : line.id); setAudioError(null); }}>{playingId === line.id ? '收起回听' : line.playbackLabel || '回听'}</button>}</div>
+    {page?.lines.length > 0 && <div className="people-utterance-list">{page.lines.map(line => <div className={`people-utterance ${selectedIds.includes(line.id) ? 'is-selected' : ''}`} key={line.id}>
+      <div className="people-utterance-meta"><label className="people-utterance-time">{splitting && <input type="checkbox" aria-label={`选择 ${formatTime(line.startMs)} 的发言：${line.text}`} checked={selectedIds.includes(line.id)} disabled={selectionDisabled} onChange={event => toggleSelection(line.id, event.target.checked, event.nativeEvent.shiftKey)} />}<span>{formatTime(line.startMs)}{line.playbackAvailable && ` · ${segmentSeconds(line) < 3 ? `${Number(segmentSeconds(line).toFixed(2))} 秒` : durationLabel(segmentSeconds(line))}`}</span></label>{line.playbackAvailable && <button type="button" className="people-listen" aria-expanded={playingId === line.id} onClick={() => { setPlayingId(playingId === line.id ? null : line.id); setAudioError(null); }}>{playingId === line.id ? '收起回听' : line.playbackLabel || '回听'}</button>}</div>
       <p>{line.text}</p>
       {!line.playbackAvailable && <span className="people-utterance-unavailable">{line.playbackReason || '这段发言没有可回听的录音。'}</span>}
       {playingId === line.id && line.playbackAvailable && <audio controls preload="metadata" src={audioUrl(line)} aria-label={`回听 ${formatTime(line.startMs)} 的发言`} onError={() => setAudioError({ id: line.id, message: '这段录音暂时无法读取，可以稍后重试。' })} />}
@@ -107,6 +142,12 @@ function ParticipantUtterances({ meetingId, participantId, lineCount, identityRe
     </div>)}</div>}
     <FormError error={error} />
     {error ? <Button className="text-button small" disabled={loading} onClick={() => { const { cursor, limit, append } = lastRequest.current; loadPage(cursor, limit, append); }}>重新读取发言</Button> : page?.nextCursor != null && <Button className="text-button small people-utterances-more" busy={loading} onClick={() => loadPage(page.nextCursor, 20, true)}>查看更多发言</Button>}
+    {splitting && !error && page?.nextCursor != null && <Button className="text-button small" disabled={loading || busy} onClick={() => loadPage(0, page.total)}>展开全部 {page.total} 段</Button>}
+    {splitting && <form className="people-split-form" onSubmit={split}>
+      <label>所选发言属于<select value={destination} disabled={busy} onChange={event => setDestination(event.target.value)} required><option value="">选择另一位说话人</option>{targetPeople.length > 0 && <optgroup label="本场参会者">{targetPeople.map(person => <option key={person.id} value={`person:${person.id}`}>{speakerName(person.id, personMeeting)}</option>)}</optgroup>}{otherMembers.length > 0 && <optgroup label="其他团队成员">{otherMembers.map(member => <option key={member.id} value={`member:${member.id}`}>{member.name}</option>)}</optgroup>}<option value="new">填写另一位说话人的姓名</option></select></label>
+      {destination === 'new' && <label>另一位说话人的姓名<input value={guestName} onChange={event => setGuestName(event.target.value)} maxLength={100} required disabled={busy} placeholder="仅在本场会议标记" /></label>}
+      <Button type="submit" className="primary" busy={busy} disabled={selectionDisabled || !selectedIds.length || !destination || destination === 'new' && !guestName.trim()}>移动所选 {selectedIds.length} 段发言</Button>
+    </form>}
   </section>;
 }
 
@@ -242,7 +283,7 @@ export default function PeopleDialog({ meeting, initialParticipantId, onClose, o
       const updated = next?.participants.find(person => person.id === selectedId);
       if (updated) { setName(updated.name || ''); setMemberId(updated.memberId || ''); }
       setJob(previous => previous?.type === 'enroll' ? previous : null);
-      setNotice(result?.refreshJob?.status === 'error' ? `姓名已保存；相关分析暂未更新：${result.refreshJob.error}` : message);
+      setNotice(result?.refreshJob?.status === 'error' ? `${message} 相关分析暂未更新：${result.refreshJob.error}` : message);
       return result;
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }
@@ -291,7 +332,7 @@ export default function PeopleDialog({ meeting, initialParticipantId, onClose, o
   const processing = pending(job) || recognitionPending(selected);
   const registered = profiles.filter(usableProfile).flatMap(profileSegments).length;
   const selectedStatus = recognitionText(selected);
-  const canIdentify = selected && !manualIdentity(selected) && !selected.name?.trim() && !selected.memberId;
+  const canIdentify = !meeting.speakersConfirmedAt && selected && !manualIdentity(selected) && !selected.name?.trim() && !selected.memberId;
   const enoughSamples = selectedSamples.length >= 2;
   const sampleWaitMessage = meeting.status === 'ended' || meeting.status === 'archived' ? '发言太短，暂不能识别姓名' : '再等几句较长的发言';
   const shownPlayback = playbackInfo?.meetingId === meeting.id && playbackInfo.participantId === selectedId ? playbackInfo : null;
@@ -316,7 +357,7 @@ export default function PeopleDialog({ meeting, initialParticipantId, onClose, o
             {recognition?.status === 'error' && <p className="people-muted">{recognition.error || '这次没能完成识别，可以稍后重试或直接填写姓名。'}</p>}
             {recognition?.analysisStatus === 'error' && <p className="people-muted">姓名已更新，相关讨论暂未完成核对。</p>}
           </div>
-          <ParticipantUtterances key={`${meeting.id}:${selected.id}`} meetingId={meeting.id} participantId={selected.id} lineCount={selected.lineCount} identityRevision={meeting.identityRevision} transcriptEditRevision={meeting.transcriptEditRevision} onPlaybackInfo={updatePlaybackInfo} />
+          <ParticipantUtterances key={`${meeting.id}:${selected.id}`} meetingId={meeting.id} participantId={selected.id} lineCount={selected.lineCount} identityRevision={meeting.identityRevision} transcriptEditRevision={meeting.transcriptEditRevision} onPlaybackInfo={updatePlaybackInfo} personMeeting={personMeeting} participants={data.participants} members={data.members} busy={busy} onSplit={(input, targetName) => change(() => api(meetingPath(meeting.id, `/participants/${encodeURIComponent(selected.id)}/split`), { method: 'POST', body: input }), `已将 ${input.sourceIds.length} 段发言移给${targetName}。`)} />
           <form onSubmit={save} className="people-name-form"><label>姓名<input value={name} onChange={event => { identityDirty.current = true; setName(event.target.value); }} maxLength={100} required readOnly={Boolean(memberId && memberId !== 'new')} placeholder="填写这位参会者的姓名" /></label><label>是否是团队成员<select value={memberId} onChange={event => { identityDirty.current = true; const next = event.target.value; setMemberId(next); const member = data.members.find(item => item.id === next); if (member) setName(member.name); }}><option value="">仅在这场会议标记</option>{data.members.map(member => <option key={member.id} value={member.id}>{member.name}</option>)}<option value="new">加入团队成员</option></select></label><div className="people-name-actions"><Button type="submit" className="primary" busy={busy} disabled={!name.trim() || manualIdentity(selected) && name.trim() === selected.name && memberId === (selected.memberId || '')}>{manualIdentity(selected) ? '保存姓名' : '确认姓名'}</Button>{manualIdentity(selected) && <span className="people-muted">自动识别不会改动已确认的姓名。</span>}</div></form>
           {pending(job) && <div className="people-job" role="status"><LoaderCircle size={15} className="spin" aria-hidden="true" /><span>{job.type === 'enroll' ? '正在保存声音样本…' : '正在识别声音…'} 可以关闭窗口。</span><button type="button" onClick={async () => { try { const result = await api(`/api/voiceprint-jobs/${encodeURIComponent(job.id)}/cancel`, { method: 'POST', body: {} }); setJob(result.job); await load(); } catch (failure) { setError(failure.message); } }}>取消</button></div>}
           {job?.status === 'error' && <FormError error={typeof job.error === 'string' ? job.error : job.error?.message || '声音处理未完成，可以稍后重试。'} />}
@@ -332,5 +373,10 @@ export default function PeopleDialog({ meeting, initialParticipantId, onClose, o
         </section>}
       </div>}
     </div>
+    {awaitingSpeakers(meeting) && <div className="modal-footer"><p className="people-muted">未认出的说话人可以保留未知。请先保存姓名修改，确认后开始分析。</p><Button className="primary" busy={busy} disabled={!data || !meeting.transcriptRevision || meeting.jobs?.some(item => item.type === 'import' && item.status !== 'done') || Boolean(selected && (name.trim() !== (selected.name || '') || memberId !== (selected.memberId || '')))} onClick={async () => {
+      setBusy(true); setError('');
+      try { await api(meetingPath(meeting.id, '/speakers/confirm'), { method: 'POST', body: {} }); await onChangedRef.current?.(); onClose(); }
+      catch (failure) { setError(failure.message); } finally { setBusy(false); }
+    }}>确认并生成纪要</Button></div>}
   </Modal>;
 }

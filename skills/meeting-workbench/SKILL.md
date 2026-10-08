@@ -21,7 +21,7 @@ description: Operate the local meeting workbench through MCP to record or import
 
 ## 导入已有录音
 
-用户已指定录音时，调用 `import_recording`，提供本机文件的绝对路径，可附会议名称与目标。上传完成会返回一场已结束的会议与 `job`；不需要打开浏览器授权麦克风。用 `get_ai_job` 查看解码、转录的进度，`done` 后再读取原文。大模型已配置时会接着生成纪要，导入结果中的 `analysisJobId` 指向这个独立任务；转录完成不等于 AI 整理完成。
+用户已指定录音时，调用 `import_recording`，提供本机文件的绝对路径，可附会议名称与目标，`scenario` 可选 `regular`（例会，默认）或 `technical`（技术讨论／方案会）。上传完成会返回一场已结束的会议与 `job`；不需要打开浏览器授权麦克风。用 `get_ai_job` 查看解码、转录的进度，`done` 后再读取原文。转录完成后停在 `awaiting_speakers`，不会自动分析。用 `get_meeting_speakers` 核对分组、匹配结果并保存用户确认的姓名；用户确认本场说话人后，调用 `confirm_meeting_speakers`，再用返回的 job 查询纪要生成状态。未认出的身份可保留未知，不猜姓名。例会先核对 TODO 和成员之间未对齐的事项；技术会议先核对概念、前提与取舍的复盘。转录完成不等于 AI 整理完成。
 
 导入失败时，文件和已完成转录保留在本机。按错误信息检查文件转录服务配置，用 `retry_recording_import` 继续未完成的分段，不重新上传。`timing=chunk` 表示识别服务只返回整段文本，回听定位到录音段，不能宣称逐句时间准确。
 

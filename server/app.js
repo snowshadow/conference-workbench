@@ -57,11 +57,12 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
   app.post('/api/meetings',(req,res)=>res.status(201).json(store.createMeeting(req.body)));
   app.post('/api/meetings/import',asyncRoute(async(req,res)=>res.status(202).json(await imports.receive(req))));
   app.post('/api/meetings/:id/import/retry',(req,res)=>res.status(202).json(imports.retry(req.params.id)));
+  app.post('/api/meetings/:id/speakers/confirm',(req,res)=>res.status(202).json(ai.confirmSpeakers(req.params.id)));
   app.get('/api/meetings/:id',(req,res)=>res.json(detail(req.params.id)));
   app.patch('/api/meetings/:id',(req,res)=>{
     const previous=store.getMeeting(req.params.id);
     const input={};
-    for(const key of ['title','goal','archived','autoOrganize','speakerLabels']) if(Object.hasOwn(req.body,key)) input[key]=req.body[key];
+    for(const key of ['title','goal','scenario','archived','autoOrganize','speakerLabels']) if(Object.hasOwn(req.body,key)) input[key]=req.body[key];
     for(const key of ['archived','autoOrganize']) if(Object.hasOwn(input,key) && typeof input[key]!=='boolean') throw fail(`${key} 必须为布尔值`);
     if(input.speakerLabels && (typeof input.speakerLabels!=='object' || Array.isArray(input.speakerLabels) || Object.values(input.speakerLabels).some(v=>typeof v!=='string'))) throw fail('说话人名称格式无效');
     if(input.archived && ['recording','paused'].includes(capture.getState(req.params.id).state)) throw fail('请先停止录音再归档',409);
@@ -110,7 +111,7 @@ export function createWorkbench({dataDir=process.env.WORKBENCH_DATA_DIR || path.
   app.post('/api/meetings/:id/topics/:topicId/merge',(req,res)=>res.json(mergeTopic(store,req.params.id,req.params.topicId,req.body.targetId)));
   app.patch('/api/meetings/:id/entries/:entryId',(req,res)=>res.json(editEntry(store,req.params.id,req.params.entryId,req.body)));
   app.patch('/api/meetings/:id/followups/:followupId',(req,res)=>res.json(editFollowup(store,req.params.id,req.params.followupId,req.body)));
-  app.post('/api/meetings/:id/jobs',(req,res)=>res.status(202).json(ai.submit(req.params.id,req.body.type,{question:req.body.question,topicId:req.body.topicId,force:req.body.force})));
+  app.post('/api/meetings/:id/jobs',(req,res)=>res.status(202).json(ai.submit(req.params.id,req.body.type,{question:req.body.question,topicId:req.body.topicId,force:req.body.force,sourceIds:req.body.sourceIds,kind:req.body.kind})));
   app.get('/api/jobs/:id',(req,res)=>{const job=store.getJob(req.params.id);res.json(presentPeopleValue(job,store.getMeeting(job.meetingId)));});
   app.post('/api/meetings/:id/commands',asyncRoute(async(req,res)=>res.status(202).json(await capture.request(req.params.id,req.body.action))));
   app.get('/api/commands/:id',(req,res)=>res.json(store.getCommand(req.params.id)));
