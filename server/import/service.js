@@ -8,6 +8,7 @@ import Busboy from 'busboy';
 import { wav } from '../capture/service.js';
 import { assertOutboundUrl, loadOutboundPolicy } from '../capture/outbound-url.js';
 import { transcribeVolcAudio, VOLC_FILE_LIMITS } from './volcengine.js';
+import { transcribeVolcStandardAudio } from './volcengine-standard.js';
 
 const RATE = 16000;
 const LEGACY_CHUNK_SAMPLES = 60 * RATE;
@@ -150,7 +151,7 @@ export function createImportService({ store, onTranscript = () => {}, fetchImpl 
   function createPlan(config = {}, legacy = false) {
     const provider = config.provider === 'volcengine' ? 'volcengine' : 'openai';
     const asrPlan = provider === 'volcengine'
-      ? { provider, resourceId: config.resourceId || 'volc.bigasr.auc_turbo' }
+      ? { provider, resourceId: config.resourceId || 'volc.seedasr.auc' }
       : { provider, baseUrl: config.baseUrl || '', model: config.model || '', language: config.language || '' };
     // Do not persist credentials hidden inside an invalid endpoint URL. The
     // missing address is reported as a configuration error before any request.
@@ -182,9 +183,12 @@ export function createImportService({ store, onTranscript = () => {}, fetchImpl 
     if (completed < recording.sampleCount) retained.push({ startSample: completed, endSample: recording.sampleCount, reason: error || '录音已保存，此区间等待文件转录。', importKind: 'pending' });
     store.updateRecording(recording.id, { gaps: retained });
   }
-  async function transcribe(pcm, signal, plan) {
+  async function transcribe(pcm, signal, plan, cloudOptions) {
     const settings = store.getSettings(), config = { ...plan, apiKey: settings.fileAsr?.apiKey };
     if (config.provider === 'volcengine') {
+      if (['volc.seedasr.auc', 'volc.bigasr.auc'].includes(config.resourceId)) {
+        return transcribeVolcStandardAudio({ audio: wav(pcm), config: { ...settings.asr, resourceId: config.resourceId }, tos: settings.tos, signal, fetchImpl, requestTimeoutMs, ...cloudOptions });
+      }
       return transcribeVolcAudio({ audio: wav(pcm), config: { ...settings.asr, resourceId: config.resourceId }, signal, fetchImpl, requestTimeoutMs });
     }
     if (!config.baseUrl || !config.model) throw problem('请先在连接设置中配置录音文件转录服务，再重试导入。');
@@ -277,7 +281,12 @@ export function createImportService({ store, onTranscript = () => {}, fetchImpl 
           else {
             const pcm = Buffer.alloc((endSample - startSample) * 2);
             let count = 0; while (count < pcm.length) { const read = fs.readSync(fd, pcm, count, pcm.length - count, startSample * 2 + count); if (!read) throw problem('读取已保存的录音失败。'); count += read; }
-            lines = providerLines(await measure('asrMs', () => transcribe(pcm, controller.signal, job.input.asrPlan)), index, startSample, endSample, recording.id);
+            const result = await measure('asrMs', () => transcribe(pcm, controller.signal, job.input.asrPlan, {
+              stateFile: path.join(chunksDir, `${String(index).padStart(6, '0')}.cloud.json`),
+              onProgress: phase => { job = store.updateJob(job.id, { progress: { ...job.progress, phase } }); },
+            }));
+            if (result.cleanupWarning) job = store.updateJob(job.id, { input: { ...job.input, cleanupWarning: result.cleanupWarning } });
+            lines = providerLines(result, index, startSample, endSample, recording.id);
             if (controller.signal.aborted) throw interrupted();
             const temporary = `${checkpointPath}.${randomUUID()}.partial`;
             fs.writeFileSync(temporary, JSON.stringify({ lines }), { mode: 0o600, flag: 'wx', flush: true });
@@ -313,7 +322,7 @@ export function createImportService({ store, onTranscript = () => {}, fetchImpl 
       const transcriptCount = store.allTranscript(job.meetingId).filter(line => line.recordingId === recording.id).length;
       const analysisJobId = null;
       const analysisState = transcriptCount ? 'awaiting_speakers' : 'no_transcript';
-      const message = transcriptCount ? '转录已完成，请核对匹配的说话人，确认后生成会议纪要。' : '录音已保存，但未识别出文字；可回听核对，检查文件转录模型。';
+      const message = (transcriptCount ? '转录已完成，请核对匹配的说话人，确认后生成会议纪要。' : '录音已保存，但未识别出文字；可回听核对，检查文件转录模型。') + (job.input.cleanupWarning ? ` ${job.input.cleanupWarning}` : '');
       store.updateJob(job.id, { status: 'done', error: null, progress: { ...job.progress, phase: 'done' }, result: { recordingId: recording.id, transcriptCount, durationMs: recording.sampleCount / 16, analysisJobId, analysisState, message } });
     } catch (error) {
       job = store.getJob(initial.id);

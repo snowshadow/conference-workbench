@@ -63,11 +63,17 @@ npm start
 
 | 用途 | 需要配置 | 接口与填写内容 |
 | --- | --- | --- |
-| 现场录音实时转文字 | 实时语音识别 | 火山引擎流式 ASR：API Key、Resource ID；也支持 App Key + Access Key |
-| 导入已有录音并转文字 | 录音文件转录 | 默认火山引擎：复用实时 ASR 凭证，文件 Resource ID 单独填写；也可切换 OpenAI 兼容服务 |
+| 现场录音实时转文字 | 实时语音识别 | 豆包实时语音识别 2.0：API Key、Resource ID；也支持 App Key + Access Key |
+| 导入已有录音并转文字 | 录音文件转录 | 默认豆包文件识别 2.0：复用实时 ASR 凭证，另需 TOS 存储配置；也可切换 OpenAI 兼容服务 |
 | 澄清、主题、问答、纪要 | AI 模型 | 兼容 OpenAI Chat Completions 的服务：地址、模型名称、API Key |
 
-文件转录默认选择「火山引擎」，资源为 `volc.bigasr.auc_turbo`。先在「实时语音识别」区域填写 API Key，或 App Key + Access Key，文件转录会复用这份凭证。还需在火山控制台开通录音文件识别极速版；实时转录可用不代表文件识别资源已经开通。仅导入录音时不需要启动现场录音或授权麦克风。
+实时识别默认使用豆包语音 2.0，资源为 `volc.seedasr.sauc.duration`。先在火山控制台开通对应服务，再填写语音服务的 API Key。接口仍使用 `wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async`，请求中的模型名仍为 `bigmodel`；模型版本由 Resource ID 选择，见[官方实时识别文档](https://docs.volcengine.com/docs/DoubaoVoice/bidirectional-streaming-automatic-speech-recognition-websocket?lang=zh)。
+
+从旧账号或旧版本迁移时，在「实时语音识别」区域填入新账号的 API Key，将 Resource ID 改为 `volc.seedasr.sauc.duration`，然后保存。已有保存设置优先于 `.env`，修改默认值不会覆盖已有资源选择。新凭证在下一次开始或继续录音时生效；先用短录音核对文字和最后一句是否完整。
+
+文件转录默认使用豆包录音文件识别 2.0，资源为 `volc.seedasr.auc`，复用实时识别的 API Key。需单独开通录音文件识别 2.0，并配置私有 TOS 存储桶。工作台接收本地文件后，自动上传临时音频、提交云端任务并查询结果，取得结果后清理临时副本。开通与配置步骤见 [TOS 配置指南](TOS_SETUP.md)。实时转录可用不代表文件识别资源已经开通。仅导入录音时无需启动现场录音或授权麦克风。
+
+已保存的 1.0 极速版设置仍会保留。迁移到 2.0 时，在「文件识别版本」选择「豆包录音文件识别 2.0」，填写 TOS 配置并保存。已有极速版权限的账号也可以继续选择 `volc.bigasr.auc_turbo`，该接口直接上传音频，不需要 TOS。
 
 需要使用本机 oMLX 或其他转录服务时，将「文件转录服务」切换为「OpenAI 兼容服务」，填写兼容 `/v1/audio/transcriptions` 的地址、模型名称、API Key 和语言。备用预填地址为 `http://127.0.0.1:8000`，模型为 `Qwen3-ASR-1.7B-8bit`，不代表本机已有服务。本机服务不要求密钥时可以不填；语言默认 `zh`。已有版本保存过的 OpenAI 兼容设置会保留，切换服务后点击「保存设置」生效。
 
@@ -102,9 +108,11 @@ Copy-Item .env.example .env
 | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | 默认 `https://opencode.ai/zen/go/v1`、`deepseek-v4.1-flash`；填入 OpenCode Go 凭据。已保存的连接设置优先 |
 | `VOLCENGINE_ASR_API_KEY` | 火山实时 ASR 与文件转录共用的 API Key |
 | `VOLCENGINE_ASR_APP_KEY` / `VOLCENGINE_ASR_ACCESS_KEY` | 火山实时 ASR 与文件转录共用的另一种凭据组合 |
-| `VOLCENGINE_ASR_RESOURCE_ID` | 实时 ASR 资源，默认 `volc.bigasr.sauc.duration` |
+| `VOLCENGINE_ASR_RESOURCE_ID` | 实时 ASR 资源，默认 `volc.seedasr.sauc.duration`（豆包语音 2.0） |
 | `FILE_ASR_PROVIDER` | 文件转录服务，默认 `volcengine`；备用为 `openai` |
-| `FILE_ASR_RESOURCE_ID` | 火山文件转录资源，默认 `volc.bigasr.auc_turbo` |
+| `FILE_ASR_RESOURCE_ID` | 火山文件转录资源，默认 `volc.seedasr.auc`（豆包文件识别 2.0） |
+| `TOS_REGION` / `TOS_BUCKET` | 私有 TOS 存储桶地域与名称，地域默认 `cn-beijing` |
+| `TOS_ACCESS_KEY_ID` / `TOS_ACCESS_KEY_SECRET` | TOS 存储密钥，与语音 API Key 不同；权限范围见 [TOS 配置指南](TOS_SETUP.md) |
 | `FILE_ASR_BASE_URL` / `FILE_ASR_MODEL` | 仅供 OpenAI 兼容文件转录使用的地址与模型 |
 | `FILE_ASR_API_KEY` / `FILE_ASR_LANGUAGE` | 仅供 OpenAI 兼容文件转录使用的凭据与语言；语言默认 `zh` |
 | `FFMPEG_PATH` | ffmpeg 可执行文件路径；未设置时从 `PATH` 查找 |
@@ -127,7 +135,7 @@ Copy-Item .env.example .env
 
 左侧会议列表每次加载 20 场，底部点击「加载更多会议」继续查看；归档列表单独分页。在「录音与原文」中搜索时，匹配的关键词会高亮显示。在「讨论脉络」中收到新的焦点问题时，对应的焦点页签会显示未读数量，切回后清除；已有问题的文字修改不重复提醒。
 
-ffmpeg 将录音转换为本地 PCM，供识别和原文区间回听。火山文件转录在单次请求限制内整段提交，超限才分长段，让服务能在较长的连续录音中区分说话人。按当前 16 kHz 单声道 WAV 格式，约 52 分钟以内一次提交，超过时按单段不超过 100 MB 拆分。整段识别期间显示等待状态，返回后再显示原文；OpenAI 兼容服务仍默认每段 60 秒。解码后的音频上限为 2 GiB，更长录音需要先拆分。
+ffmpeg 将录音转换为本地 PCM，供识别和原文区间回听。火山文件转录在工作台的分段上限内整段提交，超限才分长段，让服务能在较长的连续录音中区分说话人。按当前 16 kHz 单声道 WAV 格式，约 52 分钟以内一次提交，超过时按单段不超过 100 MB 拆分。整段识别期间显示等待状态，返回后再显示原文；OpenAI 兼容服务仍默认每段 60 秒。解码后的音频上限为 2 GiB，更长录音需要先拆分。
 
 不同请求返回的相同说话人编号不表示同一个人，跨段身份仍需声纹比对或人工确认。服务未返回可用的句级时间时，短文本会标记「按录音段定位」；长文本无法完整保存时会报错并保留录音，不会静默截掉原文。
 
@@ -234,7 +242,7 @@ Agent 写入后应回读确认。原文或说话人已修正时，需要重新�
 | PowerShell 拒绝运行 `npm.ps1` | 改用 `npm.cmd ci`、`npm.cmd run build`、`npm.cmd start`，无须为此修改系统执行策略 |
 | 浏览器打不开工作台 | 确认终端仍运行且已执行构建；使用终端输出的地址。出现 `EADDRINUSE` 时先确认是否已有工作台在运行 |
 | 找不到 ffmpeg | 检查 `ffmpeg -version`；修正 `PATH` 或 `FFMPEG_PATH` 后重启工作台，再重试导入 |
-| 火山实时转录可用，文件转录提示权限不足 | 确认已开通录音文件识别极速版，并检查「录音文件转录」中的 Resource ID；流式识别与文件识别使用不同资源 |
+| 火山实时转录可用，文件转录提示权限不足 | 确认已开通所选录音文件识别版本；2.0 还需配置 TOS，并检查「录音文件转录」中的 Resource ID；流式识别与文件识别使用不同资源 |
 | 只有转录，没有澄清或主题 | 检查 AI 模型配置与「处理记录」。文件 ASR 成功不代表大模型已配置或分析已完成 |
 | AI 分析等待较久 | 长会议分批处理，单批请求最多等待 5 分钟。先查看任务进度；服务支持时可降低思考强度 |
 | 修改 `.env` 后配置没变 | 界面保存过的配置优先；在「连接设置」中修改实际使用的地址、模型或密钥 |

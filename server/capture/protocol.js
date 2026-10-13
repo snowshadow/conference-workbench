@@ -2,8 +2,10 @@ import zlib from "node:zlib";
 const MAX_PAYLOAD_BYTES = 1_048_576;
 
 export function buildAsrHeaders(config, connectId) {
+  // The current API requires Request-Id; keep Connect-Id for legacy gateways.
   const headers = {
     "X-Api-Resource-Id": config.resourceId,
+    "X-Api-Request-Id": connectId,
     "X-Api-Connect-Id": connectId,
   };
   if (config.apiKey) headers["X-Api-Key"] = config.apiKey;

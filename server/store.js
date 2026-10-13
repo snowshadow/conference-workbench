@@ -294,15 +294,18 @@ export class Store {
     // switched. Fresh installations use the shared Volcengine credentials.
     const fileProvider = process.env.FILE_ASR_PROVIDER || (saved.fileAsr?.baseUrl || process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL ? 'openai' : 'volcengine');
     return { llm: {baseUrl:process.env.LLM_BASE_URL || 'https://opencode.ai/zen/go/v1',model:process.env.LLM_MODEL || 'deepseek-v4.1-flash',apiKey:process.env.LLM_API_KEY || '',...saved.llm},
-      asr: {apiKey:process.env.VOLCENGINE_ASR_API_KEY || '',appKey:process.env.VOLCENGINE_ASR_APP_KEY || '',accessKey:process.env.VOLCENGINE_ASR_ACCESS_KEY || '',resourceId:process.env.VOLCENGINE_ASR_RESOURCE_ID || 'volc.bigasr.sauc.duration',...saved.asr},
-      fileAsr: {provider:fileProvider,resourceId:process.env.FILE_ASR_RESOURCE_ID || 'volc.bigasr.auc_turbo',baseUrl:process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL || 'http://127.0.0.1:8000',model:process.env.FILE_ASR_MODEL || process.env.OMLX_ASR_MODEL || 'Qwen3-ASR-1.7B-8bit',apiKey:process.env.FILE_ASR_API_KEY ?? process.env.OMLX_API_KEY ?? '',language:process.env.FILE_ASR_LANGUAGE || 'zh',...saved.fileAsr} };
+      asr: {apiKey:process.env.VOLCENGINE_ASR_API_KEY || '',appKey:process.env.VOLCENGINE_ASR_APP_KEY || '',accessKey:process.env.VOLCENGINE_ASR_ACCESS_KEY || '',resourceId:process.env.VOLCENGINE_ASR_RESOURCE_ID || 'volc.seedasr.sauc.duration',...saved.asr},
+      fileAsr: {provider:fileProvider,resourceId:process.env.FILE_ASR_RESOURCE_ID || 'volc.seedasr.auc',baseUrl:process.env.FILE_ASR_BASE_URL || process.env.OMLX_BASE_URL || 'http://127.0.0.1:8000',model:process.env.FILE_ASR_MODEL || process.env.OMLX_ASR_MODEL || 'Qwen3-ASR-1.7B-8bit',apiKey:process.env.FILE_ASR_API_KEY ?? process.env.OMLX_API_KEY ?? '',language:process.env.FILE_ASR_LANGUAGE || 'zh',...saved.fileAsr},
+      tos: {region:process.env.TOS_REGION || 'cn-beijing',bucket:process.env.TOS_BUCKET || '',accessKeyId:process.env.TOS_ACCESS_KEY_ID || '',accessKeySecret:process.env.TOS_ACCESS_KEY_SECRET || '',...saved.tos} };
   }
   publicSettings() {
-    const {llm,asr,fileAsr} = this.getSettings();
+    const {llm,asr,fileAsr,tos} = this.getSettings();
     let local=false;try{local=['127.0.0.1','localhost','[::1]'].includes(new URL(llm.baseUrl).hostname);}catch{}
     let fileLocal=false;try{fileLocal=['127.0.0.1','localhost','[::1]'].includes(new URL(fileAsr.baseUrl).hostname);}catch{}
     const asrConfigured = Boolean(asr.apiKey || (asr.appKey && asr.accessKey));
-    return {llm:{baseUrl:llm.baseUrl,model:llm.model,reasoningEffort:llm.reasoningEffort || '',configured:Boolean(llm.baseUrl && llm.model && (llm.apiKey || local))},asr:{resourceId:asr.resourceId,configured:asrConfigured},fileAsr:{provider:fileAsr.provider,resourceId:fileAsr.resourceId,baseUrl:fileAsr.baseUrl,model:fileAsr.model,language:fileAsr.language,configured:fileAsr.provider === 'volcengine' ? asrConfigured : Boolean(fileAsr.baseUrl && fileAsr.model && (fileAsr.apiKey || fileLocal))}};
+    const tosConfigured = Boolean(tos.region && tos.bucket && tos.accessKeyId && tos.accessKeySecret);
+    const needsTos = fileAsr.provider === 'volcengine' && ['volc.seedasr.auc','volc.bigasr.auc'].includes(fileAsr.resourceId);
+    return {llm:{baseUrl:llm.baseUrl,model:llm.model,reasoningEffort:llm.reasoningEffort || '',configured:Boolean(llm.baseUrl && llm.model && (llm.apiKey || local))},asr:{resourceId:asr.resourceId,configured:asrConfigured},fileAsr:{provider:fileAsr.provider,resourceId:fileAsr.resourceId,baseUrl:fileAsr.baseUrl,model:fileAsr.model,language:fileAsr.language,configured:fileAsr.provider === 'volcengine' ? asrConfigured && (!needsTos || tosConfigured) : Boolean(fileAsr.baseUrl && fileAsr.model && (fileAsr.apiKey || fileLocal))},tos:{region:tos.region,bucket:tos.bucket,configured:tosConfigured,hasAccessKeyId:Boolean(tos.accessKeyId),hasAccessKeySecret:Boolean(tos.accessKeySecret)}};
   }
   saveSettings(input={}) {
     const settings = this.getSettings();
@@ -317,9 +320,11 @@ export class Store {
       if (!['','low'].includes(input.llm.reasoningEffort)) throw fail('思考强度请选择模型默认或较低');
       settings.llm.reasoningEffort = input.llm.reasoningEffort;
     }
-    for (const [group,keys] of Object.entries({llm:['baseUrl','model','apiKey'],asr:['apiKey','appKey','accessKey','resourceId'],fileAsr:['baseUrl','model','apiKey','language','resourceId']})) {
+    for (const [group,keys] of Object.entries({llm:['baseUrl','model','apiKey'],asr:['apiKey','appKey','accessKey','resourceId'],fileAsr:['baseUrl','model','apiKey','language','resourceId'],tos:['region','bucket','accessKeyId','accessKeySecret']})) {
       for (const key of keys) if (input[group]?.[key]?.trim()) settings[group][key] = bounded(input[group][key],4000);
     }
+    if (input.tos?.bucket?.trim() && !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(settings.tos.bucket)) throw fail('TOS 存储桶名称格式无效');
+    if (input.tos?.region?.trim() && !/^[a-z]{2}-[a-z]+(?:-[a-z]+)?(?:-\d)?$/.test(settings.tos.region)) throw fail('TOS 地域格式无效，例如 cn-beijing');
     for(const [group,label] of [['llm','大模型'],['fileAsr','录音转录']]) {
       if (group === 'fileAsr' && settings.fileAsr.provider === 'volcengine') continue;
       let url; try {url=new URL(settings[group].baseUrl);} catch {throw fail(`${label} API 地址无效`);}

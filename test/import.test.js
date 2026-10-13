@@ -98,7 +98,7 @@ test('Volcengine file ASR reuses speech credentials and preserves chunk timing, 
     const duration = (audio.length - 44) / 32;
     return new Response(JSON.stringify({ audio_info: { duration }, result: { text: `第${calls}段`, utterances: [{ text: `第${calls}段`, end_time: duration, additions: { speaker_id: 0 }, words: [{ text: `第${calls}段`, start_time: 0, end_time: duration }] }] } }), { headers: { 'X-Api-Status-Code': '20000000', 'Content-Type': 'application/json' } });
   } });
-  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
   const { meeting, job } = await f.upload();
   const done = await f.finished(job.id); assert.equal(done.status, 'done', done.error);
   assert.equal(calls, 3); assert.equal(done.result.durationMs, 2100);
@@ -127,7 +127,7 @@ test('default Volcengine import keeps recurring speakers in the same participant
     assert.equal((bytes.length - 44) / 32000, 125, 'the provider receives the complete meeting');
     return volcResponse(expected, 125000);
   } });
-  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
   const { meeting, job } = await f.upload();
   const done = await f.finished(job.id);
   assert.equal(done.status, 'done', done.error); assert.equal(calls, 1);
@@ -154,7 +154,7 @@ test('long Volcengine results preserve more than 1000 sentences and 20000 charac
   const f = await fixture(t, { decode: fakeDecode(100.1), fetchImpl: async () => {
     calls++; return volcResponse(expected, 100100);
   } });
-  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
   const { meeting, job } = await f.upload();
   const done = await until(() => { const current = f.store.getJob(job.id); return ['done', 'error'].includes(current.status) && current; }, 30000);
   assert.equal(done.status, 'done', done.error); assert.equal(calls, 1);
@@ -178,7 +178,7 @@ test('the per-sentence storage limit never silently truncates an oversized ASR r
     const f = await fixture(t, { fetchImpl: async () => timestamps
       ? volcResponse([{ text, start: 0, end: 0.9, speaker: 1 }], 1000)
       : new Response(JSON.stringify({ audio_info: { duration: 1000 }, result: { text } }), { headers: { 'X-Api-Status-Code': '20000000' } }) });
-    f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+    f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
     const { meeting, job } = await f.upload(); const finished = await f.finished(job.id);
     assert.equal(finished.status, expectedStatus, finished.error);
     const lines = f.store.allTranscript(meeting.id);
@@ -211,7 +211,7 @@ test('Volcengine import plans fit the actual WAV byte limit at the last sample a
       const fd = fs.openSync(outputPath, 'wx', 0o600);
       try { fs.ftruncateSync(fd, sampleCount * 2); } finally { fs.closeSync(fd); }
     }, fetchImpl: async () => { calls++; throw new Error('planning-only fixture must not submit audio'); } });
-    f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+    f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
     const updateJob = f.store.updateJob.bind(f.store);
     f.store.updateJob = (id, patch) => {
       const saved = updateJob(id, patch);
@@ -280,7 +280,7 @@ test('legacy imports without a saved plan resume their original minute checkpoin
     if (++calls === 1) return volcResponse([{ text: '旧版已保存的第一分钟', start: 0, end: 60, speaker: 1 }], 60000);
     return new Promise((_resolve, reject) => request.signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }));
   } });
-  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
   const { meeting, job } = await f.upload(); await until(() => calls === 2); await f.service.stop();
   const input = { ...f.store.getJob(job.id).input }; delete input.chunkSamples; delete input.asrPlan;
   f.store.updateJob(job.id, { input });
@@ -317,7 +317,7 @@ test('an explicit retry can correct an endpoint or model but cannot silently swi
   } });
   const { meeting, job } = await f.upload(); const failed = await f.finished(job.id);
   assert.equal(failed.status, 'error'); assert.equal(failed.input.chunkSamples, 16000);
-  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
   assert.throws(() => f.service.retry(meeting.id), /服务|提供|切回/);
   assert.equal(f.store.getJob(job.id).status, 'error');
   f.store.saveSettings({ fileAsr: { provider: 'openai', baseUrl: 'http://127.0.0.1:8888/v1', model: 'corrected-model', language: 'en' } });
@@ -332,7 +332,7 @@ test('a long response can stop during sentence persistence and resume its checkp
   const expected = Array.from({ length: 120 }, (_, index) => ({ text: `第${index}句连续讨论。`, start: index, end: index + 0.8, speaker: index % 2 }));
   let calls = 0, appends = 0, stopping;
   const f = await fixture(t, { decode: fakeDecode(120), fetchImpl: async () => { calls++; return volcResponse(expected, 120000); } });
-  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine' } });
+  f.store.saveSettings({ asr: { apiKey: 'volc-test-only' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.bigasr.auc_turbo' } });
   const append = f.store.appendTranscript.bind(f.store);
   f.store.appendTranscript = (...args) => {
     const saved = append(...args);
@@ -498,4 +498,36 @@ test('import publishes newly persisted text to recognition without letting recog
   f.service.retry(result.meeting.id);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(notifications.length, 2, 'a completed import cannot retrigger all historical speakers');
+});
+
+test('file ASR 2.0 imports local audio through TOS and saves playable speaker-aligned transcript', async t => {
+  const calls = [];
+  const f = await fixture(t, { decode: fakeDecode(1.5), fetchImpl: async (url, request) => {
+    calls.push(request.method === 'POST' ? url.split('/').at(-1) : request.method);
+    if (request.method === 'PUT') {
+      assert.equal(request.body.subarray(0, 4).toString(), 'RIFF');
+      assert.equal(request.body.readUInt32LE(24), 16000);
+      return new Response();
+    }
+    if (request.method === 'DELETE') return new Response();
+    assert.equal(request.headers['X-Api-Resource-Id'], 'volc.seedasr.auc');
+    if (url.endsWith('/submit')) {
+      assert.ok(JSON.parse(request.body).audio.url.includes('X-Tos-Signature='));
+      return new Response(null, { headers: { 'X-Api-Status-Code': '20000000' } });
+    }
+    return volcResponse([{ text: '第一句话', start: 0.1, end: 0.6, speaker: '1' }, { text: '最后一句完整', start: 0.7, end: 1.5, speaker: '2' }], 1500);
+  } });
+  f.store.saveSettings({ asr: { apiKey: 'fixture-speech' }, fileAsr: { provider: 'volcengine', resourceId: 'volc.seedasr.auc' },
+    tos: { region: 'cn-beijing', bucket: 'fixture-bucket', accessKeyId: 'fixture-storage-id', accessKeySecret: 'fixture-storage-secret' } });
+  const upload = await f.upload();
+  const job = await f.finished(upload.job.id);
+  assert.equal(job.status, 'done', job.error);
+  assert.equal(job.result.analysisState, 'awaiting_speakers');
+  const transcript = f.store.allTranscript(upload.meeting.id);
+  assert.equal(transcript.length, 2);
+  assert.equal(transcript[1].text, '最后一句完整');
+  assert.equal(transcript[1].endMs, 1500);
+  assert.notEqual(transcript[0].speakerId, transcript[1].speakerId);
+  assert.deepEqual(calls, ['PUT', 'submit', 'query', 'DELETE']);
+  assert.ok(fs.existsSync(path.join(f.dir, 'audio', `${job.result.recordingId}.pcm`)));
 });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
+import { gunzipSync } from 'node:zlib';
 import { createASRSession } from '../server/capture/asr.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -16,9 +17,10 @@ function response(utterances, final = false) {
 
 test('ASR reconnect carries a new PCM epoch, marks unfinished speech and drains final response', async t => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 }); await once(server, 'listening');
-  const sockets = [], received = [], results = [], gaps = [], states = [], connectionIds = [];
+  const sockets = [], received = [], results = [], gaps = [], states = [], connectionIds = [], connectionHeaders = [];
   server.on('connection', (ws, request) => {
     connectionIds.push(request.headers['x-api-connect-id']);
+    connectionHeaders.push(request.headers);
     sockets.push(ws); const frames = []; received.push(frames);
     ws.on('message', data => {
       const frame = Buffer.from(data); frames.push(frame);
@@ -43,6 +45,18 @@ test('ASR reconnect carries a new PCM epoch, marks unfinished speech and drains 
   assert.equal(results[0].recognitionSessionId, connectionIds[0]);
   assert.equal(results.at(-1).recognitionSessionId, connectionIds[1]);
   assert.notEqual(results[0].recognitionSessionId, results.at(-1).recognitionSessionId);
+  for (let index = 0; index < connectionHeaders.length; index++) {
+    const headers = connectionHeaders[index];
+    assert.equal(headers['x-api-resource-id'], 'volc.seedasr.sauc.duration');
+    assert.equal(headers['x-api-request-id'], connectionIds[index], 'each 2.0 connection carries its own task ID');
+    assert.equal(headers['x-api-key'], 'test-only');
+    const init = JSON.parse(gunzipSync(received[index][0].subarray(8)));
+    assert.equal(init.request.model_name, 'bigmodel');
+    assert.equal(init.request.enable_nonstream, true, 'keep the final second-pass result');
+    assert.equal(init.request.show_utterances, true);
+    assert.equal(init.request.enable_speaker_info, true);
+    assert.equal(init.request.enable_ddc, false, 'keep participants’ original wording');
+  }
   assert.equal(results.at(-1).utterances[0].definite, true);
   assert.equal(gaps[0].startSample, 800); assert.equal(gaps[0].endSample, 1600);
   assert.ok(states.some(s => s.asrState === 'reconnecting'));

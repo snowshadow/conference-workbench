@@ -16,7 +16,7 @@ function problem(publicMessage, code, { logId, status = 502 } = {}) {
   return error;
 }
 
-function headersFor(config) {
+export function headersFor(config) {
   const headers = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -32,7 +32,7 @@ function headersFor(config) {
   return headers;
 }
 
-function diagnostics(response, config) {
+export function diagnostics(response, config) {
   const rawCode = response.headers.get('X-Api-Status-Code') || '';
   const rawLogId = response.headers.get('X-Tt-Logid') || '';
   const secrets = [config.apiKey, config.appKey, config.accessKey].filter(value => typeof value === 'string' && value.trim()).map(value => value.trim());
@@ -43,10 +43,10 @@ function diagnostics(response, config) {
   };
 }
 
-function serviceProblem(response, code, logId) {
+export function serviceProblem(response, code, logId) {
   const httpMessages = {
     401: '火山文件转录认证失败，请检查 API Key。',
-    403: '火山文件转录未获授权，请检查凭证并开通录音文件极速版权限。',
+    403: '火山文件转录未获授权，请检查凭证及所选录音文件识别服务的权限。',
     413: '火山文件转录拒绝了过大的音频，请缩短转录分段。',
     429: '火山文件转录暂时繁忙，请稍后重试。',
   };
@@ -72,7 +72,7 @@ function durationOf(payload) {
   return undefined;
 }
 
-function normalizeResult(payload, logId) {
+export function normalizeResult(payload, logId) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw problem('火山文件转录返回了无法识别的结果，请重试。', 'ASR_INVALID_RESPONSE', { logId });
   const results = Array.isArray(payload.result) ? payload.result : [payload.result];
   if (!results.length || results.some(result => !result || typeof result !== 'object' ||
